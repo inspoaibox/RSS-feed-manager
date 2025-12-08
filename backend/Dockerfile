@@ -29,17 +29,17 @@ RUN apt-get update && apt-get install -y \
 # 先复制依赖文件（这层会被缓存，只有依赖变化才重新安装）
 COPY pyproject.toml README.md ./
 
-# 创建空的 app 目录结构（让 pip install -e . 能工作）
-RUN mkdir -p app && touch app/__init__.py
-
-# 安装依赖（利用缓存）
-RUN pip install --no-cache-dir -e .
+# 只安装依赖，不安装项目本身
+RUN pip install --no-cache-dir $(python -c "import tomllib; f=open('pyproject.toml','rb'); d=tomllib.load(f); print(' '.join(d['project']['dependencies']))")
 
 # 安装 Playwright 浏览器（利用缓存）
 RUN playwright install chromium
 
-# 最后复制代码（代码变化不会触发重新安装依赖）
+# 复制所有代码
 COPY . .
+
+# 安装项目本身（现在代码已经存在）
+RUN pip install --no-cache-dir -e .
 
 CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
 
