@@ -120,14 +120,25 @@ class CustomRuleService:
     async def test_rule(self, data: CustomRuleTestRequest) -> CustomRuleTestResult:
         """Test a custom rule without saving it."""
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(
-                    data.target_url,
-                    headers={"User-Agent": "Mozilla/5.0 RSS Reader Bot"}
-                )
-                response.raise_for_status()
+            if data.use_playwright:
+                # Use Playwright for JS-rendered pages
+                from playwright.async_api import async_playwright
+                async with async_playwright() as p:
+                    browser = await p.chromium.launch(headless=True)
+                    page = await browser.new_page()
+                    await page.goto(data.target_url, wait_until="networkidle", timeout=30000)
+                    html_content = await page.content()
+                    await browser.close()
+            else:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.get(
+                        data.target_url,
+                        headers={"User-Agent": "Mozilla/5.0 RSS Reader Bot"}
+                    )
+                    response.raise_for_status()
+                html_content = response.text
             
-            soup = BeautifulSoup(response.text, "html.parser")
+            soup = BeautifulSoup(html_content, "html.parser")
             items = soup.select(data.list_selector)
             
             sample_items = []
@@ -199,14 +210,25 @@ class CustomRuleService:
         feed_id = await self._ensure_feed_for_rule(rule)
         
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(
-                    rule.target_url,
-                    headers={"User-Agent": "Mozilla/5.0 RSS Reader Bot"}
-                )
-                response.raise_for_status()
+            # Use Playwright for JS-rendered pages if enabled
+            if rule.use_playwright:
+                from playwright.async_api import async_playwright
+                async with async_playwright() as p:
+                    browser = await p.chromium.launch(headless=True)
+                    page = await browser.new_page()
+                    await page.goto(rule.target_url, wait_until="networkidle", timeout=30000)
+                    html_content = await page.content()
+                    await browser.close()
+            else:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.get(
+                        rule.target_url,
+                        headers={"User-Agent": "Mozilla/5.0 RSS Reader Bot"}
+                    )
+                    response.raise_for_status()
+                html_content = response.text
             
-            soup = BeautifulSoup(response.text, "html.parser")
+            soup = BeautifulSoup(html_content, "html.parser")
             items = soup.select(rule.list_selector)
             
             print(f"[CustomRule] Found {len(items)} items with selector: {rule.list_selector}")

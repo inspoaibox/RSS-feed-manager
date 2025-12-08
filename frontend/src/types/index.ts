@@ -100,6 +100,7 @@ export interface CustomRule {
   content_selector: string | null
   date_selector: string | null
   fetch_interval: number
+  use_playwright: boolean
   auto_translate: boolean
   auto_summarize: boolean
   target_language: string | null

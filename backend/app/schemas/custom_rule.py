@@ -14,6 +14,7 @@ class CustomRuleBase(BaseModel):
     content_selector: str | None = Field(None, max_length=500)
     date_selector: str | None = Field(None, max_length=500)
     fetch_interval: int = Field(default=3600, ge=300, le=86400)
+    use_playwright: bool = False
     auto_translate: bool = False
     auto_summarize: bool = False
     target_language: str | None = Field(None, max_length=10)
@@ -36,6 +37,7 @@ class CustomRuleUpdate(BaseModel):
     content_selector: str | None = Field(None, max_length=500)
     date_selector: str | None = Field(None, max_length=500)
     fetch_interval: int | None = Field(None, ge=300, le=86400)
+    use_playwright: bool | None = None
     auto_translate: bool | None = None
     auto_summarize: bool | None = None
     target_language: str | None = Field(None, max_length=10)
@@ -66,6 +68,7 @@ class CustomRuleTestRequest(BaseModel):
     link_selector: str = Field(..., max_length=500)
     content_selector: str | None = Field(None, max_length=500)
     date_selector: str | None = Field(None, max_length=500)
+    use_playwright: bool = False
 
 
 class CustomRuleTestResult(BaseModel):

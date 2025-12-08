@@ -1208,6 +1208,7 @@ function RulesTab() {
     date_selector: '',
     category_id: null as number | null,
     fetch_interval: 3600,
+    use_playwright: false,
     is_active: true,
   }
   const [formData, setFormData] = useState(emptyRule)
@@ -1317,6 +1318,7 @@ function RulesTab() {
         link_selector: formData.link_selector,
         content_selector: formData.content_selector || null,
         date_selector: formData.date_selector || null,
+        use_playwright: formData.use_playwright,
       }
       const response = await api.post('/rules/test', payload)
       return response.data
@@ -1371,6 +1373,7 @@ function RulesTab() {
       date_selector: rule.date_selector || '',
       category_id: rule.category_id,
       fetch_interval: rule.fetch_interval,
+      use_playwright: rule.use_playwright,
       is_active: rule.is_active,
     })
   }
@@ -1468,14 +1471,24 @@ function RulesTab() {
           <option value={86400}>24 小时</option>
         </select>
       </div>
-      <label className="flex items-center gap-2">
-        <input
-          type="checkbox"
-          checked={formData.is_active}
-          onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
-        />
-        启用规则
-      </label>
+      <div className="flex gap-4">
+        <label className="flex items-center gap-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm">
+          <input
+            type="checkbox"
+            checked={formData.use_playwright}
+            onChange={(e) => setFormData({ ...formData, use_playwright: e.target.checked })}
+          />
+          浏览器模式 (Playwright)
+        </label>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={formData.is_active}
+            onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
+          />
+          启用规则
+        </label>
+      </div>
       
       {testRuleMutation.data && (
         <div className={`p-3 rounded ${testRuleMutation.data.success ? 'bg-green-50' : 'bg-red-50'}`}>
