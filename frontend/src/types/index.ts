@@ -94,7 +94,7 @@ export interface CustomRule {
   feed_id: number | null
   name: string
   target_url: string
-  rule_type: 'general' | 'telegram' | 'twitter'
+  rule_type: 'general' | 'telegram'
   cookies: string | null
   list_selector: string
   title_selector: string

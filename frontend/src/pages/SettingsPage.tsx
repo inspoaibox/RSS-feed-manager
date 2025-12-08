@@ -1201,7 +1201,7 @@ function RulesTab() {
   const emptyRule = {
     name: '',
     target_url: '',
-    rule_type: 'general' as 'general' | 'telegram' | 'twitter',
+    rule_type: 'general' as 'general' | 'telegram',
     cookies: '',
     list_selector: '',
     title_selector: '',
@@ -1372,7 +1372,7 @@ function RulesTab() {
     setFormData({
       name: rule.name,
       target_url: rule.target_url,
-      rule_type: (rule.rule_type as 'general' | 'telegram' | 'twitter') || 'general',
+      rule_type: (rule.rule_type as 'general' | 'telegram') || 'general',
       cookies: rule.cookies || '',
       list_selector: rule.list_selector,
       title_selector: rule.title_selector,
@@ -1392,7 +1392,7 @@ function RulesTab() {
     setFormData(emptyRule)
   }
 
-  const handleRuleTypeChange = (type: 'general' | 'telegram' | 'twitter') => {
+  const handleRuleTypeChange = (type: 'general' | 'telegram') => {
     if (type === 'telegram') {
       setFormData({
         ...formData,
@@ -1401,15 +1401,6 @@ function RulesTab() {
         title_selector: '.tgme_widget_message_text',
         link_selector: '.tgme_widget_message_date',
         content_selector: '.tgme_widget_message_text',
-      })
-    } else if (type === 'twitter') {
-      setFormData({
-        ...formData,
-        rule_type: type,
-        list_selector: '.timeline-item',
-        title_selector: '.tweet-content',
-        link_selector: '.tweet-link',
-        content_selector: '.tweet-content',
       })
     } else {
       setFormData({
@@ -1428,12 +1419,11 @@ function RulesTab() {
       <div className="flex gap-2">
         <select
           value={formData.rule_type}
-          onChange={(e) => handleRuleTypeChange(e.target.value as 'general' | 'telegram' | 'twitter')}
+          onChange={(e) => handleRuleTypeChange(e.target.value as 'general' | 'telegram')}
           className="px-3 py-2 border rounded"
         >
           <option value="general">通用规则</option>
           <option value="telegram">Telegram 频道</option>
-          <option value="twitter">Twitter (Nitter)</option>
         </select>
         <input
           type="text"
@@ -1448,7 +1438,6 @@ function RulesTab() {
           type="url"
           placeholder={
             formData.rule_type === 'telegram' ? 'Telegram 频道链接 (如 https://t.me/s/channel_name)' :
-            formData.rule_type === 'twitter' ? 'Nitter 链接 (如 https://nitter.net/username)' :
             '目标网址'
           }
           value={formData.target_url}
