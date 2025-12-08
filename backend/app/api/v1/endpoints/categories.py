@@ -4,7 +4,7 @@ from typing import List
 from fastapi import APIRouter, status
 
 from app.api.deps import CurrentUserId, DbSession
-from app.schemas.category import CategoryCreate, CategoryResponse, CategoryUpdate
+from app.schemas.category import CategoryCreate, CategoryReorder, CategoryResponse, CategoryUpdate
 from app.services.category_service import CategoryService
 
 router = APIRouter()
@@ -22,6 +22,13 @@ async def create_category(data: CategoryCreate, user_id: CurrentUserId, db: DbSe
     """Create a new category."""
     service = CategoryService(db)
     return await service.create(user_id, data)
+
+
+@router.put("/reorder", response_model=List[CategoryResponse])
+async def reorder_categories(data: CategoryReorder, user_id: CurrentUserId, db: DbSession):
+    """Reorder categories by providing category IDs in desired order."""
+    service = CategoryService(db)
+    return await service.reorder(user_id, data)
 
 
 @router.get("/{category_id}", response_model=CategoryResponse)

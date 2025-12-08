@@ -206,16 +206,23 @@ function FeedsTab() {
   })
 
   const moveFeed = (feedId: number, direction: 'up' | 'down') => {
-    // Find index in full feeds array (not filtered)
-    const currentIndex = feeds.findIndex(f => f.id === feedId)
-    if (currentIndex === -1) return
+    // Find index in filtered feeds array
+    const currentFilteredIndex = filteredFeeds.findIndex(f => f.id === feedId)
+    if (currentFilteredIndex === -1) return
     
-    const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
-    if (newIndex < 0 || newIndex >= feeds.length) return
+    const newFilteredIndex = direction === 'up' ? currentFilteredIndex - 1 : currentFilteredIndex + 1
+    if (newFilteredIndex < 0 || newFilteredIndex >= filteredFeeds.length) return
+    
+    // Swap in filtered list, then rebuild full list maintaining relative order
+    const targetFeed = filteredFeeds[newFilteredIndex]
+    
+    // Find positions in full feeds array
+    const currentFullIndex = feeds.findIndex(f => f.id === feedId)
+    const targetFullIndex = feeds.findIndex(f => f.id === targetFeed.id)
     
     const newFeeds = [...feeds]
-    const [removed] = newFeeds.splice(currentIndex, 1)
-    newFeeds.splice(newIndex, 0, removed)
+    const [removed] = newFeeds.splice(currentFullIndex, 1)
+    newFeeds.splice(targetFullIndex, 0, removed)
     
     reorderMutation.mutate(newFeeds.map(f => f.id))
   }
@@ -606,12 +613,12 @@ function FeedsTab() {
               </div>
             ) : (
               <div className="flex items-center gap-4">
-                {/* Sort buttons - only show when not filtering */}
-                {selectedCategory === 'all' && !searchQuery && (
+                {/* Sort buttons - hide only when searching */}
+                {!searchQuery && (
                   <div className="flex flex-col gap-0.5">
                     <button
                       onClick={() => moveFeed(feed.id, 'up')}
-                      disabled={feeds.indexOf(feed) === 0 || reorderMutation.isPending}
+                      disabled={filteredFeeds.indexOf(feed) === 0 || reorderMutation.isPending}
                       className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
                       title="上移"
                     >
@@ -619,7 +626,7 @@ function FeedsTab() {
                     </button>
                     <button
                       onClick={() => moveFeed(feed.id, 'down')}
-                      disabled={feeds.indexOf(feed) === feeds.length - 1 || reorderMutation.isPending}
+                      disabled={filteredFeeds.indexOf(feed) === filteredFeeds.length - 1 || reorderMutation.isPending}
                       className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
                       title="下移"
                     >
@@ -757,6 +764,34 @@ function CategoriesTab() {
     },
   })
 
+  const reorderMutation = useMutation({
+    mutationFn: async (categoryIds: number[]) => {
+      const response = await api.put('/categories/reorder', { category_ids: categoryIds })
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['categories'] })
+    },
+    onError: (err: any) => {
+      const detail = err.response?.data?.detail
+      setMessage({ type: 'error', text: detail || '排序失败' })
+    },
+  })
+
+  const moveCategory = (categoryId: number, direction: 'up' | 'down') => {
+    const currentIndex = categories.findIndex(c => c.id === categoryId)
+    if (currentIndex === -1) return
+    
+    const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
+    if (newIndex < 0 || newIndex >= categories.length) return
+    
+    const newCategories = [...categories]
+    const [removed] = newCategories.splice(currentIndex, 1)
+    newCategories.splice(newIndex, 0, removed)
+    
+    reorderMutation.mutate(newCategories.map(c => c.id))
+  }
+
   return (
     <div>
       {message && (
@@ -807,6 +842,25 @@ function CategoriesTab() {
               </>
             ) : (
               <>
+                {/* Sort buttons */}
+                <div className="flex flex-col gap-0.5">
+                  <button
+                    onClick={() => moveCategory(category.id, 'up')}
+                    disabled={categories.indexOf(category) === 0 || reorderMutation.isPending}
+                    className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="上移"
+                  >
+                    <ChevronUp className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => moveCategory(category.id, 'down')}
+                    disabled={categories.indexOf(category) === categories.length - 1 || reorderMutation.isPending}
+                    className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="下移"
+                  >
+                    <ChevronDown className="w-4 h-4" />
+                  </button>
+                </div>
                 <span className="flex-1">{category.name}</span>
                 <span className="text-sm text-gray-500">{category.feed_count} 个订阅</span>
                 <button

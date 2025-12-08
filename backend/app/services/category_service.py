@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.category import Category
 from app.models.feed import Feed
 from app.repositories.category_repository import CategoryRepository
-from app.schemas.category import CategoryCreate, CategoryResponse, CategoryUpdate
+from app.schemas.category import CategoryCreate, CategoryReorder, CategoryResponse, CategoryUpdate
 
 
 class CategoryService:
@@ -118,6 +118,16 @@ class CategoryService:
             feed_count=feed_count,
             unread_count=0
         )
+
+    async def reorder(self, user_id: int, data: CategoryReorder) -> List[CategoryResponse]:
+        """Reorder categories by updating their positions."""
+        for position, category_id in enumerate(data.category_ids):
+            category = await self.repo.get_by_id(category_id, user_id)
+            if category:
+                category.position = position
+                await self.session.flush()
+        
+        return await self.get_all(user_id)
 
     async def delete(self, user_id: int, category_id: int) -> None:
         """Delete a category and move its feeds to default category."""

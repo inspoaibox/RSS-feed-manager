@@ -12,6 +12,12 @@ class CategoryUpdate(BaseModel):
     """Schema for updating a category."""
     name: str | None = Field(None, min_length=1, max_length=100)
     description: str | None = Field(None, max_length=500)
+    position: int | None = None
+
+
+class CategoryReorder(BaseModel):
+    """Schema for reordering categories."""
+    category_ids: list[int] = Field(..., description="Category IDs in desired order")
 
 
 class CategoryResponse(BaseModel):

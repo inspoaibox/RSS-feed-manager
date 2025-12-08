@@ -28,6 +28,7 @@ export interface AuthResponse {
 export interface Category {
   id: number
   name: string
+  position: number
   feed_count: number
   unread_count: number
 }
