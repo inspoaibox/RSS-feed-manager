@@ -211,14 +211,17 @@ class CustomRuleService:
         
         try:
             # Use Playwright for JS-rendered pages if enabled
+            print(f"[CustomRule] use_playwright={rule.use_playwright} for rule {rule.id}")
             if rule.use_playwright:
                 from playwright.async_api import async_playwright
+                print(f"[CustomRule] Starting Playwright for {rule.target_url}")
                 async with async_playwright() as p:
                     browser = await p.chromium.launch(headless=True)
                     page = await browser.new_page()
                     await page.goto(rule.target_url, wait_until="networkidle", timeout=30000)
                     html_content = await page.content()
                     await browser.close()
+                print(f"[CustomRule] Playwright loaded {len(html_content)} bytes")
             else:
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     response = await client.get(
@@ -227,6 +230,7 @@ class CustomRuleService:
                     )
                     response.raise_for_status()
                 html_content = response.text
+                print(f"[CustomRule] HTTP loaded {len(html_content)} bytes")
             
             soup = BeautifulSoup(html_content, "html.parser")
             items = soup.select(rule.list_selector)
