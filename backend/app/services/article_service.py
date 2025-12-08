@@ -191,6 +191,15 @@ class ArticleService:
             read_at=data.get("read_at")
         )
 
+    def _extract_text_from_html(self, html_content: str) -> str:
+        """Extract plain text from HTML content."""
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html_content, "html.parser")
+        # Remove script and style elements
+        for tag in soup(["script", "style"]):
+            tag.decompose()
+        return soup.get_text(separator="\n", strip=True)
+
     async def translate_article(self, user_id: int, article_id: int, target_language: str) -> dict:
         """Translate article using AI."""
         article = await self._verify_article_access(user_id, article_id)
@@ -201,6 +210,9 @@ class ArticleService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Article has no content to translate"
             )
+        
+        # Extract plain text from HTML
+        content = self._extract_text_from_html(content)
         
         # Get default AI model
         from app.repositories.ai_repository import AIModelRepository, AIProviderRepository
@@ -247,6 +259,9 @@ class ArticleService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Article has no content to summarize"
             )
+        
+        # Extract plain text from HTML
+        content = self._extract_text_from_html(content)
         
         # Get default AI model
         from app.repositories.ai_repository import AIModelRepository, AIProviderRepository

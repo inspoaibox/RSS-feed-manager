@@ -14,6 +14,7 @@ export default function HomePage() {
   const [isSearching, setIsSearching] = useState(false)
   const [sortBy, setSortBy] = useState<'published_at' | 'created_at' | 'title'>('published_at')
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
+  const [showTranslation, setShowTranslation] = useState(true)
 
   const feedId = searchParams.get('feed')
   const categoryId = searchParams.get('category')
@@ -344,14 +345,6 @@ export default function HomePage() {
               <span>{new Date(selectedArticle.published_at).toLocaleString()}</span>
               {selectedArticle.author && <span>作者: {selectedArticle.author}</span>}
             </div>
-            {selectedArticle.translation && (
-              <div className="mb-6 p-4 bg-blue-50 rounded-lg">
-                <h3 className="text-sm font-semibold text-blue-700 mb-2">AI 翻译</h3>
-                <div className="text-gray-700 prose prose-sm max-w-none whitespace-pre-wrap">
-                  {selectedArticle.translation}
-                </div>
-              </div>
-            )}
             {selectedArticle.summary && (
               <div className="mb-6 p-4 bg-green-50 rounded-lg">
                 <h3 className="text-sm font-semibold text-green-700 mb-2">AI 整理</h3>
@@ -360,12 +353,40 @@ export default function HomePage() {
                 </div>
               </div>
             )}
-            <div
-              className="prose prose-sm max-w-none"
-              dangerouslySetInnerHTML={{
-                __html: selectedArticle.full_content || selectedArticle.content || ''
-              }}
-            />
+            {selectedArticle.translation && (
+              <div className="mb-4 flex gap-2">
+                <button
+                  onClick={() => setShowTranslation(true)}
+                  className={clsx(
+                    'px-3 py-1 text-sm rounded',
+                    showTranslation ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  )}
+                >
+                  译文
+                </button>
+                <button
+                  onClick={() => setShowTranslation(false)}
+                  className={clsx(
+                    'px-3 py-1 text-sm rounded',
+                    !showTranslation ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  )}
+                >
+                  原文
+                </button>
+              </div>
+            )}
+            {selectedArticle.translation && showTranslation ? (
+              <div className="prose prose-sm max-w-none whitespace-pre-wrap">
+                {selectedArticle.translation}
+              </div>
+            ) : (
+              <div
+                className="prose prose-sm max-w-none"
+                dangerouslySetInnerHTML={{
+                  __html: selectedArticle.full_content || selectedArticle.content || ''
+                }}
+              />
+            )}
           </article>
         </div>
       )}
