@@ -243,20 +243,34 @@ class CustomRuleService:
             
             for idx, item in enumerate(items):
                 title_elem = item.select_one(rule.title_selector)
-                link_elem = item.select_one(rule.link_selector)
+                
+                # Handle link: if selector is empty or "self", use the item itself
+                if not rule.link_selector or rule.link_selector.lower() in ('self', '.', 'this'):
+                    link_elem = item if item.name == 'a' else item.find('a')
+                else:
+                    link_elem = item.select_one(rule.link_selector)
                 
                 # Debug first item
                 if idx == 0:
-                    print(f"[CustomRule] First item HTML (truncated): {str(item)[:500]}")
-                    print(f"[CustomRule] title_selector='{rule.title_selector}' found={title_elem is not None}")
-                    print(f"[CustomRule] link_selector='{rule.link_selector}' found={link_elem is not None}")
+                    print(f"[CustomRule] First item tag: {item.name}, has href: {item.get('href') is not None}")
+                    print(f"[CustomRule] title found={title_elem is not None}, link found={link_elem is not None}")
                 
-                if not title_elem or not link_elem:
+                if not title_elem:
                     skipped_no_title_link += 1
                     continue
                 
+                # Get link from element
+                if link_elem:
+                    link = link_elem.get("href")
+                else:
+                    # Try to get href from item itself if it's an anchor
+                    link = item.get("href")
+                
                 title = title_elem.get_text(strip=True)
-                link = link_elem.get("href")
+                
+                if not link:
+                    skipped_no_title_link += 1
+                    continue
                 
                 # Make link absolute if relative
                 if link and not link.startswith("http"):
