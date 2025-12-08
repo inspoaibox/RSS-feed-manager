@@ -1233,6 +1233,7 @@ function RulesTab() {
     mutationFn: async () => {
       const payload = {
         ...formData,
+        link_selector: formData.link_selector || null,
         content_selector: formData.content_selector || null,
         date_selector: formData.date_selector || null,
       }
@@ -1256,6 +1257,7 @@ function RulesTab() {
     mutationFn: async ({ id, data }: { id: number; data: typeof formData }) => {
       const payload = {
         ...data,
+        link_selector: data.link_selector || null,
         content_selector: data.content_selector || null,
         date_selector: data.date_selector || null,
       }
@@ -1315,7 +1317,7 @@ function RulesTab() {
         target_url: formData.target_url,
         list_selector: formData.list_selector,
         title_selector: formData.title_selector,
-        link_selector: formData.link_selector,
+        link_selector: formData.link_selector || null,
         content_selector: formData.content_selector || null,
         date_selector: formData.date_selector || null,
         use_playwright: formData.use_playwright,
@@ -1426,7 +1428,7 @@ function RulesTab() {
       />
       <input
         type="text"
-        placeholder="链接选择器"
+        placeholder="链接选择器 (可选，留空则用标题生成ID)"
         value={formData.link_selector}
         onChange={(e) => setFormData({ ...formData, link_selector: e.target.value })}
         className="w-full px-3 py-2 border rounded"

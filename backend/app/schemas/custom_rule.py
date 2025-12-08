@@ -10,7 +10,7 @@ class CustomRuleBase(BaseModel):
     target_url: str = Field(..., max_length=2048)
     list_selector: str = Field(..., max_length=500)
     title_selector: str = Field(..., max_length=500)
-    link_selector: str = Field(..., max_length=500)
+    link_selector: str | None = Field(None, max_length=500)
     content_selector: str | None = Field(None, max_length=500)
     date_selector: str | None = Field(None, max_length=500)
     fetch_interval: int = Field(default=3600, ge=300, le=86400)
@@ -65,7 +65,7 @@ class CustomRuleTestRequest(BaseModel):
     target_url: str = Field(..., max_length=2048)
     list_selector: str = Field(..., max_length=500)
     title_selector: str = Field(..., max_length=500)
-    link_selector: str = Field(..., max_length=500)
+    link_selector: str | None = Field(None, max_length=500)
     content_selector: str | None = Field(None, max_length=500)
     date_selector: str | None = Field(None, max_length=500)
     use_playwright: bool = False

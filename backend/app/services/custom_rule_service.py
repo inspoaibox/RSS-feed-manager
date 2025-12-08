@@ -144,11 +144,26 @@ class CustomRuleService:
             sample_items = []
             for item in items[:5]:  # Get first 5 items as sample
                 title_elem = item.select_one(data.title_selector)
-                link_elem = item.select_one(data.link_selector)
+                
+                # Handle link selector - same logic as execute_rule
+                if not data.link_selector or data.link_selector.lower() in ('self', '.', 'this'):
+                    link_elem = item if item.name == 'a' else item.find('a')
+                else:
+                    link_elem = item.select_one(data.link_selector)
+                
+                # Get link - if link_elem is the <a> tag itself, get href directly
+                link = None
+                if link_elem:
+                    link = link_elem.get("href")
+                    # If no href on selected element, try to find <a> inside it
+                    if not link and link_elem.name != 'a':
+                        inner_a = link_elem.find('a')
+                        if inner_a:
+                            link = inner_a.get('href')
                 
                 sample = {
                     "title": title_elem.get_text(strip=True) if title_elem else None,
-                    "link": link_elem.get("href") if link_elem else None,
+                    "link": link,
                 }
                 
                 if data.content_selector:
@@ -250,25 +265,23 @@ class CustomRuleService:
                 else:
                     link_elem = item.select_one(rule.link_selector)
                 
-                # Debug first item
-                if idx == 0:
-                    print(f"[CustomRule] First item tag: {item.name}, has href: {item.get('href') is not None}")
-                    print(f"[CustomRule] title found={title_elem is not None}, link found={link_elem is not None}")
+                # Get link - if link_elem is the <a> tag itself, get href directly
+                link = None
+                if link_elem:
+                    link = link_elem.get("href")
+                    # If no href on selected element, try to find <a> inside it
+                    if not link and link_elem.name != 'a':
+                        inner_a = link_elem.find('a')
+                        if inner_a:
+                            link = inner_a.get('href')
                 
                 if not title_elem:
                     skipped_no_title_link += 1
                     continue
                 
-                # Get link from element
-                if link_elem:
-                    link = link_elem.get("href")
-                else:
-                    # Try to get href from item itself if it's an anchor
-                    link = item.get("href")
-                
                 title = title_elem.get_text(strip=True)
                 
-                if not link:
+                if not title:
                     skipped_no_title_link += 1
                     continue
                 
@@ -276,11 +289,15 @@ class CustomRuleService:
                 if link and not link.startswith("http"):
                     link = urljoin(rule.target_url, link)
                 
-                if not link:
-                    continue
+                # Generate guid - use link if available, otherwise use title hash
+                if link:
+                    guid = md5(link.encode()).hexdigest()
+                else:
+                    guid = md5(title.encode()).hexdigest()
                 
-                # Generate guid from link
-                guid = md5(link.encode()).hexdigest()
+                # Debug first item
+                if idx == 0:
+                    print(f"[CustomRule] First item: title={title[:50]}..., link={link}, guid={guid[:8]}")
                 
                 # Check if article already exists
                 existing = await self.db.execute(
