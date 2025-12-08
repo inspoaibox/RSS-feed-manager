@@ -47,6 +47,7 @@ class CustomRuleResponse(CustomRuleBase):
     id: int
     user_id: int
     category_id: int | None
+    feed_id: int | None
     last_fetched_at: datetime | None
     last_error: str | None
     error_count: int

@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.custom_rule import CustomRule
+from app.models.feed import Feed
 from app.repositories.custom_rule_repository import CustomRuleRepository
 from app.schemas.custom_rule import (
     AIGenerateRuleResponse,
@@ -24,11 +25,27 @@ class CustomRuleService:
         self.repository = CustomRuleRepository(db)
 
     async def create_rule(self, user_id: int, data: CustomRuleCreate) -> CustomRule:
-        """Create a new custom rule."""
-        return await self.repository.create(
+        """Create a new custom rule with associated feed."""
+        # Create a feed for this custom rule
+        feed = Feed(
             user_id=user_id,
-            **data.model_dump()
+            category_id=data.category_id,
+            url=data.target_url,
+            title=data.name,
+            description=f"自定义抓取规则: {data.name}",
+            fetch_interval=data.fetch_interval,
+            auto_translate=data.auto_translate,
+            auto_summarize=data.auto_summarize,
+            target_language=data.target_language,
+            is_active=data.is_active,
         )
+        self.db.add(feed)
+        await self.db.flush()  # Get feed.id
+        
+        # Create the custom rule linked to the feed
+        rule_data = data.model_dump()
+        rule_data['feed_id'] = feed.id
+        return await self.repository.create(user_id=user_id, **rule_data)
 
     async def get_rule(self, rule_id: int, user_id: int) -> CustomRule | None:
         """Get a custom rule by ID."""
@@ -41,7 +58,7 @@ class CustomRuleService:
     async def update_rule(
         self, rule_id: int, user_id: int, data: CustomRuleUpdate
     ) -> CustomRule | None:
-        """Update a custom rule."""
+        """Update a custom rule and its associated feed."""
         rule = await self.repository.get_by_id(rule_id, user_id)
         if not rule:
             return None
@@ -50,15 +67,50 @@ class CustomRuleService:
         for key, value in update_data.items():
             setattr(rule, key, value)
         
+        # Sync updates to associated feed
+        if rule.feed_id:
+            from sqlalchemy import select
+            result = await self.db.execute(
+                select(Feed).where(Feed.id == rule.feed_id)
+            )
+            feed = result.scalar_one_or_none()
+            if feed:
+                if 'name' in update_data:
+                    feed.title = update_data['name']
+                if 'target_url' in update_data:
+                    feed.url = update_data['target_url']
+                if 'category_id' in update_data:
+                    feed.category_id = update_data['category_id']
+                if 'fetch_interval' in update_data:
+                    feed.fetch_interval = update_data['fetch_interval']
+                if 'auto_translate' in update_data:
+                    feed.auto_translate = update_data['auto_translate']
+                if 'auto_summarize' in update_data:
+                    feed.auto_summarize = update_data['auto_summarize']
+                if 'target_language' in update_data:
+                    feed.target_language = update_data['target_language']
+                if 'is_active' in update_data:
+                    feed.is_active = update_data['is_active']
+        
         await self.db.commit()
         await self.db.refresh(rule)
         return rule
 
     async def delete_rule(self, rule_id: int, user_id: int) -> bool:
-        """Delete a custom rule."""
+        """Delete a custom rule and its associated feed."""
         rule = await self.repository.get_by_id(rule_id, user_id)
         if not rule:
             return False
+        
+        # Delete associated feed (will cascade delete articles)
+        if rule.feed_id:
+            from sqlalchemy import select
+            result = await self.db.execute(
+                select(Feed).where(Feed.id == rule.feed_id)
+            )
+            feed = result.scalar_one_or_none()
+            if feed:
+                await self.db.delete(feed)
         
         await self.db.delete(rule)
         await self.db.commit()
@@ -112,7 +164,15 @@ class CustomRuleService:
             )
 
     async def execute_rule(self, rule: CustomRule) -> list[dict]:
-        """Execute a custom rule and return extracted articles."""
+        """Execute a custom rule and save articles to associated feed."""
+        from urllib.parse import urljoin
+        from hashlib import md5
+        from sqlalchemy import select
+        from app.models.article import Article
+        
+        if not rule.feed_id:
+            raise ValueError("Rule has no associated feed")
+        
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(
@@ -124,7 +184,7 @@ class CustomRuleService:
             soup = BeautifulSoup(response.text, "html.parser")
             items = soup.select(rule.list_selector)
             
-            articles = []
+            new_articles = []
             for item in items:
                 title_elem = item.select_one(rule.title_selector)
                 link_elem = item.select_one(rule.link_selector)
@@ -132,34 +192,76 @@ class CustomRuleService:
                 if not title_elem or not link_elem:
                     continue
                 
-                article = {
-                    "title": title_elem.get_text(strip=True),
-                    "link": link_elem.get("href"),
-                    "content": None,
-                    "published_at": None,
-                }
+                title = title_elem.get_text(strip=True)
+                link = link_elem.get("href")
                 
                 # Make link absolute if relative
-                if article["link"] and not article["link"].startswith("http"):
-                    from urllib.parse import urljoin
-                    article["link"] = urljoin(rule.target_url, article["link"])
+                if link and not link.startswith("http"):
+                    link = urljoin(rule.target_url, link)
                 
+                if not link:
+                    continue
+                
+                # Generate guid from link
+                guid = md5(link.encode()).hexdigest()
+                
+                # Check if article already exists
+                existing = await self.db.execute(
+                    select(Article).where(
+                        Article.feed_id == rule.feed_id,
+                        Article.guid == guid
+                    )
+                )
+                if existing.scalar_one_or_none():
+                    continue
+                
+                content = None
                 if rule.content_selector:
                     content_elem = item.select_one(rule.content_selector)
-                    article["content"] = content_elem.get_text(strip=True) if content_elem else None
+                    content = content_elem.get_text(strip=True) if content_elem else None
                 
-                articles.append(article)
+                # Create article
+                article = Article(
+                    feed_id=rule.feed_id,
+                    guid=guid,
+                    link=link,
+                    title=title,
+                    content=content,
+                    published_at=datetime.utcnow(),
+                )
+                self.db.add(article)
+                new_articles.append({"title": title, "link": link, "content": content})
             
-            # Update rule status
-            rule.last_fetched_at = datetime.utcnow()
+            # Update rule and feed status
+            now = datetime.utcnow()
+            rule.last_fetched_at = now
             rule.last_error = None
             rule.error_count = 0
+            
+            # Update feed status too
+            result = await self.db.execute(
+                select(Feed).where(Feed.id == rule.feed_id)
+            )
+            feed = result.scalar_one_or_none()
+            if feed:
+                feed.last_fetched_at = now
+                feed.last_error = None
+                feed.error_count = 0
+            
             await self.db.commit()
             
-            return articles
+            return new_articles
         except Exception as e:
             rule.last_error = str(e)
             rule.error_count += 1
+            if rule.feed_id:
+                result = await self.db.execute(
+                    select(Feed).where(Feed.id == rule.feed_id)
+                )
+                feed = result.scalar_one_or_none()
+                if feed:
+                    feed.last_error = str(e)
+                    feed.error_count += 1
             await self.db.commit()
             raise
 

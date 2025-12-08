@@ -91,6 +91,7 @@ export interface AIModel {
 export interface CustomRule {
   id: number
   user_id: number
+  feed_id: number | null
   name: string
   target_url: string
   list_selector: string

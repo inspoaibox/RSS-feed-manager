@@ -1207,6 +1207,7 @@ function RulesTab() {
     content_selector: '',
     date_selector: '',
     category_id: null as number | null,
+    fetch_interval: 3600,
     is_active: true,
   }
   const [formData, setFormData] = useState(emptyRule)
@@ -1348,6 +1349,7 @@ function RulesTab() {
       content_selector: rule.content_selector || '',
       date_selector: rule.date_selector || '',
       category_id: rule.category_id,
+      fetch_interval: rule.fetch_interval,
       is_active: rule.is_active,
     })
   }
@@ -1419,16 +1421,32 @@ function RulesTab() {
         onChange={(e) => setFormData({ ...formData, date_selector: e.target.value })}
         className="w-full px-3 py-2 border rounded"
       />
-      <select
-        value={formData.category_id || ''}
-        onChange={(e) => setFormData({ ...formData, category_id: e.target.value ? parseInt(e.target.value) : null })}
-        className="w-full px-3 py-2 border rounded"
-      >
-        <option value="">未分类</option>
-        {categories.map((c) => (
-          <option key={c.id} value={c.id}>{c.name}</option>
-        ))}
-      </select>
+      <div className="flex gap-2">
+        <select
+          value={formData.category_id || ''}
+          onChange={(e) => setFormData({ ...formData, category_id: e.target.value ? parseInt(e.target.value) : null })}
+          className="flex-1 px-3 py-2 border rounded"
+        >
+          <option value="">未分类</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+        <select
+          value={formData.fetch_interval}
+          onChange={(e) => setFormData({ ...formData, fetch_interval: parseInt(e.target.value) })}
+          className="flex-1 px-3 py-2 border rounded"
+        >
+          <option value={300}>5 分钟</option>
+          <option value={900}>15 分钟</option>
+          <option value={1800}>30 分钟</option>
+          <option value={3600}>1 小时</option>
+          <option value={7200}>2 小时</option>
+          <option value={14400}>4 小时</option>
+          <option value={43200}>12 小时</option>
+          <option value={86400}>24 小时</option>
+        </select>
+      </div>
       <label className="flex items-center gap-2">
         <input
           type="checkbox"
@@ -1577,35 +1595,50 @@ function RulesTab() {
       {showAddRule && !editingId && renderForm(false)}
 
       <div className="border rounded divide-y">
-        {rules.map((rule) => (
-          <div key={rule.id}>
-            {editingId === rule.id ? (
-              renderForm(true)
-            ) : (
-              <div className="flex items-center gap-4 p-4">
-                <div className="flex-1">
-                  <h3 className="font-medium">{rule.name}</h3>
-                  <p className="text-sm text-gray-500 truncate">{rule.target_url}</p>
+        {rules.map((rule) => {
+          const formatInterval = (seconds: number) => {
+            if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟`
+            return `${Math.floor(seconds / 3600)} 小时`
+          }
+          const categoryName = categories.find(c => c.id === rule.category_id)?.name
+          
+          return (
+            <div key={rule.id}>
+              {editingId === rule.id ? (
+                renderForm(true)
+              ) : (
+                <div className="flex items-center gap-4 p-4">
+                  <div className="flex-1">
+                    <h3 className="font-medium">{rule.name}</h3>
+                    <p className="text-sm text-gray-500 truncate">{rule.target_url}</p>
+                    <div className="flex gap-3 mt-1 text-xs text-gray-400">
+                      <span>同步间隔: {formatInterval(rule.fetch_interval)}</span>
+                      {categoryName && <span>分类: {categoryName}</span>}
+                      {rule.last_fetched_at && (
+                        <span>上次抓取: {new Date(rule.last_fetched_at).toLocaleString('zh-CN')}</span>
+                      )}
+                    </div>
+                  </div>
+                  <span className={`px-2 py-1 text-xs rounded ${rule.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                    {rule.is_active ? '启用' : '禁用'}
+                  </span>
+                  <button
+                    onClick={() => startEdit(rule)}
+                    className="p-2 text-gray-500 hover:bg-gray-100 rounded"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => deleteRuleMutation.mutate(rule.id)}
+                    className="p-2 text-red-500 hover:bg-red-50 rounded"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
-                <span className={`px-2 py-1 text-xs rounded ${rule.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                  {rule.is_active ? '启用' : '禁用'}
-                </span>
-                <button
-                  onClick={() => startEdit(rule)}
-                  className="p-2 text-gray-500 hover:bg-gray-100 rounded"
-                >
-                  <Edit2 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => deleteRuleMutation.mutate(rule.id)}
-                  className="p-2 text-red-500 hover:bg-red-50 rounded"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
+              )}
+            </div>
+          )
+        })}
         {rules.length === 0 && (
           <div className="p-4 text-center text-gray-500">暂无自定义规则</div>
         )}

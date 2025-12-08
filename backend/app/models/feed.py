@@ -10,6 +10,7 @@ from app.core.database import BaseModel
 if TYPE_CHECKING:
     from app.models.article import Article
     from app.models.category import Category
+    from app.models.custom_rule import CustomRule
     from app.models.user import User
 
 
@@ -53,6 +54,9 @@ class Feed(BaseModel):
     category: Mapped["Category | None"] = relationship("Category", back_populates="feeds")
     articles: Mapped[List["Article"]] = relationship(
         "Article", back_populates="feed", cascade="all, delete-orphan"
+    )
+    custom_rule: Mapped["CustomRule | None"] = relationship(
+        "CustomRule", back_populates="feed", uselist=False
     )
 
     def __repr__(self) -> str:

@@ -9,6 +9,7 @@ from app.core.database import BaseModel
 
 if TYPE_CHECKING:
     from app.models.category import Category
+    from app.models.feed import Feed
     from app.models.user import User
 
 
@@ -22,6 +23,9 @@ class CustomRule(BaseModel):
     )
     category_id: Mapped[int | None] = mapped_column(
         ForeignKey("categories.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    feed_id: Mapped[int | None] = mapped_column(
+        ForeignKey("feeds.id", ondelete="SET NULL"), nullable=True, index=True
     )
     
     # Rule identification
@@ -52,6 +56,7 @@ class CustomRule(BaseModel):
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="custom_rules")
     category: Mapped["Category | None"] = relationship("Category", back_populates="custom_rules")
+    feed: Mapped["Feed | None"] = relationship("Feed", back_populates="custom_rule")
 
     def __repr__(self) -> str:
         return f"<CustomRule(id={self.id}, name={self.name})>"
