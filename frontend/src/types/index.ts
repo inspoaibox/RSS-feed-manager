@@ -90,6 +90,7 @@ export interface AIModel {
 // Custom Rule types
 export interface CustomRule {
   id: number
+  user_id: number
   name: string
   target_url: string
   list_selector: string
@@ -98,8 +99,16 @@ export interface CustomRule {
   content_selector: string | null
   date_selector: string | null
   fetch_interval: number
+  auto_translate: boolean
+  auto_summarize: boolean
+  target_language: string | null
   is_active: boolean
   category_id: number | null
+  last_fetched_at: string | null
+  last_error: string | null
+  error_count: number
+  created_at: string
+  updated_at: string | null
 }
 
 // Pagination

@@ -51,7 +51,7 @@ class CustomRuleResponse(CustomRuleBase):
     last_error: str | None
     error_count: int
     created_at: datetime
-    updated_at: datetime
+    updated_at: datetime | None
 
     class Config:
         from_attributes = True

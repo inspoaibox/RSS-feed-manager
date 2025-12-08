@@ -1288,7 +1288,15 @@ function RulesTab() {
 
   const testRuleMutation = useMutation({
     mutationFn: async () => {
-      const response = await api.post('/rules/test', formData)
+      const payload = {
+        target_url: formData.target_url,
+        list_selector: formData.list_selector,
+        title_selector: formData.title_selector,
+        link_selector: formData.link_selector,
+        content_selector: formData.content_selector || null,
+        date_selector: formData.date_selector || null,
+      }
+      const response = await api.post('/rules/test', payload)
       return response.data
     },
   })
