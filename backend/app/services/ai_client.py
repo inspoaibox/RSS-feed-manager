@@ -29,6 +29,11 @@ class BaseAIClient(ABC):
         pass
     
     @abstractmethod
+    async def chat(self, prompt: str) -> str:
+        """Send a chat message and get response."""
+        pass
+    
+    @abstractmethod
     async def test_connection(self) -> bool:
         """Test if the connection is valid."""
         pass
@@ -107,6 +112,18 @@ class OpenAIClient(BaseAIClient):
         result = await self._request("chat/completions", data)
         return result["choices"][0]["message"]["content"]
     
+    async def chat(self, prompt: str) -> str:
+        """Send a chat message and get response."""
+        data = {
+            "model": self.model,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.3
+        }
+        result = await self._request("chat/completions", data)
+        return result["choices"][0]["message"]["content"]
+    
     async def test_connection(self) -> bool:
         """Test connection by listing models."""
         try:
@@ -164,6 +181,18 @@ class GeminiClient(BaseAIClient):
             "contents": [{
                 "parts": [{
                     "text": f"Provide a concise summary of the following text in 2-3 sentences:\n\n{text}"
+                }]
+            }]
+        }
+        result = await self._request(f"models/{self.model}:generateContent", data)
+        return result["candidates"][0]["content"]["parts"][0]["text"]
+    
+    async def chat(self, prompt: str) -> str:
+        """Send a chat message and get response."""
+        data = {
+            "contents": [{
+                "parts": [{
+                    "text": prompt
                 }]
             }]
         }

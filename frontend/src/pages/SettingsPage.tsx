@@ -949,6 +949,41 @@ function RulesTab() {
     },
   })
 
+  const generateRuleMutation = useMutation({
+    mutationFn: async (url: string) => {
+      const response = await api.post<{
+        success: boolean
+        name?: string
+        list_selector?: string
+        title_selector?: string
+        link_selector?: string
+        content_selector?: string
+        error?: string
+      }>('/rules/generate', { target_url: url })
+      return response.data
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        setFormData(prev => ({
+          ...prev,
+          name: data.name || prev.name,
+          list_selector: data.list_selector || '',
+          title_selector: data.title_selector || '',
+          link_selector: data.link_selector || '',
+          content_selector: data.content_selector || '',
+        }))
+        setMessage({ type: 'success', text: 'AI 已生成规则，请检查并测试' })
+        setTimeout(() => setMessage(null), 5000)
+      } else {
+        setMessage({ type: 'error', text: data.error || 'AI 生成失败' })
+      }
+    },
+    onError: (err: any) => {
+      const detail = err.response?.data?.detail
+      setMessage({ type: 'error', text: detail || 'AI 生成失败' })
+    },
+  })
+
   const startEdit = (rule: CustomRule) => {
     setEditingId(rule.id)
     setShowAddRule(false)
@@ -978,13 +1013,23 @@ function RulesTab() {
         onChange={(e) => setFormData({ ...formData, name: e.target.value })}
         className="w-full px-3 py-2 border rounded"
       />
-      <input
-        type="url"
-        placeholder="目标网址"
-        value={formData.target_url}
-        onChange={(e) => setFormData({ ...formData, target_url: e.target.value })}
-        className="w-full px-3 py-2 border rounded"
-      />
+      <div className="flex gap-2">
+        <input
+          type="url"
+          placeholder="目标网址"
+          value={formData.target_url}
+          onChange={(e) => setFormData({ ...formData, target_url: e.target.value })}
+          className="flex-1 px-3 py-2 border rounded"
+        />
+        <button
+          type="button"
+          onClick={() => generateRuleMutation.mutate(formData.target_url)}
+          disabled={!formData.target_url || generateRuleMutation.isPending}
+          className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 whitespace-nowrap"
+        >
+          {generateRuleMutation.isPending ? '分析中...' : '🤖 AI 生成'}
+        </button>
+      </div>
       <input
         type="text"
         placeholder="列表选择器 (CSS Selector)"

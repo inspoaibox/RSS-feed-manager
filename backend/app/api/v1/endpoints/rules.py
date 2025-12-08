@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, get_db
 from app.models.user import User
 from app.schemas.custom_rule import (
+    AIGenerateRuleRequest,
+    AIGenerateRuleResponse,
     CustomRuleCreate,
     CustomRuleResponse,
     CustomRuleTestRequest,
@@ -97,6 +99,17 @@ async def test_rule(
     """Test a custom rule without saving it."""
     service = CustomRuleService(db)
     return await service.test_rule(data)
+
+
+@router.post("/generate", response_model=AIGenerateRuleResponse)
+async def generate_rule(
+    data: AIGenerateRuleRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Use AI to automatically generate CSS selectors for a webpage."""
+    service = CustomRuleService(db)
+    return await service.generate_rule_with_ai(current_user.id, data.target_url)
 
 
 @router.post("/{rule_id}/execute", response_model=dict)

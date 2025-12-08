@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.custom_rule import CustomRule
 from app.repositories.custom_rule_repository import CustomRuleRepository
 from app.schemas.custom_rule import (
+    AIGenerateRuleResponse,
     CustomRuleCreate,
     CustomRuleTestRequest,
     CustomRuleTestResult,
@@ -161,3 +162,122 @@ class CustomRuleService:
             rule.error_count += 1
             await self.db.commit()
             raise
+
+    async def generate_rule_with_ai(self, user_id: int, target_url: str) -> AIGenerateRuleResponse:
+        """Use AI to analyze a webpage and generate CSS selectors."""
+        try:
+            # Use Playwright to get the page HTML (handles JS-rendered content)
+            from playwright.async_api import async_playwright
+            
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page()
+                await page.goto(target_url, wait_until="networkidle", timeout=30000)
+                html_content = await page.content()
+                page_title = await page.title()
+                await browser.close()
+            
+            # Parse and simplify HTML for AI
+            soup = BeautifulSoup(html_content, "html.parser")
+            
+            # Remove scripts, styles, and other non-content elements
+            for tag in soup(["script", "style", "meta", "link", "noscript", "svg", "path"]):
+                tag.decompose()
+            
+            # Get simplified HTML structure (limit size for AI)
+            body = soup.find("body")
+            if body:
+                simplified_html = str(body)[:15000]  # Limit to ~15KB
+            else:
+                simplified_html = str(soup)[:15000]
+            
+            # Get AI model
+            from app.repositories.ai_repository import AIModelRepository, AIProviderRepository
+            model_repo = AIModelRepository(self.db)
+            provider_repo = AIProviderRepository(self.db)
+            default_model = await model_repo.get_default_model(user_id)
+            
+            if not default_model:
+                return AIGenerateRuleResponse(
+                    success=False,
+                    error="No default AI model configured. Please configure AI settings first."
+                )
+            
+            provider = await provider_repo.get_by_id(default_model.provider_id, user_id)
+            if not provider:
+                return AIGenerateRuleResponse(
+                    success=False,
+                    error="AI provider not found"
+                )
+            
+            # Create AI prompt
+            prompt = f"""Analyze this webpage HTML and identify the CSS selectors for a news/article list.
+
+URL: {target_url}
+Page Title: {page_title}
+
+HTML Content:
+```html
+{simplified_html}
+```
+
+Please identify:
+1. list_selector: CSS selector for each article/post item in the list (the repeating container element)
+2. title_selector: CSS selector for the article title (relative to list item)
+3. link_selector: CSS selector for the article link (relative to list item, usually an <a> tag)
+4. content_selector: CSS selector for article summary/excerpt if available (relative to list item)
+
+Respond in this exact JSON format only, no other text:
+{{
+    "name": "suggested name for this rule based on the website",
+    "list_selector": "CSS selector for list items",
+    "title_selector": "CSS selector for title",
+    "link_selector": "CSS selector for link",
+    "content_selector": "CSS selector for content or null if not found"
+}}"""
+
+            # Call AI
+            from app.services.ai_client import create_ai_client, AIClientError
+            client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
+            
+            response = await client.chat(prompt)
+            
+            # Parse AI response
+            import json
+            import re
+            
+            # Try to extract JSON from response
+            json_match = re.search(r'\{[^{}]*\}', response, re.DOTALL)
+            if not json_match:
+                return AIGenerateRuleResponse(
+                    success=False,
+                    error="AI response did not contain valid JSON"
+                )
+            
+            try:
+                result = json.loads(json_match.group())
+            except json.JSONDecodeError:
+                return AIGenerateRuleResponse(
+                    success=False,
+                    error="Failed to parse AI response as JSON"
+                )
+            
+            return AIGenerateRuleResponse(
+                success=True,
+                name=result.get("name"),
+                list_selector=result.get("list_selector"),
+                title_selector=result.get("title_selector"),
+                link_selector=result.get("link_selector"),
+                content_selector=result.get("content_selector")
+            )
+            
+        except AIClientError as e:
+            return AIGenerateRuleResponse(
+                success=False,
+                error=f"AI error: {str(e)}"
+            )
+        except Exception as e:
+            return AIGenerateRuleResponse(
+                success=False,
+                error=f"Failed to analyze page: {str(e)}"
+            )

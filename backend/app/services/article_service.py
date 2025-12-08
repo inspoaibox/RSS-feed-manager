@@ -203,9 +203,10 @@ class ArticleService:
             )
         
         # Get default AI model
-        from app.repositories.ai_repository import AIRepository
-        ai_repo = AIRepository(self.session)
-        default_model = await ai_repo.get_default_model()
+        from app.repositories.ai_repository import AIModelRepository, AIProviderRepository
+        model_repo = AIModelRepository(self.session)
+        provider_repo = AIProviderRepository(self.session)
+        default_model = await model_repo.get_default_model(user_id)
         
         if not default_model:
             raise HTTPException(
@@ -213,7 +214,7 @@ class ArticleService:
                 detail="No default AI model configured"
             )
         
-        provider = await ai_repo.get_provider_by_id(default_model.provider_id)
+        provider = await provider_repo.get_by_id(default_model.provider_id, user_id)
         if not provider:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -248,9 +249,10 @@ class ArticleService:
             )
         
         # Get default AI model
-        from app.repositories.ai_repository import AIRepository
-        ai_repo = AIRepository(self.session)
-        default_model = await ai_repo.get_default_model()
+        from app.repositories.ai_repository import AIModelRepository, AIProviderRepository
+        model_repo = AIModelRepository(self.session)
+        provider_repo = AIProviderRepository(self.session)
+        default_model = await model_repo.get_default_model(user_id)
         
         if not default_model:
             raise HTTPException(
@@ -258,7 +260,7 @@ class ArticleService:
                 detail="No default AI model configured"
             )
         
-        provider = await ai_repo.get_provider_by_id(default_model.provider_id)
+        provider = await provider_repo.get_by_id(default_model.provider_id, user_id)
         if not provider:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

@@ -73,3 +73,19 @@ class CustomRuleTestResult(BaseModel):
     items_found: int
     sample_items: list[dict]
     error: str | None = None
+
+
+class AIGenerateRuleRequest(BaseModel):
+    """Schema for AI-generated rule request."""
+    target_url: str = Field(..., max_length=2048)
+
+
+class AIGenerateRuleResponse(BaseModel):
+    """Schema for AI-generated rule response."""
+    success: bool
+    name: str | None = None
+    list_selector: str | None = None
+    title_selector: str | None = None
+    link_selector: str | None = None
+    content_selector: str | None = None
+    error: str | None = None
