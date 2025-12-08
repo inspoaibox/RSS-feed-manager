@@ -1205,9 +1205,19 @@ function RulesTab() {
     title_selector: '',
     link_selector: '',
     content_selector: '',
+    date_selector: '',
+    category_id: null as number | null,
     is_active: true,
   }
   const [formData, setFormData] = useState(emptyRule)
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ['categories'],
+    queryFn: async () => {
+      const response = await api.get<Category[]>('/categories')
+      return response.data
+    },
+  })
 
   const { data: rules = [] } = useQuery({
     queryKey: ['custom-rules'],
@@ -1219,7 +1229,12 @@ function RulesTab() {
 
   const addRuleMutation = useMutation({
     mutationFn: async () => {
-      await api.post('/rules', formData)
+      const payload = {
+        ...formData,
+        content_selector: formData.content_selector || null,
+        date_selector: formData.date_selector || null,
+      }
+      await api.post('/rules', payload)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['custom-rules'] })
@@ -1236,7 +1251,12 @@ function RulesTab() {
 
   const updateRuleMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number; data: typeof formData }) => {
-      await api.put(`/rules/${id}`, data)
+      const payload = {
+        ...data,
+        content_selector: data.content_selector || null,
+        date_selector: data.date_selector || null,
+      }
+      await api.put(`/rules/${id}`, payload)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['custom-rules'] })
@@ -1318,6 +1338,8 @@ function RulesTab() {
       title_selector: rule.title_selector,
       link_selector: rule.link_selector,
       content_selector: rule.content_selector || '',
+      date_selector: rule.date_selector || '',
+      category_id: rule.category_id,
       is_active: rule.is_active,
     })
   }
@@ -1382,6 +1404,23 @@ function RulesTab() {
         onChange={(e) => setFormData({ ...formData, content_selector: e.target.value })}
         className="w-full px-3 py-2 border rounded"
       />
+      <input
+        type="text"
+        placeholder="日期选择器 (可选)"
+        value={formData.date_selector}
+        onChange={(e) => setFormData({ ...formData, date_selector: e.target.value })}
+        className="w-full px-3 py-2 border rounded"
+      />
+      <select
+        value={formData.category_id || ''}
+        onChange={(e) => setFormData({ ...formData, category_id: e.target.value ? parseInt(e.target.value) : null })}
+        className="w-full px-3 py-2 border rounded"
+      >
+        <option value="">未分类</option>
+        {categories.map((c) => (
+          <option key={c.id} value={c.id}>{c.name}</option>
+        ))}
+      </select>
       <label className="flex items-center gap-2">
         <input
           type="checkbox"
@@ -1394,7 +1433,21 @@ function RulesTab() {
       {testRuleMutation.data && (
         <div className={`p-3 rounded ${testRuleMutation.data.success ? 'bg-green-50' : 'bg-red-50'}`}>
           {testRuleMutation.data.success ? (
-            <p className="text-green-700">找到 {testRuleMutation.data.items_found} 个条目</p>
+            <div>
+              <p className="text-green-700 font-medium mb-2">找到 {testRuleMutation.data.items_found} 个条目</p>
+              {testRuleMutation.data.sample_items && testRuleMutation.data.sample_items.length > 0 && (
+                <div className="mt-2 space-y-2">
+                  <p className="text-sm text-gray-600">预览（前 5 条）：</p>
+                  {testRuleMutation.data.sample_items.map((item: any, idx: number) => (
+                    <div key={idx} className="p-2 bg-white rounded border text-sm">
+                      <p className="font-medium truncate">{item.title || '(无标题)'}</p>
+                      {item.link && <p className="text-xs text-blue-600 truncate">{item.link}</p>}
+                      {item.content && <p className="text-xs text-gray-500 truncate">{item.content}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           ) : (
             <p className="text-red-700">测试失败: {testRuleMutation.data.error}</p>
           )}

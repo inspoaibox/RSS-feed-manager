@@ -7,7 +7,7 @@ import httpx
 
 # 默认 Prompt 模板
 DEFAULT_PROMPTS = {
-    "translate": "You are a translator. Translate the following text to {target_language}. Keep the [TITLE] and [CONTENT] markers and the original paragraph structure. Only output the translation with markers, nothing else.",
+    "translate": "You are a translator. Translate the following text to {target_language}. Keep the original paragraph structure and formatting. Only output the translation, nothing else.",
     "summarize": """You are a content organizer. Please organize and summarize the following article content:
 
 1. Extract the key points and main ideas

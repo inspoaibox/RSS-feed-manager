@@ -13,16 +13,19 @@ const stripHtml = (html: string | null | undefined): string => {
   return doc.body.textContent || ''
 }
 
-// Helper function to parse translation with title and content markers
+// Helper function to parse translation JSON (title and content)
 const parseTranslation = (translation: string | null | undefined): { title: string; content: string } => {
   if (!translation) return { title: '', content: '' }
   
-  const titleMatch = translation.match(/\[TITLE\]\s*([\s\S]*?)\s*\[\/TITLE\]/)
-  const contentMatch = translation.match(/\[CONTENT\]\s*([\s\S]*?)\s*\[\/CONTENT\]/)
-  
-  return {
-    title: titleMatch ? titleMatch[1].trim() : '',
-    content: contentMatch ? contentMatch[1].trim() : translation
+  try {
+    const data = JSON.parse(translation)
+    return {
+      title: data.title || '',
+      content: data.content || ''
+    }
+  } catch {
+    // Fallback for old format (plain text)
+    return { title: '', content: translation }
   }
 }
 
