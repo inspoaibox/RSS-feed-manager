@@ -270,3 +270,41 @@ class AIService:
             is_default=model.is_default,
             is_active=model.is_active
         )
+
+    # Settings operations
+    async def get_settings(self, user_id: int) -> dict:
+        """Get AI settings for a user."""
+        from app.models.user import User
+        from sqlalchemy import select
+        
+        result = await self.session.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        
+        # Default prompts
+        default_translate = "You are a translator. Translate the following text to {target_language}. Keep the original paragraph structure and formatting. Only output the translation, nothing else."
+        default_summarize = "You are a summarizer. Provide a concise summary of the following text in 2-3 sentences. Output in the same language as the input text."
+        
+        return {
+            "translate_prompt": user.translate_prompt or default_translate if user else default_translate,
+            "summarize_prompt": user.summarize_prompt or default_summarize if user else default_summarize,
+        }
+
+    async def update_settings(self, user_id: int, data: dict) -> dict:
+        """Update AI settings for a user."""
+        from app.models.user import User
+        from sqlalchemy import select
+        
+        result = await self.session.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        
+        if "translate_prompt" in data:
+            user.translate_prompt = data["translate_prompt"]
+        if "summarize_prompt" in data:
+            user.summarize_prompt = data["summarize_prompt"]
+        
+        await self.session.commit()
+        
+        return await self.get_settings(user_id)

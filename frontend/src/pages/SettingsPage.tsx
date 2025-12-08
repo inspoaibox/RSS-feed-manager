@@ -682,11 +682,16 @@ function CategoriesTab() {
 function AITab() {
   const queryClient = useQueryClient()
   const [showAddProvider, setShowAddProvider] = useState(false)
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [newProvider, setNewProvider] = useState({
     name: '',
     type: 'openai' as 'openai' | 'gemini' | 'openai_compatible',
     api_key: '',
     base_url: '',
+  })
+  const [prompts, setPrompts] = useState({
+    translate: '',
+    summarize: '',
   })
 
   const { data: providers = [] } = useQuery({
@@ -705,6 +710,30 @@ function AITab() {
     },
   })
 
+  const { data: settings } = useQuery({
+    queryKey: ['ai-settings'],
+    queryFn: async () => {
+      const response = await api.get<{ translate_prompt: string; summarize_prompt: string }>('/ai/settings')
+      return response.data
+    },
+    onSuccess: (data) => {
+      setPrompts({
+        translate: data.translate_prompt,
+        summarize: data.summarize_prompt,
+      })
+    },
+  })
+
+  // Initialize prompts when settings load
+  useState(() => {
+    if (settings) {
+      setPrompts({
+        translate: settings.translate_prompt,
+        summarize: settings.summarize_prompt,
+      })
+    }
+  })
+
   const addProviderMutation = useMutation({
     mutationFn: async () => {
       await api.post('/ai/providers', newProvider)
@@ -713,6 +742,11 @@ function AITab() {
       queryClient.invalidateQueries({ queryKey: ['ai-providers'] })
       setShowAddProvider(false)
       setNewProvider({ name: '', type: 'openai', api_key: '', base_url: '' })
+      setMessage({ type: 'success', text: '渠道添加成功' })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: any) => {
+      setMessage({ type: 'error', text: err.response?.data?.detail || '添加失败' })
     },
   })
 
@@ -723,6 +757,8 @@ function AITab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ai-providers'] })
       queryClient.invalidateQueries({ queryKey: ['ai-models'] })
+      setMessage({ type: 'success', text: '渠道已删除' })
+      setTimeout(() => setMessage(null), 3000)
     },
   })
 
@@ -732,6 +768,8 @@ function AITab() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ai-models'] })
+      setMessage({ type: 'success', text: '默认模型已更新' })
+      setTimeout(() => setMessage(null), 3000)
     },
   })
 
@@ -741,11 +779,71 @@ function AITab() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ai-models'] })
+      setMessage({ type: 'success', text: '模型列表已更新' })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: any) => {
+      setMessage({ type: 'error', text: err.response?.data?.detail || '获取模型失败' })
     },
   })
 
+  const savePromptsMutation = useMutation({
+    mutationFn: async () => {
+      await api.put('/ai/settings', {
+        translate_prompt: prompts.translate,
+        summarize_prompt: prompts.summarize,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ai-settings'] })
+      setMessage({ type: 'success', text: 'Prompt 已保存' })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: any) => {
+      setMessage({ type: 'error', text: err.response?.data?.detail || '保存失败' })
+    },
+  })
+
+  const defaultModel = models.find(m => m.is_default)
+  const getProviderName = (providerId: number) => providers.find(p => p.id === providerId)?.name || ''
+
   return (
     <div className="space-y-6">
+      {message && (
+        <div className={`p-3 rounded ${message.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+          {message.text}
+        </div>
+      )}
+
+      {/* Default Model Selection */}
+      <div className="p-4 border rounded bg-blue-50">
+        <h2 className="text-lg font-semibold mb-3">默认模型</h2>
+        <select
+          value={defaultModel?.id || ''}
+          onChange={(e) => e.target.value && setDefaultModelMutation.mutate(parseInt(e.target.value))}
+          className="w-full px-3 py-2 border rounded bg-white"
+          disabled={models.length === 0}
+        >
+          <option value="">请选择默认模型</option>
+          {providers.map(provider => {
+            const providerModels = models.filter(m => m.provider_id === provider.id)
+            if (providerModels.length === 0) return null
+            return (
+              <optgroup key={provider.id} label={provider.name}>
+                {providerModels.map(model => (
+                  <option key={model.id} value={model.id}>
+                    {model.model_id}
+                  </option>
+                ))}
+              </optgroup>
+            )
+          })}
+        </select>
+        {models.length === 0 && (
+          <p className="text-sm text-gray-500 mt-2">请先添加 AI 渠道并获取模型</p>
+        )}
+      </div>
+
       {/* Providers */}
       <div>
         <div className="flex items-center justify-between mb-4">
@@ -811,58 +909,84 @@ function AITab() {
         )}
 
         <div className="border rounded divide-y">
-          {providers.map((provider) => (
-            <div key={provider.id} className="flex items-center gap-4 p-4">
-              <div className="flex-1">
-                <h3 className="font-medium">{provider.name}</h3>
-                <p className="text-sm text-gray-500">{provider.type}</p>
+          {providers.map((provider) => {
+            const providerModels = models.filter(m => m.provider_id === provider.id)
+            return (
+              <div key={provider.id} className="p-4">
+                <div className="flex items-center gap-4 mb-2">
+                  <div className="flex-1">
+                    <h3 className="font-medium">{provider.name}</h3>
+                    <p className="text-sm text-gray-500">{provider.type}</p>
+                  </div>
+                  <button
+                    onClick={() => fetchModelsMutation.mutate(provider.id)}
+                    disabled={fetchModelsMutation.isPending}
+                    className="px-3 py-1 text-sm border rounded hover:bg-gray-50"
+                  >
+                    获取模型
+                  </button>
+                  <button
+                    onClick={() => deleteProviderMutation.mutate(provider.id)}
+                    className="p-2 text-red-500 hover:bg-red-50 rounded"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+                {providerModels.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {providerModels.map(model => (
+                      <span
+                        key={model.id}
+                        className={`px-2 py-0.5 text-xs rounded ${model.is_default ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}
+                      >
+                        {model.model_id}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
-              <button
-                onClick={() => fetchModelsMutation.mutate(provider.id)}
-                disabled={fetchModelsMutation.isPending}
-                className="px-3 py-1 text-sm border rounded hover:bg-gray-50"
-              >
-                获取模型
-              </button>
-              <button
-                onClick={() => deleteProviderMutation.mutate(provider.id)}
-                className="p-2 text-red-500 hover:bg-red-50 rounded"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
+            )
+          })}
           {providers.length === 0 && (
             <div className="p-4 text-center text-gray-500">暂无 AI 渠道</div>
           )}
         </div>
       </div>
 
-      {/* Models */}
+      {/* Prompts */}
       <div>
-        <h2 className="text-lg font-semibold mb-4">可用模型</h2>
-        <div className="border rounded divide-y">
-          {models.map((model) => (
-            <div key={model.id} className="flex items-center gap-4 p-4">
-              <div className="flex-1">
-                <h3 className="font-medium">{model.name}</h3>
-                <p className="text-sm text-gray-500">{model.model_id}</p>
-              </div>
-              {model.is_default ? (
-                <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded">默认</span>
-              ) : (
-                <button
-                  onClick={() => setDefaultModelMutation.mutate(model.id)}
-                  className="px-3 py-1 text-sm border rounded hover:bg-gray-50"
-                >
-                  设为默认
-                </button>
-              )}
-            </div>
-          ))}
-          {models.length === 0 && (
-            <div className="p-4 text-center text-gray-500">暂无可用模型，请先添加 AI 渠道并获取模型</div>
-          )}
+        <h2 className="text-lg font-semibold mb-4">Prompt 设置</h2>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              翻译 Prompt
+              <span className="text-gray-400 font-normal ml-2">（使用 {'{target_language}'} 作为目标语言占位符）</span>
+            </label>
+            <textarea
+              value={prompts.translate}
+              onChange={(e) => setPrompts({ ...prompts, translate: e.target.value })}
+              className="w-full px-3 py-2 border rounded h-24 text-sm"
+              placeholder="You are a translator..."
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              整理 Prompt
+            </label>
+            <textarea
+              value={prompts.summarize}
+              onChange={(e) => setPrompts({ ...prompts, summarize: e.target.value })}
+              className="w-full px-3 py-2 border rounded h-24 text-sm"
+              placeholder="You are a summarizer..."
+            />
+          </div>
+          <button
+            onClick={() => savePromptsMutation.mutate()}
+            disabled={savePromptsMutation.isPending}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+          >
+            保存 Prompt
+          </button>
         </div>
       </div>
     </div>

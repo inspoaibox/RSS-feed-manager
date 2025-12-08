@@ -5,6 +5,16 @@ from typing import List
 import httpx
 
 
+# 默认 Prompt 模板
+DEFAULT_PROMPTS = {
+    "translate": "You are a translator. Translate the following text to {target_language}. Keep the original paragraph structure and formatting. Only output the translation, nothing else.",
+    "summarize": "You are a summarizer. Provide a concise summary of the following text in 2-3 sentences. Output in the same language as the input text.",
+}
+
+# 运行时 Prompt（可被用户设置覆盖）
+PROMPTS = DEFAULT_PROMPTS.copy()
+
+
 class AIClientError(Exception):
     """Exception raised when AI client operation fails."""
     pass
@@ -19,12 +29,12 @@ class BaseAIClient(ABC):
         pass
     
     @abstractmethod
-    async def translate(self, text: str, target_language: str) -> str:
+    async def translate(self, text: str, target_language: str, custom_prompt: str | None = None) -> str:
         """Translate text to target language."""
         pass
     
     @abstractmethod
-    async def summarize(self, text: str) -> str:
+    async def summarize(self, text: str, custom_prompt: str | None = None) -> str:
         """Generate summary of text."""
         pass
     
@@ -86,12 +96,13 @@ class OpenAIClient(BaseAIClient):
             })
         return models
     
-    async def translate(self, text: str, target_language: str) -> str:
+    async def translate(self, text: str, target_language: str, custom_prompt: str | None = None) -> str:
         """Translate text using ChatGPT."""
+        prompt = custom_prompt or PROMPTS["translate"]
         data = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": f"You are a translator. Translate the following text to {target_language}. Only output the translation, nothing else."},
+                {"role": "system", "content": prompt.format(target_language=target_language)},
                 {"role": "user", "content": text}
             ],
             "temperature": 0.3
@@ -99,12 +110,13 @@ class OpenAIClient(BaseAIClient):
         result = await self._request("chat/completions", data)
         return result["choices"][0]["message"]["content"]
     
-    async def summarize(self, text: str) -> str:
+    async def summarize(self, text: str, custom_prompt: str | None = None) -> str:
         """Generate summary using ChatGPT."""
+        prompt = custom_prompt or PROMPTS["summarize"]
         data = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": "You are a summarizer. Provide a concise summary of the following text in 2-3 sentences."},
+                {"role": "system", "content": prompt},
                 {"role": "user", "content": text}
             ],
             "temperature": 0.5
@@ -163,24 +175,27 @@ class GeminiClient(BaseAIClient):
             {"model_id": "gemini-pro-vision", "name": "Gemini Pro Vision"},
         ]
     
-    async def translate(self, text: str, target_language: str) -> str:
+    async def translate(self, text: str, target_language: str, custom_prompt: str | None = None) -> str:
         """Translate text using Gemini."""
+        prompt_template = custom_prompt or PROMPTS["translate"]
+        prompt = prompt_template.format(target_language=target_language)
         data = {
             "contents": [{
                 "parts": [{
-                    "text": f"Translate the following text to {target_language}. Only output the translation:\n\n{text}"
+                    "text": f"{prompt}\n\n{text}"
                 }]
             }]
         }
         result = await self._request(f"models/{self.model}:generateContent", data)
         return result["candidates"][0]["content"]["parts"][0]["text"]
     
-    async def summarize(self, text: str) -> str:
+    async def summarize(self, text: str, custom_prompt: str | None = None) -> str:
         """Generate summary using Gemini."""
+        prompt = custom_prompt or PROMPTS["summarize"]
         data = {
             "contents": [{
                 "parts": [{
-                    "text": f"Provide a concise summary of the following text in 2-3 sentences:\n\n{text}"
+                    "text": f"{prompt}\n\n{text}"
                 }]
             }]
         }

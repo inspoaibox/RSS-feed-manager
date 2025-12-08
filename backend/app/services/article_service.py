@@ -192,13 +192,27 @@ class ArticleService:
         )
 
     def _extract_text_from_html(self, html_content: str) -> str:
-        """Extract plain text from HTML content."""
+        """Extract plain text from HTML content, preserving paragraph structure."""
         from bs4 import BeautifulSoup
+        import re
+        
         soup = BeautifulSoup(html_content, "html.parser")
+        
         # Remove script and style elements
         for tag in soup(["script", "style"]):
             tag.decompose()
-        return soup.get_text(separator="\n", strip=True)
+        
+        # Add newlines for block elements to preserve structure
+        for br in soup.find_all("br"):
+            br.replace_with("\n")
+        for tag in soup.find_all(["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "tr"]):
+            tag.insert_before("\n")
+            tag.insert_after("\n")
+        
+        text = soup.get_text()
+        # Clean up multiple newlines
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        return text.strip()
 
     async def translate_article(self, user_id: int, article_id: int, target_language: str) -> dict:
         """Translate article using AI."""
@@ -233,10 +247,17 @@ class ArticleService:
                 detail="AI provider not found"
             )
         
+        # Get user's custom prompt
+        from app.models.user import User
+        from sqlalchemy import select
+        result = await self.session.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        custom_prompt = user.translate_prompt if user and user.translate_prompt else None
+        
         from app.services.ai_client import create_ai_client, AIClientError
         try:
             client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
-            translation = await client.translate(content, target_language)
+            translation = await client.translate(content, target_language, custom_prompt)
             
             # Save translation
             article.translation = translation
@@ -282,10 +303,17 @@ class ArticleService:
                 detail="AI provider not found"
             )
         
+        # Get user's custom prompt
+        from app.models.user import User
+        from sqlalchemy import select
+        result = await self.session.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        custom_prompt = user.summarize_prompt if user and user.summarize_prompt else None
+        
         from app.services.ai_client import create_ai_client, AIClientError
         try:
             client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
-            summary = await client.summarize(content)
+            summary = await client.summarize(content, custom_prompt)
             
             # Save summary
             article.summary = summary

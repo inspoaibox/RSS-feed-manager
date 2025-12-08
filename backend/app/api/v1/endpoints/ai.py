@@ -142,3 +142,22 @@ async def summarize_article(article_id: int, user_id: CurrentUserId, db: DbSessi
     service = AIService(db)
     summary = await service.summarize_article(user_id, article_id)
     return SummarizeResponse(summary=summary)
+
+
+# Settings endpoints
+@router.get("/settings")
+async def get_ai_settings(user_id: CurrentUserId, db: DbSession):
+    """Get AI prompt settings."""
+    service = AIService(db)
+    return await service.get_settings(user_id)
+
+
+@router.put("/settings")
+async def update_ai_settings(
+    data: dict,
+    user_id: CurrentUserId,
+    db: DbSession
+):
+    """Update AI prompt settings."""
+    service = AIService(db)
+    return await service.update_settings(user_id, data)

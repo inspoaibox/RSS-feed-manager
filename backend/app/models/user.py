@@ -26,6 +26,10 @@ class User(BaseModel):
     
     # Token version for invalidating tokens on password change
     token_version: Mapped[int] = mapped_column(default=0, nullable=False)
+    
+    # AI Prompt settings
+    translate_prompt: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    summarize_prompt: Mapped[str | None] = mapped_column(String(2000), nullable=True)
 
     # Relationships
     categories: Mapped[List["Category"]] = relationship(
