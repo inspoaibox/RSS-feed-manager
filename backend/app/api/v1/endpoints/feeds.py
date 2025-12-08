@@ -24,6 +24,13 @@ async def create_feed(data: FeedCreate, user_id: CurrentUserId, db: DbSession):
     return await service.create(user_id, data)
 
 
+@router.put("/reorder", response_model=List[FeedResponse])
+async def reorder_feeds(data: FeedReorder, user_id: CurrentUserId, db: DbSession):
+    """Reorder feeds by providing feed IDs in desired order."""
+    service = FeedService(db)
+    return await service.reorder(user_id, data)
+
+
 @router.get("/{feed_id}", response_model=FeedResponse)
 async def get_feed(feed_id: int, user_id: CurrentUserId, db: DbSession):
     """Get a feed by ID."""
@@ -64,13 +71,6 @@ async def translate_all_articles(feed_id: int, user_id: CurrentUserId, db: DbSes
     translate_feed_articles.delay(feed_id)
     
     return {"message": "翻译任务已启动", "feed_id": feed_id}
-
-
-@router.put("/reorder", response_model=List[FeedResponse])
-async def reorder_feeds(data: FeedReorder, user_id: CurrentUserId, db: DbSession):
-    """Reorder feeds by providing feed IDs in desired order."""
-    service = FeedService(db)
-    return await service.reorder(user_id, data)
 
 
 @router.post("/import", response_model=OPMLImportResult)
