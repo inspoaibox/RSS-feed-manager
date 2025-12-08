@@ -1,0 +1,120 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: rss_manager_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rss_manager}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rss_manager_prod_2024}
+      POSTGRES_DB: ${POSTGRES_DB:-rss_manager}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rss_manager}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rss_network
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: rss_manager_redis
+    restart: always
+    command: redis-server --requirepass ${REDIS_PASSWORD:-redis_prod_2024}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_prod_2024}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rss_network
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rss_manager_backend
+    restart: always
+    expose:
+      - "8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rss_manager}:${POSTGRES_PASSWORD:-rss_manager_prod_2024}@postgres:5432/${POSTGRES_DB:-rss_manager}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_prod_2024}@redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-rss_manager_secret_key_2024_production}
+      - DEBUG=false
+      - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:5173"]}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - rss_network
+
+  # Celery Worker
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rss_manager_celery_worker
+    restart: always
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rss_manager}:${POSTGRES_PASSWORD:-rss_manager_prod_2024}@postgres:5432/${POSTGRES_DB:-rss_manager}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_prod_2024}@redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-rss_manager_secret_key_2024_production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - rss_network
+
+  # Celery Beat (Scheduler)
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rss_manager_celery_beat
+    restart: always
+    command: celery -A app.tasks.celery_app beat --loglevel=info --scheduler celery.beat:PersistentScheduler
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rss_manager}:${POSTGRES_PASSWORD:-rss_manager_prod_2024}@postgres:5432/${POSTGRES_DB:-rss_manager}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_prod_2024}@redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-rss_manager_secret_key_2024_production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - rss_network
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: rss_manager_frontend
+    restart: always
+    ports:
+      - "5666:80"
+    depends_on:
+      - backend
+    networks:
+      - rss_network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  rss_network:
+    driver: bridge
