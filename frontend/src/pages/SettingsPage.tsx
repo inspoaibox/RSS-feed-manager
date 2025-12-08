@@ -3,32 +3,34 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, Save, FolderOpen, Languages, ChevronUp, ChevronDown, Search } from 'lucide-react'
 import api from '@/services/api'
 import type { Category, Feed, AIProvider, AIModel, CustomRule } from '@/types'
+import { useThemeStore, type ThemeColor } from '@/stores/themeStore'
 
-type Tab = 'feeds' | 'categories' | 'ai' | 'rules' | 'backup'
+type Tab = 'feeds' | 'categories' | 'ai' | 'rules' | 'backup' | 'appearance'
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('feeds')
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">设置</h1>
+      <h1 className="text-2xl font-bold mb-6 dark:text-white">设置</h1>
       
       {/* Tabs */}
-      <div className="flex border-b mb-6 flex-wrap">
+      <div className="flex border-b dark:border-gray-700 mb-6 flex-wrap">
         {[
           { id: 'feeds', label: '订阅源' },
           { id: 'categories', label: '分类' },
           { id: 'ai', label: 'AI 设置' },
           { id: 'rules', label: '自定义规则' },
           { id: 'backup', label: '备份恢复' },
+          { id: 'appearance', label: '外观' },
         ].map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as Tab)}
             className={`px-4 py-2 border-b-2 -mb-px ${
               activeTab === tab.id
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
             }`}
           >
             {tab.label}
@@ -41,6 +43,7 @@ export default function SettingsPage() {
       {activeTab === 'ai' && <AITab />}
       {activeTab === 'rules' && <RulesTab />}
       {activeTab === 'backup' && <BackupTab />}
+      {activeTab === 'appearance' && <AppearanceTab />}
     </div>
   )
 }
@@ -1925,6 +1928,98 @@ function BackupTab() {
       <p className="text-sm text-gray-500">
         注意：备份文件包含 API Key 等敏感信息，请妥善保管。文章内容不包含在备份中。
       </p>
+    </div>
+  )
+}
+
+function AppearanceTab() {
+  const { mode, color, setMode, setColor } = useThemeStore()
+
+  const colorOptions: { value: ThemeColor; label: string; class: string }[] = [
+    { value: 'blue', label: '蓝色', class: 'bg-blue-500' },
+    { value: 'green', label: '绿色', class: 'bg-green-500' },
+    { value: 'purple', label: '紫色', class: 'bg-purple-500' },
+    { value: 'orange', label: '橙色', class: 'bg-orange-500' },
+  ]
+
+  return (
+    <div className="space-y-8">
+      {/* 主题模式 */}
+      <div>
+        <h3 className="font-medium mb-4 dark:text-white">主题模式</h3>
+        <div className="flex gap-4">
+          <button
+            onClick={() => setMode('light')}
+            className={`flex-1 p-4 rounded-lg border-2 transition-all ${
+              mode === 'light'
+                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+            }`}
+          >
+            <div className="w-full h-24 rounded bg-white border mb-3 flex items-center justify-center">
+              <div className="w-16 h-3 bg-gray-200 rounded"></div>
+            </div>
+            <p className={`text-center font-medium ${mode === 'light' ? 'text-blue-600' : 'text-gray-600 dark:text-gray-400'}`}>
+              浅色模式
+            </p>
+          </button>
+          <button
+            onClick={() => setMode('dark')}
+            className={`flex-1 p-4 rounded-lg border-2 transition-all ${
+              mode === 'dark'
+                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+            }`}
+          >
+            <div className="w-full h-24 rounded bg-gray-800 border border-gray-700 mb-3 flex items-center justify-center">
+              <div className="w-16 h-3 bg-gray-600 rounded"></div>
+            </div>
+            <p className={`text-center font-medium ${mode === 'dark' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'}`}>
+              深色模式
+            </p>
+          </button>
+        </div>
+      </div>
+
+      {/* 主题颜色 */}
+      <div>
+        <h3 className="font-medium mb-4 dark:text-white">主题颜色</h3>
+        <div className="flex gap-4">
+          {colorOptions.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => setColor(opt.value)}
+              className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                color === opt.value
+                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                  : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+              }`}
+            >
+              <div className={`w-10 h-10 rounded-full ${opt.class}`}></div>
+              <span className={`text-sm ${color === opt.value ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-600 dark:text-gray-400'}`}>
+                {opt.label}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 预览 */}
+      <div>
+        <h3 className="font-medium mb-4 dark:text-white">预览</h3>
+        <div className={`p-4 rounded-lg border ${mode === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+          <div className="flex items-center gap-3 mb-3">
+            <div className={`w-8 h-8 rounded-full ${colorOptions.find(c => c.value === color)?.class}`}></div>
+            <div>
+              <p className={`font-medium ${mode === 'dark' ? 'text-white' : 'text-gray-900'}`}>示例标题</p>
+              <p className={`text-sm ${mode === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>这是一段示例文字</p>
+            </div>
+          </div>
+          <button className={`px-4 py-2 rounded text-white ${colorOptions.find(c => c.value === color)?.class}`}>
+            示例按钮
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

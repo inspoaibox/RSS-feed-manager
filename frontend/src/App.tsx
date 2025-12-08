@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
+import { ThemeProvider } from '@/components/ThemeProvider'
 import LoginPage from '@/pages/LoginPage'
 import RegisterPage from '@/pages/RegisterPage'
 import MainLayout from '@/components/layout/MainLayout'
@@ -18,8 +19,9 @@ function App() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
 
   return (
-    <div className="min-h-screen">
-      <Routes>
+    <ThemeProvider>
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
+        <Routes>
         {/* Public routes */}
         <Route
           path="/login"
@@ -46,7 +48,8 @@ function App() {
         {/* Catch all */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </div>
+      </div>
+    </ThemeProvider>
   )
 }
 
