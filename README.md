@@ -29,10 +29,14 @@
 
 ### 方式一：生产环境部署（Docker 一键启动，推荐）
 
-只需安装 Docker，一条命令启动所有服务：
+只需安装 Docker，几条命令启动所有服务：
 
 ```bash
+# 1. 启动所有服务
 docker compose -f docker-compose.prod.yml up -d
+
+# 2. 初始化数据库（首次部署必须执行）
+docker exec -it rss_manager_backend alembic upgrade head
 ```
 
 启动后访问：http://localhost:5666
@@ -53,6 +57,9 @@ docker compose -f docker-compose.prod.yml down
 ```bash
 # 拉取最新代码后，重建并重启所有服务
 docker compose -f docker-compose.prod.yml up -d --build
+
+# 如果有数据库结构变更，执行迁移
+docker exec -it rss_manager_backend alembic upgrade head
 ```
 
 > ⚠️ 如果只重建单个服务（如 `--build backend`），需要同时重启 frontend，否则 nginx 会因 DNS 缓存连接失败：

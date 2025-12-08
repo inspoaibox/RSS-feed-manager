@@ -1239,10 +1239,11 @@ function RulesTab() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['custom-rules'] })
+      queryClient.invalidateQueries({ queryKey: ['feeds'] })
       setShowAddRule(false)
       setFormData(emptyRule)
-      setMessage({ type: 'success', text: '规则添加成功' })
-      setTimeout(() => setMessage(null), 3000)
+      setMessage({ type: 'success', text: '规则添加成功，点击刷新按钮立即抓取' })
+      setTimeout(() => setMessage(null), 5000)
     },
     onError: (err: any) => {
       const detail = err.response?.data?.detail
@@ -1261,6 +1262,7 @@ function RulesTab() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['custom-rules'] })
+      queryClient.invalidateQueries({ queryKey: ['feeds'] })
       setEditingId(null)
       setFormData(emptyRule)
       setMessage({ type: 'success', text: '规则已更新' })
@@ -1278,12 +1280,31 @@ function RulesTab() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['custom-rules'] })
+      queryClient.invalidateQueries({ queryKey: ['feeds'] })
       setMessage({ type: 'success', text: '规则已删除' })
       setTimeout(() => setMessage(null), 3000)
     },
     onError: (err: any) => {
       const detail = err.response?.data?.detail
       setMessage({ type: 'error', text: detail || '删除失败' })
+    },
+  })
+
+  const executeRuleMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const response = await api.post<{ success: boolean; articles_found: number }>(`/rules/${id}/execute`)
+      return response.data
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['custom-rules'] })
+      queryClient.invalidateQueries({ queryKey: ['feeds'] })
+      queryClient.invalidateQueries({ queryKey: ['articles'] })
+      setMessage({ type: 'success', text: `抓取完成，新增 ${data.articles_found} 篇文章` })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: any) => {
+      const detail = err.response?.data?.detail
+      setMessage({ type: 'error', text: detail || '抓取失败' })
     },
   })
 
@@ -1622,6 +1643,14 @@ function RulesTab() {
                   <span className={`px-2 py-1 text-xs rounded ${rule.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                     {rule.is_active ? '启用' : '禁用'}
                   </span>
+                  <button
+                    onClick={() => executeRuleMutation.mutate(rule.id)}
+                    disabled={executeRuleMutation.isPending}
+                    className="p-2 text-blue-500 hover:bg-blue-50 rounded disabled:opacity-50"
+                    title="立即抓取"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${executeRuleMutation.isPending ? 'animate-spin' : ''}`} />
+                  </button>
                   <button
                     onClick={() => startEdit(rule)}
                     className="p-2 text-gray-500 hover:bg-gray-100 rounded"
