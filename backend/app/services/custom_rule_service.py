@@ -269,6 +269,8 @@ class CustomRuleService:
                 link = None
                 content = None
                 
+                published_at = None
+                
                 if rule_type == 'telegram':
                     # Telegram-specific parsing
                     text_elem = item.select_one('.tgme_widget_message_text')
@@ -283,6 +285,15 @@ class CustomRuleService:
                     link_elem = item.select_one('.tgme_widget_message_date')
                     if link_elem:
                         link = link_elem.get('href')
+                    
+                    # Get published time from <time datetime="...">
+                    time_elem = item.select_one('time[datetime]')
+                    if time_elem:
+                        try:
+                            from dateutil import parser as date_parser
+                            published_at = date_parser.parse(time_elem.get('datetime'))
+                        except:
+                            pass
                     
                     # If no text, try to get photo/video caption or skip
                     if not title:
@@ -358,7 +369,7 @@ class CustomRuleService:
                     link=link,
                     title=title,
                     content=content,
-                    published_at=datetime.utcnow(),
+                    published_at=published_at or datetime.utcnow(),
                 )
                 self.db.add(article)
                 new_articles.append({"title": title, "link": link, "content": content})

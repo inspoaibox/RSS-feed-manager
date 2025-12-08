@@ -27,6 +27,7 @@ dependencies = [
     "openai>=1.10.0",
     "google-generativeai>=0.3.2",
     "playwright>=1.40.0",
+    "python-dateutil>=2.8.2",
 ]
 
 [project.optional-dependencies]
