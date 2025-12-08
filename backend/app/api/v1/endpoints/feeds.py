@@ -52,6 +52,14 @@ async def delete_feed(feed_id: int, user_id: CurrentUserId, db: DbSession):
     await service.delete(user_id, feed_id)
 
 
+@router.post("/refresh-all")
+async def refresh_all_feeds(user_id: CurrentUserId, db: DbSession, category_id: int | None = None):
+    """Manually refresh all feeds, optionally filtered by category."""
+    service = FeedService(db)
+    result = await service.refresh_all(user_id, category_id)
+    return result
+
+
 @router.post("/{feed_id}/refresh", response_model=FeedResponse)
 async def refresh_feed(feed_id: int, user_id: CurrentUserId, db: DbSession):
     """Manually refresh a feed."""

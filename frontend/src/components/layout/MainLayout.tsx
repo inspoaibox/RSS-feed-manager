@@ -115,23 +115,30 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
                 const isExpanded = expandedCategories.has(category.id)
                 return (
                   <div key={category.id}>
-                    <button
-                      onClick={() => toggleCategory(category.id)}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-gray-700 hover:bg-gray-100 rounded-md"
-                    >
-                      {isExpanded ? (
-                        <ChevronDown className="w-4 h-4" />
-                      ) : (
-                        <ChevronRight className="w-4 h-4" />
-                      )}
-                      <FolderOpen className="w-4 h-4" />
-                      <span className="flex-1 text-left truncate">{category.name}</span>
-                      {category.unread_count > 0 && (
-                        <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">
-                          {category.unread_count}
-                        </span>
-                      )}
-                    </button>
+                    <div className="flex items-center gap-1 px-3 py-2 text-gray-700 hover:bg-gray-100 rounded-md">
+                      <button
+                        onClick={() => toggleCategory(category.id)}
+                        className="p-0.5 hover:bg-gray-200 rounded"
+                      >
+                        {isExpanded ? (
+                          <ChevronDown className="w-4 h-4" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => navigate(`/?category=${category.id}`)}
+                        className="flex-1 flex items-center gap-2 text-left"
+                      >
+                        <FolderOpen className="w-4 h-4" />
+                        <span className="flex-1 truncate">{category.name}</span>
+                        {category.unread_count > 0 && (
+                          <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">
+                            {category.unread_count}
+                          </span>
+                        )}
+                      </button>
+                    </div>
                     {isExpanded && categoryFeeds.length > 0 && (
                       <div className="ml-6">
                         {categoryFeeds.map((feed) => (

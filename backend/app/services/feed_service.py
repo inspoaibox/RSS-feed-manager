@@ -169,6 +169,38 @@ class FeedService:
             unread_count=counts.get(feed_id, {}).get('unread_count', 0)
         )
 
+    async def refresh_all(self, user_id: int, category_id: int | None = None) -> dict:
+        """Refresh all feeds for a user, optionally filtered by category."""
+        feeds = await self.repo.get_all_by_user(user_id)
+        
+        if category_id:
+            feeds = [f for f in feeds if f.category_id == category_id]
+        
+        total = len(feeds)
+        success = 0
+        failed = 0
+        new_articles = 0
+        
+        for feed in feeds:
+            try:
+                parsed = await parse_feed(feed.url, use_playwright=feed.use_playwright)
+                await self.repo.update_fetch_status(feed, success=True)
+                count = await self._save_articles(feed.id, parsed)
+                new_articles += count
+                success += 1
+            except FeedParserError:
+                await self.repo.update_fetch_status(feed, success=False, error=str(e))
+                failed += 1
+            except Exception:
+                failed += 1
+        
+        return {
+            "total": total,
+            "success": success,
+            "failed": failed,
+            "new_articles": new_articles
+        }
+
     async def import_opml(self, user_id: int, content: str) -> OPMLImportResult:
         """Import feeds from OPML content."""
         try:

@@ -142,6 +142,29 @@ export default function HomePage() {
     },
   })
 
+  const refreshFeedMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await api.post(`/feeds/${id}/refresh`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['articles'] })
+      queryClient.invalidateQueries({ queryKey: ['feeds'] })
+    },
+  })
+
+  const refreshAllMutation = useMutation({
+    mutationFn: async (catId: number | null) => {
+      const params = catId ? `?category_id=${catId}` : ''
+      const response = await api.post<{ total: number; success: number; new_articles: number }>(`/feeds/refresh-all${params}`)
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['articles'] })
+      queryClient.invalidateQueries({ queryKey: ['feeds'] })
+      queryClient.invalidateQueries({ queryKey: ['categories'] })
+    },
+  })
+
   const handleSelectArticle = async (article: Article) => {
     setSelectedArticle(article)
     if (!article.is_read) {
@@ -211,11 +234,20 @@ export default function HomePage() {
           {/* Actions Bar */}
           <div className="flex items-center gap-2">
             <button
-              onClick={() => isSearching ? refetchSearch() : refetch()}
-              className="p-2 hover:bg-gray-100 rounded"
-              title="刷新"
+              onClick={() => {
+                if (feedId) {
+                  refreshFeedMutation.mutate(parseInt(feedId))
+                } else if (categoryId) {
+                  refreshAllMutation.mutate(parseInt(categoryId))
+                } else if (!isFavorite) {
+                  refreshAllMutation.mutate(null)
+                }
+              }}
+              disabled={refreshFeedMutation.isPending || refreshAllMutation.isPending || isFavorite}
+              className="p-2 hover:bg-gray-100 rounded disabled:opacity-50"
+              title={feedId ? "同步订阅源" : categoryId ? "同步该分类所有订阅" : "同步所有订阅"}
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className={clsx("w-4 h-4", (refreshFeedMutation.isPending || refreshAllMutation.isPending) && "animate-spin")} />
             </button>
             <button
               onClick={() => markAllReadMutation.mutate()}

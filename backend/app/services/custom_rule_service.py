@@ -393,29 +393,47 @@ class CustomRuleService:
                 )
             
             # Create AI prompt
-            prompt = f"""Analyze this webpage HTML and identify the CSS selectors for a news/article list.
+            prompt = f"""分析这个网页 HTML，识别新闻/文章列表的 CSS 选择器。
 
 URL: {target_url}
-Page Title: {page_title}
+页面标题: {page_title}
 
-HTML Content:
+HTML 内容:
 ```html
 {simplified_html}
 ```
 
-Please identify:
-1. list_selector: CSS selector for each article/post item in the list (the repeating container element)
-2. title_selector: CSS selector for the article title (relative to list item)
-3. link_selector: CSS selector for the article link (relative to list item, usually an <a> tag)
-4. content_selector: CSS selector for article summary/excerpt if available (relative to list item)
+请识别以下选择器：
 
-Respond in this exact JSON format only, no other text:
+1. list_selector: 文章列表项的选择器（重复出现的容器元素，每个元素代表一篇文章）
+   - 通常是 article, li, div, 或带有特定 class 的元素
+   - 选择器应该能匹配到多个列表项
+
+2. title_selector: 标题选择器（相对于列表项内部）
+   - 通常是 h1, h2, h3, 或带有 title/heading class 的元素
+   - 这个选择器是在列表项内部查找的
+
+3. link_selector: 链接选择器（相对于列表项内部）
+   - 重要：如果列表项本身就是 <a> 标签，请填写 "self"
+   - 如果链接是列表项内部的 <a> 标签，填写 "a" 或具体的选择器
+   - 这个选择器用于获取文章的 href 链接
+
+4. content_selector: 摘要/内容选择器（可选，相对于列表项内部）
+   - 如果列表页有文章摘要，填写对应选择器
+   - 如果没有摘要，填写 null
+
+注意事项：
+- 优先使用简单的 class 选择器，避免过于复杂的选择器
+- 如果 class 名包含动态 hash（如 xxx__abc123），仍然可以使用，但要确保完整
+- title_selector 和 link_selector 是相对于 list_selector 匹配的元素内部查找的
+
+只返回 JSON 格式，不要其他文字：
 {{
-    "name": "suggested name for this rule based on the website",
-    "list_selector": "CSS selector for list items",
-    "title_selector": "CSS selector for title",
-    "link_selector": "CSS selector for link",
-    "content_selector": "CSS selector for content or null if not found"
+    "name": "根据网站建议的规则名称",
+    "list_selector": "列表项选择器",
+    "title_selector": "标题选择器",
+    "link_selector": "链接选择器，如果列表项本身是a标签则填self",
+    "content_selector": "内容选择器或null"
 }}"""
 
             # Call AI
