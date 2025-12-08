@@ -25,6 +25,12 @@ class FeedUpdate(BaseModel):
     target_language: str | None = Field(None, max_length=10)
     is_active: bool | None = None
     use_playwright: bool | None = None
+    position: int | None = None
+
+
+class FeedReorder(BaseModel):
+    """Schema for reordering feeds."""
+    feed_ids: list[int] = Field(..., description="Feed IDs in desired order")
 
 
 class FeedResponse(BaseModel):
@@ -43,6 +49,7 @@ class FeedResponse(BaseModel):
     target_language: str | None
     is_active: bool
     use_playwright: bool = False
+    position: int = 0
     unread_count: int = 0
     article_count: int = 0
 

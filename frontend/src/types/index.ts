@@ -50,6 +50,7 @@ export interface Feed {
   is_active: boolean
   target_language: string | null
   use_playwright: boolean
+  position: number
 }
 
 // Article types

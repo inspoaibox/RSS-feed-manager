@@ -8,7 +8,7 @@ from app.models.feed import Feed
 from app.repositories.article_repository import ArticleRepository
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.feed_repository import FeedRepository
-from app.schemas.feed import FeedCreate, FeedResponse, FeedUpdate, OPMLImportResult
+from app.schemas.feed import FeedCreate, FeedReorder, FeedResponse, FeedUpdate, OPMLImportResult
 from app.utils.feed_parser import FeedParserError, ParsedFeed, parse_feed
 from app.utils.opml import OPMLFeed, OPMLParseError, generate_opml, parse_opml
 
@@ -268,6 +268,16 @@ class FeedService:
         
         return count
 
+    async def reorder(self, user_id: int, data: FeedReorder) -> List[FeedResponse]:
+        """Reorder feeds by updating their positions."""
+        # Update positions based on order in feed_ids
+        for position, feed_id in enumerate(data.feed_ids):
+            feed = await self.repo.get_by_id(feed_id, user_id)
+            if feed:
+                await self.repo.update(feed, position=position)
+        
+        return await self.get_all(user_id)
+
     def _to_response(self, feed: Feed, article_count: int = 0, unread_count: int = 0) -> FeedResponse:
         """Convert feed model to response schema."""
         return FeedResponse(
@@ -285,6 +295,7 @@ class FeedService:
             target_language=feed.target_language,
             is_active=feed.is_active,
             use_playwright=feed.use_playwright,
+            position=feed.position,
             unread_count=unread_count,
             article_count=article_count
         )

@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, Save, FolderOpen, Languages } from 'lucide-react'
+import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, Save, FolderOpen, Languages, ChevronUp, ChevronDown, Search } from 'lucide-react'
 import api from '@/services/api'
 import type { Category, Feed, AIProvider, AIModel, CustomRule } from '@/types'
 
@@ -186,6 +186,31 @@ function FeedsTab() {
       setMessage({ type: 'error', text: detail || '启动翻译失败' })
     },
   })
+
+  const reorderMutation = useMutation({
+    mutationFn: async (feedIds: number[]) => {
+      const response = await api.put('/feeds/reorder', { feed_ids: feedIds })
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['feeds'] })
+    },
+    onError: (err: any) => {
+      const detail = err.response?.data?.detail
+      setMessage({ type: 'error', text: detail || '排序失败' })
+    },
+  })
+
+  const moveFeed = (index: number, direction: 'up' | 'down') => {
+    const newIndex = direction === 'up' ? index - 1 : index + 1
+    if (newIndex < 0 || newIndex >= feeds.length) return
+    
+    const newFeeds = [...feeds]
+    const [removed] = newFeeds.splice(index, 1)
+    newFeeds.splice(newIndex, 0, removed)
+    
+    reorderMutation.mutate(newFeeds.map(f => f.id))
+  }
 
   const handleExport = async () => {
     try {
@@ -474,6 +499,25 @@ function FeedsTab() {
               </div>
             ) : (
               <div className="flex items-center gap-4">
+                {/* Sort buttons */}
+                <div className="flex flex-col gap-0.5">
+                  <button
+                    onClick={() => moveFeed(feeds.indexOf(feed), 'up')}
+                    disabled={feeds.indexOf(feed) === 0 || reorderMutation.isPending}
+                    className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="上移"
+                  >
+                    <ChevronUp className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => moveFeed(feeds.indexOf(feed), 'down')}
+                    disabled={feeds.indexOf(feed) === feeds.length - 1 || reorderMutation.isPending}
+                    className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="下移"
+                  >
+                    <ChevronDown className="w-4 h-4" />
+                  </button>
+                </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="font-medium truncate">{feed.title || '无标题'}</h3>
                   <p className="text-sm text-gray-500 truncate">{feed.url}</p>

@@ -4,7 +4,7 @@ from typing import List
 from fastapi import APIRouter, File, Response, UploadFile, status
 
 from app.api.deps import CurrentUserId, DbSession
-from app.schemas.feed import FeedCreate, FeedResponse, FeedUpdate, OPMLImportResult
+from app.schemas.feed import FeedCreate, FeedReorder, FeedResponse, FeedUpdate, OPMLImportResult
 from app.services.feed_service import FeedService
 
 router = APIRouter()
@@ -64,6 +64,13 @@ async def translate_all_articles(feed_id: int, user_id: CurrentUserId, db: DbSes
     translate_feed_articles.delay(feed_id)
     
     return {"message": "翻译任务已启动", "feed_id": feed_id}
+
+
+@router.put("/reorder", response_model=List[FeedResponse])
+async def reorder_feeds(data: FeedReorder, user_id: CurrentUserId, db: DbSession):
+    """Reorder feeds by providing feed IDs in desired order."""
+    service = FeedService(db)
+    return await service.reorder(user_id, data)
 
 
 @router.post("/import", response_model=OPMLImportResult)
