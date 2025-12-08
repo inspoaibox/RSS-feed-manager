@@ -163,6 +163,31 @@ class CustomRuleService:
                 error=str(e)
             )
 
+    async def _ensure_feed_for_rule(self, rule: CustomRule) -> int:
+        """Ensure rule has an associated feed, create one if missing."""
+        if rule.feed_id:
+            return rule.feed_id
+        
+        # Create feed for legacy rule without feed_id
+        feed = Feed(
+            user_id=rule.user_id,
+            category_id=rule.category_id,
+            url=rule.target_url,
+            title=rule.name,
+            description=f"自定义抓取规则: {rule.name}",
+            fetch_interval=rule.fetch_interval,
+            auto_translate=rule.auto_translate,
+            auto_summarize=rule.auto_summarize,
+            target_language=rule.target_language,
+            is_active=rule.is_active,
+        )
+        self.db.add(feed)
+        await self.db.flush()
+        
+        rule.feed_id = feed.id
+        await self.db.commit()
+        return feed.id
+
     async def execute_rule(self, rule: CustomRule) -> list[dict]:
         """Execute a custom rule and save articles to associated feed."""
         from urllib.parse import urljoin
@@ -170,8 +195,8 @@ class CustomRuleService:
         from sqlalchemy import select
         from app.models.article import Article
         
-        if not rule.feed_id:
-            raise ValueError("Rule has no associated feed")
+        # Ensure rule has associated feed
+        feed_id = await self._ensure_feed_for_rule(rule)
         
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -184,12 +209,18 @@ class CustomRuleService:
             soup = BeautifulSoup(response.text, "html.parser")
             items = soup.select(rule.list_selector)
             
+            print(f"[CustomRule] Found {len(items)} items with selector: {rule.list_selector}")
+            
             new_articles = []
+            skipped_no_title_link = 0
+            skipped_existing = 0
+            
             for item in items:
                 title_elem = item.select_one(rule.title_selector)
                 link_elem = item.select_one(rule.link_selector)
                 
                 if not title_elem or not link_elem:
+                    skipped_no_title_link += 1
                     continue
                 
                 title = title_elem.get_text(strip=True)
@@ -208,11 +239,12 @@ class CustomRuleService:
                 # Check if article already exists
                 existing = await self.db.execute(
                     select(Article).where(
-                        Article.feed_id == rule.feed_id,
+                        Article.feed_id == feed_id,
                         Article.guid == guid
                     )
                 )
                 if existing.scalar_one_or_none():
+                    skipped_existing += 1
                     continue
                 
                 content = None
@@ -222,7 +254,7 @@ class CustomRuleService:
                 
                 # Create article
                 article = Article(
-                    feed_id=rule.feed_id,
+                    feed_id=feed_id,
                     guid=guid,
                     link=link,
                     title=title,
@@ -232,6 +264,8 @@ class CustomRuleService:
                 self.db.add(article)
                 new_articles.append({"title": title, "link": link, "content": content})
             
+            print(f"[CustomRule] Skipped {skipped_no_title_link} (no title/link), {skipped_existing} (existing), added {len(new_articles)} new")
+            
             # Update rule and feed status
             now = datetime.utcnow()
             rule.last_fetched_at = now
@@ -240,7 +274,7 @@ class CustomRuleService:
             
             # Update feed status too
             result = await self.db.execute(
-                select(Feed).where(Feed.id == rule.feed_id)
+                select(Feed).where(Feed.id == feed_id)
             )
             feed = result.scalar_one_or_none()
             if feed:
@@ -254,9 +288,9 @@ class CustomRuleService:
         except Exception as e:
             rule.last_error = str(e)
             rule.error_count += 1
-            if rule.feed_id:
+            if feed_id:
                 result = await self.db.execute(
-                    select(Feed).where(Feed.id == rule.feed_id)
+                    select(Feed).where(Feed.id == feed_id)
                 )
                 feed = result.scalar_one_or_none()
                 if feed:
