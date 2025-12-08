@@ -215,18 +215,23 @@ class ArticleService:
         return text.strip()
 
     async def translate_article(self, user_id: int, article_id: int, target_language: str) -> dict:
-        """Translate article using AI."""
+        """Translate article title and content using AI."""
         article = await self._verify_article_access(user_id, article_id)
         
-        content = article.content or article.title
-        if not content:
+        content = article.content or ""
+        title = article.title or ""
+        
+        if not content and not title:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Article has no content to translate"
             )
         
-        # Extract plain text from HTML
-        content = self._extract_text_from_html(content)
+        # Extract plain text from HTML content
+        content_text = self._extract_text_from_html(content) if content else ""
+        
+        # Combine title and content for translation
+        text_to_translate = f"[TITLE]\n{title}\n[/TITLE]\n\n[CONTENT]\n{content_text}\n[/CONTENT]"
         
         # Get default AI model
         from app.repositories.ai_repository import AIModelRepository, AIProviderRepository
@@ -257,9 +262,9 @@ class ArticleService:
         from app.services.ai_client import create_ai_client, AIClientError
         try:
             client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
-            translation = await client.translate(content, target_language, custom_prompt)
+            translation = await client.translate(text_to_translate, target_language, custom_prompt)
             
-            # Save translation
+            # Save translation (includes both title and content)
             article.translation = translation
             await self.session.commit()
             

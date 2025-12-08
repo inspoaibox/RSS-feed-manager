@@ -6,6 +6,26 @@ import api from '@/services/api'
 import type { Article, PaginatedResponse } from '@/types'
 import clsx from 'clsx'
 
+// Helper function to strip HTML tags and get plain text
+const stripHtml = (html: string | null | undefined): string => {
+  if (!html) return ''
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  return doc.body.textContent || ''
+}
+
+// Helper function to parse translation with title and content markers
+const parseTranslation = (translation: string | null | undefined): { title: string; content: string } => {
+  if (!translation) return { title: '', content: '' }
+  
+  const titleMatch = translation.match(/\[TITLE\]\s*([\s\S]*?)\s*\[\/TITLE\]/)
+  const contentMatch = translation.match(/\[CONTENT\]\s*([\s\S]*?)\s*\[\/CONTENT\]/)
+  
+  return {
+    title: titleMatch ? titleMatch[1].trim() : '',
+    content: contentMatch ? contentMatch[1].trim() : translation
+  }
+}
+
 export default function HomePage() {
   const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
@@ -264,7 +284,7 @@ export default function HomePage() {
                       </h3>
                     </div>
                     <p className="text-xs text-gray-500 mt-1 line-clamp-2">
-                      {article.summary || article.content?.slice(0, 100)}
+                      {stripHtml(article.summary || article.content)?.slice(0, 150)}
                     </p>
                     <div className="flex items-center gap-2 mt-2 text-xs text-gray-400">
                       <span>{new Date(article.published_at).toLocaleString('zh-CN', { 
@@ -338,55 +358,64 @@ export default function HomePage() {
             </div>
           </div>
           <article className="p-6 max-w-3xl mx-auto">
-            <h1 className="text-2xl font-bold text-gray-900 mb-4">
-              {selectedArticle.title}
-            </h1>
-            <div className="flex items-center gap-4 text-sm text-gray-500 mb-6">
-              <span>{new Date(selectedArticle.published_at).toLocaleString()}</span>
-              {selectedArticle.author && <span>作者: {selectedArticle.author}</span>}
-            </div>
-            {selectedArticle.summary && (
-              <div className="mb-6 p-4 bg-green-50 rounded-lg">
-                <h3 className="text-sm font-semibold text-green-700 mb-2">AI 整理</h3>
-                <div className="text-gray-700 prose prose-sm max-w-none whitespace-pre-wrap">
-                  {selectedArticle.summary}
-                </div>
-              </div>
-            )}
-            {selectedArticle.translation && (
-              <div className="mb-4 flex gap-2">
-                <button
-                  onClick={() => setShowTranslation(true)}
-                  className={clsx(
-                    'px-3 py-1 text-sm rounded',
-                    showTranslation ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            {(() => {
+              const translatedData = parseTranslation(selectedArticle.translation)
+              const showingTranslation = selectedArticle.translation && showTranslation
+              
+              return (
+                <>
+                  <h1 className="text-2xl font-bold text-gray-900 mb-4">
+                    {showingTranslation && translatedData.title ? translatedData.title : selectedArticle.title}
+                  </h1>
+                  <div className="flex items-center gap-4 text-sm text-gray-500 mb-6">
+                    <span>{new Date(selectedArticle.published_at).toLocaleString()}</span>
+                    {selectedArticle.author && <span>作者: {selectedArticle.author}</span>}
+                  </div>
+                  {selectedArticle.summary && (
+                    <div className="mb-6 p-4 bg-green-50 rounded-lg">
+                      <h3 className="text-sm font-semibold text-green-700 mb-2">AI 整理</h3>
+                      <div className="text-gray-700 prose prose-sm max-w-none whitespace-pre-wrap">
+                        {selectedArticle.summary}
+                      </div>
+                    </div>
                   )}
-                >
-                  译文
-                </button>
-                <button
-                  onClick={() => setShowTranslation(false)}
-                  className={clsx(
-                    'px-3 py-1 text-sm rounded',
-                    !showTranslation ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  {selectedArticle.translation && (
+                    <div className="mb-4 flex gap-2">
+                      <button
+                        onClick={() => setShowTranslation(true)}
+                        className={clsx(
+                          'px-3 py-1 text-sm rounded',
+                          showTranslation ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        )}
+                      >
+                        译文
+                      </button>
+                      <button
+                        onClick={() => setShowTranslation(false)}
+                        className={clsx(
+                          'px-3 py-1 text-sm rounded',
+                          !showTranslation ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        )}
+                      >
+                        原文
+                      </button>
+                    </div>
                   )}
-                >
-                  原文
-                </button>
-              </div>
-            )}
-            {selectedArticle.translation && showTranslation ? (
-              <div className="prose prose-sm max-w-none whitespace-pre-wrap">
-                {selectedArticle.translation}
-              </div>
-            ) : (
-              <div
-                className="prose prose-sm max-w-none"
-                dangerouslySetInnerHTML={{
-                  __html: selectedArticle.full_content || selectedArticle.content || ''
-                }}
-              />
-            )}
+                  {showingTranslation ? (
+                    <div className="prose prose-sm max-w-none whitespace-pre-wrap">
+                      {translatedData.content}
+                    </div>
+                  ) : (
+                    <div
+                      className="prose prose-sm max-w-none"
+                      dangerouslySetInnerHTML={{
+                        __html: selectedArticle.full_content || selectedArticle.content || ''
+                      }}
+                    />
+                  )}
+                </>
+              )
+            })()}
           </article>
         </div>
       )}
