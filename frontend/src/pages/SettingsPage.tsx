@@ -1201,6 +1201,7 @@ function RulesTab() {
   const emptyRule = {
     name: '',
     target_url: '',
+    rule_type: 'general' as 'general' | 'telegram',
     list_selector: '',
     title_selector: '',
     link_selector: '',
@@ -1368,9 +1369,10 @@ function RulesTab() {
     setFormData({
       name: rule.name,
       target_url: rule.target_url,
+      rule_type: (rule.rule_type as 'general' | 'telegram') || 'general',
       list_selector: rule.list_selector,
       title_selector: rule.title_selector,
-      link_selector: rule.link_selector,
+      link_selector: rule.link_selector || '',
       content_selector: rule.content_selector || '',
       date_selector: rule.date_selector || '',
       category_id: rule.category_id,
@@ -1386,67 +1388,98 @@ function RulesTab() {
     setFormData(emptyRule)
   }
 
+  const handleRuleTypeChange = (type: 'general' | 'telegram') => {
+    if (type === 'telegram') {
+      setFormData({
+        ...formData,
+        rule_type: type,
+        list_selector: '.tgme_widget_message_wrap',
+        title_selector: '.tgme_widget_message_text',
+        link_selector: '.tgme_widget_message_date',
+        content_selector: '.tgme_widget_message_text',
+      })
+    } else {
+      setFormData({
+        ...formData,
+        rule_type: type,
+        list_selector: '',
+        title_selector: '',
+        link_selector: '',
+        content_selector: '',
+      })
+    }
+  }
+
   const renderForm = (isEdit: boolean) => (
     <div className="mb-4 p-4 border rounded bg-gray-50 space-y-3">
-      <input
-        type="text"
-        placeholder="规则名称"
-        value={formData.name}
-        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-        className="w-full px-3 py-2 border rounded"
-      />
+      <div className="flex gap-2">
+        <select
+          value={formData.rule_type}
+          onChange={(e) => handleRuleTypeChange(e.target.value as 'general' | 'telegram')}
+          className="px-3 py-2 border rounded"
+        >
+          <option value="general">通用规则</option>
+          <option value="telegram">Telegram 频道</option>
+        </select>
+        <input
+          type="text"
+          placeholder="规则名称"
+          value={formData.name}
+          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+          className="flex-1 px-3 py-2 border rounded"
+        />
+      </div>
       <div className="flex gap-2">
         <input
           type="url"
-          placeholder="目标网址"
+          placeholder={formData.rule_type === 'telegram' ? 'Telegram 频道链接 (如 https://t.me/s/channel_name)' : '目标网址'}
           value={formData.target_url}
           onChange={(e) => setFormData({ ...formData, target_url: e.target.value })}
           className="flex-1 px-3 py-2 border rounded"
         />
-        <button
-          type="button"
-          onClick={() => generateRuleMutation.mutate(formData.target_url)}
-          disabled={!formData.target_url || generateRuleMutation.isPending}
-          className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 whitespace-nowrap"
-        >
-          {generateRuleMutation.isPending ? '分析中...' : '🤖 AI 生成'}
-        </button>
+        {formData.rule_type === 'general' && (
+          <button
+            type="button"
+            onClick={() => generateRuleMutation.mutate(formData.target_url)}
+            disabled={!formData.target_url || generateRuleMutation.isPending}
+            className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 whitespace-nowrap"
+          >
+            {generateRuleMutation.isPending ? '分析中...' : '🤖 AI 生成'}
+          </button>
+        )}
       </div>
-      <input
-        type="text"
-        placeholder="列表选择器 (CSS Selector)"
-        value={formData.list_selector}
-        onChange={(e) => setFormData({ ...formData, list_selector: e.target.value })}
-        className="w-full px-3 py-2 border rounded"
-      />
-      <input
-        type="text"
-        placeholder="标题选择器"
-        value={formData.title_selector}
-        onChange={(e) => setFormData({ ...formData, title_selector: e.target.value })}
-        className="w-full px-3 py-2 border rounded"
-      />
-      <input
-        type="text"
-        placeholder="链接选择器 (可选，留空则用标题生成ID)"
-        value={formData.link_selector}
-        onChange={(e) => setFormData({ ...formData, link_selector: e.target.value })}
-        className="w-full px-3 py-2 border rounded"
-      />
-      <input
-        type="text"
-        placeholder="内容选择器 (可选)"
-        value={formData.content_selector}
-        onChange={(e) => setFormData({ ...formData, content_selector: e.target.value })}
-        className="w-full px-3 py-2 border rounded"
-      />
-      <input
-        type="text"
-        placeholder="日期选择器 (可选)"
-        value={formData.date_selector}
-        onChange={(e) => setFormData({ ...formData, date_selector: e.target.value })}
-        className="w-full px-3 py-2 border rounded"
-      />
+      {formData.rule_type === 'general' && (
+        <>
+          <input
+            type="text"
+            placeholder="列表选择器 (CSS Selector)"
+            value={formData.list_selector}
+            onChange={(e) => setFormData({ ...formData, list_selector: e.target.value })}
+            className="w-full px-3 py-2 border rounded"
+          />
+          <input
+            type="text"
+            placeholder="链接选择器 (可选，留空则用标题生成ID)"
+            value={formData.link_selector}
+            onChange={(e) => setFormData({ ...formData, link_selector: e.target.value })}
+            className="w-full px-3 py-2 border rounded"
+          />
+          <input
+            type="text"
+            placeholder="内容选择器 (可选)"
+            value={formData.content_selector}
+            onChange={(e) => setFormData({ ...formData, content_selector: e.target.value })}
+            className="w-full px-3 py-2 border rounded"
+          />
+          <input
+            type="text"
+            placeholder="日期选择器 (可选)"
+            value={formData.date_selector}
+            onChange={(e) => setFormData({ ...formData, date_selector: e.target.value })}
+            className="w-full px-3 py-2 border rounded"
+          />
+        </>
+      )}
       <div className="flex gap-2">
         <select
           value={formData.category_id || ''}

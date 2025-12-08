@@ -8,6 +8,7 @@ class CustomRuleBase(BaseModel):
     """Base custom rule schema."""
     name: str = Field(..., min_length=1, max_length=100)
     target_url: str = Field(..., max_length=2048)
+    rule_type: str = Field(default='general', max_length=20)  # general, telegram
     list_selector: str = Field(..., max_length=500)
     title_selector: str = Field(..., max_length=500)
     link_selector: str | None = Field(None, max_length=500)
@@ -30,6 +31,7 @@ class CustomRuleUpdate(BaseModel):
     """Schema for updating a custom rule."""
     name: str | None = Field(None, min_length=1, max_length=100)
     target_url: str | None = Field(None, max_length=2048)
+    rule_type: str | None = Field(None, max_length=20)
     category_id: int | None = None
     list_selector: str | None = Field(None, max_length=500)
     title_selector: str | None = Field(None, max_length=500)

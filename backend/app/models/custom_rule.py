@@ -31,11 +31,12 @@ class CustomRule(BaseModel):
     # Rule identification
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     target_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    rule_type: Mapped[str] = mapped_column(String(20), nullable=False, default='general')  # general, telegram
     
     # CSS selectors for content extraction
     list_selector: Mapped[str] = mapped_column(String(500), nullable=False)  # Selector for article list
     title_selector: Mapped[str] = mapped_column(String(500), nullable=False)  # Selector for title
-    link_selector: Mapped[str] = mapped_column(String(500), nullable=False)  # Selector for link
+    link_selector: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Selector for link
     content_selector: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Selector for content
     date_selector: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Selector for date
     

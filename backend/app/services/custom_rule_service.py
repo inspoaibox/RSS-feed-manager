@@ -248,38 +248,79 @@ class CustomRuleService:
                 print(f"[CustomRule] HTTP loaded {len(html_content)} bytes")
             
             soup = BeautifulSoup(html_content, "html.parser")
-            items = soup.select(rule.list_selector)
             
-            print(f"[CustomRule] Found {len(items)} items with selector: {rule.list_selector}")
+            # Use specialized parser for telegram
+            rule_type = getattr(rule, 'rule_type', 'general') or 'general'
+            print(f"[CustomRule] rule_type={rule_type}")
+            
+            if rule_type == 'telegram':
+                items = soup.select('.tgme_widget_message_wrap')
+            else:
+                items = soup.select(rule.list_selector)
+            
+            print(f"[CustomRule] Found {len(items)} items")
             
             new_articles = []
             skipped_no_title_link = 0
             skipped_existing = 0
             
             for idx, item in enumerate(items):
-                title_elem = item.select_one(rule.title_selector)
-                
-                # Handle link: if selector is empty or "self", use the item itself
-                if not rule.link_selector or rule.link_selector.lower() in ('self', '.', 'this'):
-                    link_elem = item if item.name == 'a' else item.find('a')
-                else:
-                    link_elem = item.select_one(rule.link_selector)
-                
-                # Get link - if link_elem is the <a> tag itself, get href directly
+                title = None
                 link = None
-                if link_elem:
-                    link = link_elem.get("href")
-                    # If no href on selected element, try to find <a> inside it
-                    if not link and link_elem.name != 'a':
-                        inner_a = link_elem.find('a')
-                        if inner_a:
-                            link = inner_a.get('href')
+                content = None
                 
-                if not title_elem:
-                    skipped_no_title_link += 1
-                    continue
-                
-                title = title_elem.get_text(strip=True)
+                if rule_type == 'telegram':
+                    # Telegram-specific parsing
+                    text_elem = item.select_one('.tgme_widget_message_text')
+                    if text_elem:
+                        content = str(text_elem)  # Keep HTML
+                        # Use first 100 chars as title
+                        title = text_elem.get_text(strip=True)[:100]
+                        if len(text_elem.get_text(strip=True)) > 100:
+                            title += '...'
+                    
+                    # Get message link
+                    link_elem = item.select_one('.tgme_widget_message_date')
+                    if link_elem:
+                        link = link_elem.get('href')
+                    
+                    # If no text, try to get photo/video caption or skip
+                    if not title:
+                        # Check for forwarded message or media
+                        fwd = item.select_one('.tgme_widget_message_forwarded_from')
+                        if fwd:
+                            title = f"[转发] {fwd.get_text(strip=True)}"
+                        else:
+                            skipped_no_title_link += 1
+                            continue
+                else:
+                    # General rule parsing
+                    title_elem = item.select_one(rule.title_selector)
+                    
+                    # Handle link: if selector is empty or "self", use the item itself
+                    if not rule.link_selector or rule.link_selector.lower() in ('self', '.', 'this'):
+                        link_elem = item if item.name == 'a' else item.find('a')
+                    else:
+                        link_elem = item.select_one(rule.link_selector)
+                    
+                    # Get link - if link_elem is the <a> tag itself, get href directly
+                    if link_elem:
+                        link = link_elem.get("href")
+                        # If no href on selected element, try to find <a> inside it
+                        if not link and link_elem.name != 'a':
+                            inner_a = link_elem.find('a')
+                            if inner_a:
+                                link = inner_a.get('href')
+                    
+                    if not title_elem:
+                        skipped_no_title_link += 1
+                        continue
+                    
+                    title = title_elem.get_text(strip=True)
+                    
+                    if rule.content_selector:
+                        content_elem = item.select_one(rule.content_selector)
+                        content = content_elem.get_text(strip=True) if content_elem else None
                 
                 if not title:
                     skipped_no_title_link += 1
@@ -309,11 +350,6 @@ class CustomRuleService:
                 if existing.scalar_one_or_none():
                     skipped_existing += 1
                     continue
-                
-                content = None
-                if rule.content_selector:
-                    content_elem = item.select_one(rule.content_selector)
-                    content = content_elem.get_text(strip=True) if content_elem else None
                 
                 # Create article
                 article = Article(

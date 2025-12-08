@@ -127,7 +127,11 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
                         )}
                       </button>
                       <button
-                        onClick={() => navigate(`/?category=${category.id}`)}
+                        onClick={() => {
+                          // 展开该分类
+                          setExpandedCategories((prev) => new Set(prev).add(category.id))
+                          navigate(`/?category=${category.id}`)
+                        }}
                         className="flex-1 flex items-center gap-2 text-left"
                       >
                         <FolderOpen className="w-4 h-4" />

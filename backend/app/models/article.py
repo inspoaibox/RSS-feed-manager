@@ -26,7 +26,7 @@ class Article(BaseModel):
     
     # Article identifiers
     guid: Mapped[str] = mapped_column(String(2048), nullable=False)
-    link: Mapped[str] = mapped_column(String(2048), nullable=False)
+    link: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     
     # Content
     title: Mapped[str] = mapped_column(String(500), nullable=False)

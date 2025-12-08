@@ -94,9 +94,10 @@ export interface CustomRule {
   feed_id: number | null
   name: string
   target_url: string
+  rule_type: 'general' | 'telegram'
   list_selector: string
   title_selector: string
-  link_selector: string
+  link_selector: string | null
   content_selector: string | null
   date_selector: string | null
   fetch_interval: number
