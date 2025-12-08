@@ -67,6 +67,10 @@ function FeedsTab() {
     auto_summarize: boolean
     target_language: string
   }>({ title: '', category_id: null, fetch_interval: 3600, is_active: true, use_playwright: false, auto_translate: false, auto_summarize: false, target_language: 'zh-CN' })
+  
+  // Filter states
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState<number | 'all' | 'uncategorized'>('all')
 
   const { data: feeds = [] } = useQuery({
     queryKey: ['feeds'],
@@ -201,12 +205,16 @@ function FeedsTab() {
     },
   })
 
-  const moveFeed = (index: number, direction: 'up' | 'down') => {
-    const newIndex = direction === 'up' ? index - 1 : index + 1
+  const moveFeed = (feedId: number, direction: 'up' | 'down') => {
+    // Find index in full feeds array (not filtered)
+    const currentIndex = feeds.findIndex(f => f.id === feedId)
+    if (currentIndex === -1) return
+    
+    const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
     if (newIndex < 0 || newIndex >= feeds.length) return
     
     const newFeeds = [...feeds]
-    const [removed] = newFeeds.splice(index, 1)
+    const [removed] = newFeeds.splice(currentIndex, 1)
     newFeeds.splice(newIndex, 0, removed)
     
     reorderMutation.mutate(newFeeds.map(f => f.id))
@@ -266,6 +274,46 @@ function FeedsTab() {
     return `${Math.floor(seconds / 3600)} 小时`
   }
 
+  // Filter feeds by category and search query
+  const filteredFeeds = useMemo(() => {
+    return feeds.filter(feed => {
+      // Category filter
+      if (selectedCategory === 'uncategorized' && feed.category_id !== null) return false
+      if (typeof selectedCategory === 'number' && feed.category_id !== selectedCategory) return false
+      
+      // Search filter
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase()
+        return feed.title.toLowerCase().includes(query) || feed.url.toLowerCase().includes(query)
+      }
+      return true
+    })
+  }, [feeds, selectedCategory, searchQuery])
+
+  // Check if URL is Telegram
+  const isTelegramUrl = (url: string) => {
+    return url.includes('t.me/') || url.includes('telegram.me/')
+  }
+
+  // Convert Telegram URL to RSSHub format
+  const convertTelegramUrl = (url: string) => {
+    const match = url.match(/(?:t\.me|telegram\.me)\/([^\/\?]+)/)
+    if (match) {
+      return `https://rsshub.app/telegram/channel/${match[1]}`
+    }
+    return url
+  }
+
+  const handleUrlChange = (url: string) => {
+    if (isTelegramUrl(url)) {
+      setNewFeedUrl(convertTelegramUrl(url))
+      setMessage({ type: 'success', text: '已自动转换为 RSSHub 格式' })
+      setTimeout(() => setMessage(null), 3000)
+    } else {
+      setNewFeedUrl(url)
+    }
+  }
+
   return (
     <div>
       {message && (
@@ -273,7 +321,9 @@ function FeedsTab() {
           {message.text}
         </div>
       )}
-      <div className="flex items-center gap-2 mb-4">
+      
+      {/* Action buttons */}
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
         <button
           onClick={() => setShowAddForm(true)}
           className="flex items-center gap-1 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
@@ -292,15 +342,72 @@ function FeedsTab() {
         </label>
       </div>
 
+      {/* Search and Category Filter */}
+      <div className="mb-4 space-y-3">
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="搜索订阅源..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-3 py-2 border rounded"
+          />
+        </div>
+        
+        {/* Category tabs */}
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => setSelectedCategory('all')}
+            className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
+              selectedCategory === 'all'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            全部 ({feeds.length})
+          </button>
+          <button
+            onClick={() => setSelectedCategory('uncategorized')}
+            className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
+              selectedCategory === 'uncategorized'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            未分类 ({feeds.filter(f => !f.category_id).length})
+          </button>
+          {categories.map(cat => (
+            <button
+              key={cat.id}
+              onClick={() => setSelectedCategory(cat.id)}
+              className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
+                selectedCategory === cat.id
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {cat.name} ({feeds.filter(f => f.category_id === cat.id).length})
+            </button>
+          ))}
+        </div>
+      </div>
+
       {showAddForm && (
         <div className="mb-4 p-4 border rounded bg-gray-50 space-y-3">
-          <input
-            type="url"
-            placeholder="RSS 订阅地址"
-            value={newFeedUrl}
-            onChange={(e) => setNewFeedUrl(e.target.value)}
-            className="w-full px-3 py-2 border rounded"
-          />
+          <div>
+            <input
+              type="text"
+              placeholder="RSS 订阅地址 (支持 Telegram 频道链接自动转换)"
+              value={newFeedUrl}
+              onChange={(e) => handleUrlChange(e.target.value)}
+              className="w-full px-3 py-2 border rounded"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              💡 支持直接粘贴 Telegram 频道链接 (如 https://t.me/channel_name)，将自动转换为 RSSHub 格式
+            </p>
+          </div>
           <div className="flex gap-2">
             <select
               value={newFeedCategory || ''}
@@ -390,7 +497,7 @@ function FeedsTab() {
       )}
 
       <div className="border rounded divide-y">
-        {feeds.map((feed) => (
+        {filteredFeeds.map((feed) => (
           <div key={feed.id} className="p-4">
             {editingId === feed.id ? (
               <div className="space-y-3">
@@ -499,25 +606,27 @@ function FeedsTab() {
               </div>
             ) : (
               <div className="flex items-center gap-4">
-                {/* Sort buttons */}
-                <div className="flex flex-col gap-0.5">
-                  <button
-                    onClick={() => moveFeed(feeds.indexOf(feed), 'up')}
-                    disabled={feeds.indexOf(feed) === 0 || reorderMutation.isPending}
-                    className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                    title="上移"
-                  >
-                    <ChevronUp className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => moveFeed(feeds.indexOf(feed), 'down')}
-                    disabled={feeds.indexOf(feed) === feeds.length - 1 || reorderMutation.isPending}
-                    className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                    title="下移"
-                  >
-                    <ChevronDown className="w-4 h-4" />
-                  </button>
-                </div>
+                {/* Sort buttons - only show when not filtering */}
+                {selectedCategory === 'all' && !searchQuery && (
+                  <div className="flex flex-col gap-0.5">
+                    <button
+                      onClick={() => moveFeed(feed.id, 'up')}
+                      disabled={feeds.indexOf(feed) === 0 || reorderMutation.isPending}
+                      className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="上移"
+                    >
+                      <ChevronUp className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => moveFeed(feed.id, 'down')}
+                      disabled={feeds.indexOf(feed) === feeds.length - 1 || reorderMutation.isPending}
+                      className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="下移"
+                    >
+                      <ChevronDown className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
                 <div className="flex-1 min-w-0">
                   <h3 className="font-medium truncate">{feed.title || '无标题'}</h3>
                   <p className="text-sm text-gray-500 truncate">{feed.url}</p>
@@ -576,8 +685,10 @@ function FeedsTab() {
             )}
           </div>
         ))}
-        {feeds.length === 0 && (
-          <div className="p-4 text-center text-gray-500">暂无订阅源</div>
+        {filteredFeeds.length === 0 && (
+          <div className="p-4 text-center text-gray-500">
+            {feeds.length === 0 ? '暂无订阅源' : '没有匹配的订阅源'}
+          </div>
         )}
       </div>
     </div>
