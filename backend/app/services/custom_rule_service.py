@@ -241,9 +241,15 @@ class CustomRuleService:
             skipped_no_title_link = 0
             skipped_existing = 0
             
-            for item in items:
+            for idx, item in enumerate(items):
                 title_elem = item.select_one(rule.title_selector)
                 link_elem = item.select_one(rule.link_selector)
+                
+                # Debug first item
+                if idx == 0:
+                    print(f"[CustomRule] First item HTML (truncated): {str(item)[:500]}")
+                    print(f"[CustomRule] title_selector='{rule.title_selector}' found={title_elem is not None}")
+                    print(f"[CustomRule] link_selector='{rule.link_selector}' found={link_elem is not None}")
                 
                 if not title_elem or not link_elem:
                     skipped_no_title_link += 1
