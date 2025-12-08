@@ -190,3 +190,93 @@ class ArticleService:
             is_favorite=data.get("is_favorite", False),
             read_at=data.get("read_at")
         )
+
+    async def translate_article(self, user_id: int, article_id: int, target_language: str) -> dict:
+        """Translate article using AI."""
+        article = await self._verify_article_access(user_id, article_id)
+        
+        content = article.content or article.title
+        if not content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Article has no content to translate"
+            )
+        
+        # Get default AI model
+        from app.repositories.ai_repository import AIRepository
+        ai_repo = AIRepository(self.session)
+        default_model = await ai_repo.get_default_model()
+        
+        if not default_model:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No default AI model configured"
+            )
+        
+        provider = await ai_repo.get_provider_by_id(default_model.provider_id)
+        if not provider:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="AI provider not found"
+            )
+        
+        from app.services.ai_client import create_ai_client, AIClientError
+        try:
+            client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
+            translation = await client.translate(content, target_language)
+            
+            # Save translation
+            article.translation = translation
+            await self.session.commit()
+            
+            return {"translation": translation}
+        except AIClientError as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"AI translation failed: {str(e)}"
+            )
+
+    async def summarize_article(self, user_id: int, article_id: int) -> dict:
+        """Summarize article using AI."""
+        article = await self._verify_article_access(user_id, article_id)
+        
+        content = article.content or article.title
+        if not content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Article has no content to summarize"
+            )
+        
+        # Get default AI model
+        from app.repositories.ai_repository import AIRepository
+        ai_repo = AIRepository(self.session)
+        default_model = await ai_repo.get_default_model()
+        
+        if not default_model:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No default AI model configured"
+            )
+        
+        provider = await ai_repo.get_provider_by_id(default_model.provider_id)
+        if not provider:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="AI provider not found"
+            )
+        
+        from app.services.ai_client import create_ai_client, AIClientError
+        try:
+            client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
+            summary = await client.summarize(content)
+            
+            # Save summary
+            article.summary = summary
+            await self.session.commit()
+            
+            return {"summary": summary}
+        except AIClientError as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"AI summarization failed: {str(e)}"
+            )

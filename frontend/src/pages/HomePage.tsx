@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Check, Star, ExternalLink, Search, SortAsc, SortDesc, X } from 'lucide-react'
+import { RefreshCw, Check, Star, ExternalLink, Search, SortAsc, SortDesc, X, Languages, FileText, Loader2 } from 'lucide-react'
 import api from '@/services/api'
 import type { Article, PaginatedResponse } from '@/types'
 import clsx from 'clsx'
@@ -75,6 +75,32 @@ export default function HomePage() {
       if (selectedArticle?.id === articleId) {
         setSelectedArticle(prev => prev ? { ...prev, is_favorite: data.is_favorite } : null)
       }
+    },
+  })
+
+  const translateMutation = useMutation({
+    mutationFn: async (articleId: number) => {
+      const response = await api.post<{ translation: string }>(`/articles/${articleId}/translate?target_language=zh-CN`)
+      return response.data
+    },
+    onSuccess: (data) => {
+      if (selectedArticle) {
+        setSelectedArticle(prev => prev ? { ...prev, translation: data.translation } : null)
+      }
+      queryClient.invalidateQueries({ queryKey: ['articles'] })
+    },
+  })
+
+  const summarizeMutation = useMutation({
+    mutationFn: async (articleId: number) => {
+      const response = await api.post<{ summary: string }>(`/articles/${articleId}/summarize`)
+      return response.data
+    },
+    onSuccess: (data) => {
+      if (selectedArticle) {
+        setSelectedArticle(prev => prev ? { ...prev, summary: data.summary } : null)
+      }
+      queryClient.invalidateQueries({ queryKey: ['articles'] })
     },
   })
 
@@ -281,6 +307,22 @@ export default function HomePage() {
               ← 返回
             </button>
             <div className="ml-auto flex items-center gap-1">
+              <button
+                onClick={() => translateMutation.mutate(selectedArticle.id)}
+                disabled={translateMutation.isPending}
+                className="p-2 hover:bg-gray-100 rounded text-purple-600 disabled:opacity-50"
+                title="AI 翻译"
+              >
+                {translateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Languages className="w-4 h-4" />}
+              </button>
+              <button
+                onClick={() => summarizeMutation.mutate(selectedArticle.id)}
+                disabled={summarizeMutation.isPending}
+                className="p-2 hover:bg-gray-100 rounded text-green-600 disabled:opacity-50"
+                title="AI 整理"
+              >
+                {summarizeMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+              </button>
               {selectedArticle.link && (
                 <a
                   href={selectedArticle.link}
@@ -305,8 +347,16 @@ export default function HomePage() {
             {selectedArticle.translation && (
               <div className="mb-6 p-4 bg-blue-50 rounded-lg">
                 <h3 className="text-sm font-semibold text-blue-700 mb-2">AI 翻译</h3>
-                <div className="text-gray-700 prose prose-sm max-w-none">
+                <div className="text-gray-700 prose prose-sm max-w-none whitespace-pre-wrap">
                   {selectedArticle.translation}
+                </div>
+              </div>
+            )}
+            {selectedArticle.summary && (
+              <div className="mb-6 p-4 bg-green-50 rounded-lg">
+                <h3 className="text-sm font-semibold text-green-700 mb-2">AI 整理</h3>
+                <div className="text-gray-700 prose prose-sm max-w-none whitespace-pre-wrap">
+                  {selectedArticle.summary}
                 </div>
               </div>
             )}

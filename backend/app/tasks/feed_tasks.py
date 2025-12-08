@@ -299,6 +299,80 @@ def execute_all_custom_rules() -> dict:
         }
 
 
+@shared_task(name="app.tasks.feed_tasks.translate_feed_articles")
+def translate_feed_articles(feed_id: int) -> dict:
+    """Translate all untranslated articles in a feed."""
+    with SyncSessionLocal() as db:
+        feed = db.execute(select(Feed).where(Feed.id == feed_id)).scalar_one_or_none()
+        if not feed:
+            return {"success": False, "error": "Feed not found"}
+        
+        if not feed.auto_translate or not feed.target_language:
+            return {"success": False, "error": "Feed does not have translation enabled"}
+        
+        # Get default model
+        default_model = db.execute(
+            select(AIModel).where(AIModel.is_default == True)
+        ).scalar_one_or_none()
+        
+        if not default_model:
+            return {"success": False, "error": "No default AI model configured"}
+        
+        provider = db.execute(
+            select(AIProvider).where(AIProvider.id == default_model.provider_id)
+        ).scalar_one_or_none()
+        
+        if not provider:
+            return {"success": False, "error": "AI provider not found"}
+        
+        # Get untranslated articles
+        articles = db.execute(
+            select(Article).where(
+                Article.feed_id == feed_id,
+                Article.translation == None
+            )
+        ).scalars().all()
+        
+        if not articles:
+            return {"success": True, "translated": 0, "message": "No articles to translate"}
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        translated_count = 0
+        errors = 0
+        
+        try:
+            from app.services.ai_client import create_ai_client, AIClientError
+            client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
+            
+            for article in articles:
+                content = article.content or article.title
+                if not content:
+                    continue
+                
+                try:
+                    translation = loop.run_until_complete(client.translate(content, feed.target_language))
+                    article.translation = translation
+                    db.commit()
+                    translated_count += 1
+                    print(f"Translated article {article.id}: {article.title[:50]}...")
+                except AIClientError as e:
+                    print(f"AI translate error for article {article.id}: {e}")
+                    errors += 1
+                except Exception as e:
+                    print(f"Error translating article {article.id}: {e}")
+                    errors += 1
+        finally:
+            loop.close()
+        
+        return {
+            "success": True,
+            "translated": translated_count,
+            "errors": errors,
+            "total": len(articles)
+        }
+
+
 @shared_task(name="app.tasks.feed_tasks.cleanup_old_articles")
 def cleanup_old_articles(days: int = 90) -> dict:
     """Clean up articles older than specified days (excluding favorites)."""

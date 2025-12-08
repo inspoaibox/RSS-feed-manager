@@ -104,3 +104,28 @@ async def mark_all_read(
     service = ArticleService(db)
     count = await service.mark_all_read(user_id, data.feed_id, data.category_id)
     return {"marked_count": count}
+
+
+@router.post("/{article_id}/translate")
+async def translate_article(
+    article_id: int,
+    user_id: CurrentUserId,
+    db: DbSession,
+    target_language: str = Query("zh-CN")
+):
+    """Translate article content using AI."""
+    service = ArticleService(db)
+    result = await service.translate_article(user_id, article_id, target_language)
+    return result
+
+
+@router.post("/{article_id}/summarize")
+async def summarize_article(
+    article_id: int,
+    user_id: CurrentUserId,
+    db: DbSession
+):
+    """Summarize article content using AI."""
+    service = ArticleService(db)
+    result = await service.summarize_article(user_id, article_id)
+    return result

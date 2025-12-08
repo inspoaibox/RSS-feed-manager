@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, Save, FolderOpen } from 'lucide-react'
+import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, Save, FolderOpen, Languages } from 'lucide-react'
 import api from '@/services/api'
 import type { Category, Feed, AIProvider, AIModel, CustomRule } from '@/types'
 
@@ -169,6 +169,21 @@ function FeedsTab() {
     onError: (err: any) => {
       const detail = err.response?.data?.detail
       setMessage({ type: 'error', text: detail || '刷新失败' })
+    },
+  })
+
+  const translateAllMutation = useMutation({
+    mutationFn: async (feedId: number) => {
+      const response = await api.post(`/feeds/${feedId}/translate-all`)
+      return response.data
+    },
+    onSuccess: (data) => {
+      setMessage({ type: 'success', text: data.message || '翻译任务已启动' })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: any) => {
+      const detail = err.response?.data?.detail
+      setMessage({ type: 'error', text: detail || '启动翻译失败' })
     },
   })
 
@@ -489,6 +504,16 @@ function FeedsTab() {
                 >
                   <RefreshCw className={`w-4 h-4 ${refreshFeedMutation.isPending ? 'animate-spin' : ''}`} />
                 </button>
+                {feed.auto_translate && (
+                  <button
+                    onClick={() => translateAllMutation.mutate(feed.id)}
+                    disabled={translateAllMutation.isPending}
+                    className="p-2 text-purple-500 hover:bg-purple-50 rounded disabled:opacity-50"
+                    title="翻译所有旧文章"
+                  >
+                    <Languages className="w-4 h-4" />
+                  </button>
+                )}
                 <button
                   onClick={() => startEdit(feed)}
                   className="p-2 text-gray-500 hover:bg-gray-100 rounded"

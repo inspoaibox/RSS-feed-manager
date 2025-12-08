@@ -52,6 +52,20 @@ async def refresh_feed(feed_id: int, user_id: CurrentUserId, db: DbSession):
     return await service.refresh(user_id, feed_id)
 
 
+@router.post("/{feed_id}/translate-all")
+async def translate_all_articles(feed_id: int, user_id: CurrentUserId, db: DbSession):
+    """Translate all untranslated articles in a feed using AI."""
+    service = FeedService(db)
+    # Verify feed belongs to user
+    feed = await service.get_by_id(user_id, feed_id)
+    
+    # Trigger background task
+    from app.tasks.feed_tasks import translate_feed_articles
+    translate_feed_articles.delay(feed_id)
+    
+    return {"message": "翻译任务已启动", "feed_id": feed_id}
+
+
 @router.post("/import", response_model=OPMLImportResult)
 async def import_opml(file: UploadFile = File(...), user_id: CurrentUserId = None, db: DbSession = None):
     """Import feeds from OPML file."""

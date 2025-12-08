@@ -49,6 +49,18 @@ docker compose -f docker-compose.prod.yml up -d
 docker compose -f docker-compose.prod.yml down
 ```
 
+**更新代码后重新部署：**
+```bash
+# 拉取最新代码后，重建并重启所有服务
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+> ⚠️ 如果只重建单个服务（如 `--build backend`），需要同时重启 frontend，否则 nginx 会因 DNS 缓存连接失败：
+> ```bash
+> docker compose -f docker-compose.prod.yml up -d --build backend
+> docker restart rss_manager_frontend
+> ```
+
 ### 方式二：开发环境（SQLite，无需 Docker）
 
 适合本地开发调试，不支持定时抓取功能。
