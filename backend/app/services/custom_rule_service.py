@@ -225,6 +225,14 @@ class CustomRuleService:
         feed_id = await self._ensure_feed_for_rule(rule)
         
         try:
+            # Parse cookies if provided
+            cookies_dict = {}
+            if hasattr(rule, 'cookies') and rule.cookies:
+                for item in rule.cookies.split(';'):
+                    if '=' in item:
+                        key, value = item.strip().split('=', 1)
+                        cookies_dict[key.strip()] = value.strip()
+            
             # Use Playwright for JS-rendered pages if enabled
             print(f"[CustomRule] use_playwright={rule.use_playwright} for rule {rule.id}")
             if rule.use_playwright:
@@ -232,17 +240,20 @@ class CustomRuleService:
                 print(f"[CustomRule] Starting Playwright for {rule.target_url}")
                 async with async_playwright() as p:
                     browser = await p.chromium.launch(headless=True)
-                    page = await browser.new_page()
+                    context = await browser.new_context()
+                    # Add cookies if provided
+                    if cookies_dict:
+                        cookie_list = [{"name": k, "value": v, "domain": rule.target_url.split('/')[2], "path": "/"} for k, v in cookies_dict.items()]
+                        await context.add_cookies(cookie_list)
+                    page = await context.new_page()
                     await page.goto(rule.target_url, wait_until="networkidle", timeout=30000)
                     html_content = await page.content()
                     await browser.close()
                 print(f"[CustomRule] Playwright loaded {len(html_content)} bytes")
             else:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(
-                        rule.target_url,
-                        headers={"User-Agent": "Mozilla/5.0 RSS Reader Bot"}
-                    )
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                async with httpx.AsyncClient(timeout=30.0, cookies=cookies_dict if cookies_dict else None) as client:
+                    response = await client.get(rule.target_url, headers=headers)
                     response.raise_for_status()
                 html_content = response.text
                 print(f"[CustomRule] HTTP loaded {len(html_content)} bytes")
@@ -255,6 +266,8 @@ class CustomRuleService:
             
             if rule_type == 'telegram':
                 items = soup.select('.tgme_widget_message_wrap')
+            elif rule_type == 'twitter':
+                items = soup.select('.timeline-item')
             else:
                 items = soup.select(rule.list_selector)
             
@@ -304,6 +317,38 @@ class CustomRuleService:
                         else:
                             skipped_no_title_link += 1
                             continue
+                
+                elif rule_type == 'twitter':
+                    # Twitter/Nitter-specific parsing
+                    text_elem = item.select_one('.tweet-content')
+                    if text_elem:
+                        content = str(text_elem)
+                        title = text_elem.get_text(strip=True)[:100]
+                        if len(text_elem.get_text(strip=True)) > 100:
+                            title += '...'
+                    
+                    # Get tweet link
+                    link_elem = item.select_one('.tweet-link')
+                    if link_elem:
+                        link = link_elem.get('href')
+                        if link and not link.startswith('http'):
+                            link = urljoin(rule.target_url, link)
+                    
+                    # Get published time
+                    time_elem = item.select_one('.tweet-date a')
+                    if time_elem:
+                        try:
+                            from dateutil import parser as date_parser
+                            title_attr = time_elem.get('title')
+                            if title_attr:
+                                published_at = date_parser.parse(title_attr)
+                        except:
+                            pass
+                    
+                    if not title:
+                        skipped_no_title_link += 1
+                        continue
+                
                 else:
                     # General rule parsing
                     title_elem = item.select_one(rule.title_selector)

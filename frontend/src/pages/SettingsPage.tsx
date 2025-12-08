@@ -1201,7 +1201,8 @@ function RulesTab() {
   const emptyRule = {
     name: '',
     target_url: '',
-    rule_type: 'general' as 'general' | 'telegram',
+    rule_type: 'general' as 'general' | 'telegram' | 'twitter',
+    cookies: '',
     list_selector: '',
     title_selector: '',
     link_selector: '',
@@ -1234,6 +1235,7 @@ function RulesTab() {
     mutationFn: async () => {
       const payload = {
         ...formData,
+        cookies: formData.cookies || null,
         link_selector: formData.link_selector || null,
         content_selector: formData.content_selector || null,
         date_selector: formData.date_selector || null,
@@ -1258,6 +1260,7 @@ function RulesTab() {
     mutationFn: async ({ id, data }: { id: number; data: typeof formData }) => {
       const payload = {
         ...data,
+        cookies: data.cookies || null,
         link_selector: data.link_selector || null,
         content_selector: data.content_selector || null,
         date_selector: data.date_selector || null,
@@ -1369,7 +1372,8 @@ function RulesTab() {
     setFormData({
       name: rule.name,
       target_url: rule.target_url,
-      rule_type: (rule.rule_type as 'general' | 'telegram') || 'general',
+      rule_type: (rule.rule_type as 'general' | 'telegram' | 'twitter') || 'general',
+      cookies: rule.cookies || '',
       list_selector: rule.list_selector,
       title_selector: rule.title_selector,
       link_selector: rule.link_selector || '',
@@ -1388,7 +1392,7 @@ function RulesTab() {
     setFormData(emptyRule)
   }
 
-  const handleRuleTypeChange = (type: 'general' | 'telegram') => {
+  const handleRuleTypeChange = (type: 'general' | 'telegram' | 'twitter') => {
     if (type === 'telegram') {
       setFormData({
         ...formData,
@@ -1397,6 +1401,15 @@ function RulesTab() {
         title_selector: '.tgme_widget_message_text',
         link_selector: '.tgme_widget_message_date',
         content_selector: '.tgme_widget_message_text',
+      })
+    } else if (type === 'twitter') {
+      setFormData({
+        ...formData,
+        rule_type: type,
+        list_selector: '.timeline-item',
+        title_selector: '.tweet-content',
+        link_selector: '.tweet-link',
+        content_selector: '.tweet-content',
       })
     } else {
       setFormData({
@@ -1415,11 +1428,12 @@ function RulesTab() {
       <div className="flex gap-2">
         <select
           value={formData.rule_type}
-          onChange={(e) => handleRuleTypeChange(e.target.value as 'general' | 'telegram')}
+          onChange={(e) => handleRuleTypeChange(e.target.value as 'general' | 'telegram' | 'twitter')}
           className="px-3 py-2 border rounded"
         >
           <option value="general">通用规则</option>
           <option value="telegram">Telegram 频道</option>
+          <option value="twitter">Twitter (Nitter)</option>
         </select>
         <input
           type="text"
@@ -1432,7 +1446,11 @@ function RulesTab() {
       <div className="flex gap-2">
         <input
           type="url"
-          placeholder={formData.rule_type === 'telegram' ? 'Telegram 频道链接 (如 https://t.me/s/channel_name)' : '目标网址'}
+          placeholder={
+            formData.rule_type === 'telegram' ? 'Telegram 频道链接 (如 https://t.me/s/channel_name)' :
+            formData.rule_type === 'twitter' ? 'Nitter 链接 (如 https://nitter.net/username)' :
+            '目标网址'
+          }
           value={formData.target_url}
           onChange={(e) => setFormData({ ...formData, target_url: e.target.value })}
           className="flex-1 px-3 py-2 border rounded"
@@ -1477,6 +1495,13 @@ function RulesTab() {
             value={formData.date_selector}
             onChange={(e) => setFormData({ ...formData, date_selector: e.target.value })}
             className="w-full px-3 py-2 border rounded"
+          />
+          <input
+            type="text"
+            placeholder="Cookies (可选，用于需要登录的网站)"
+            value={formData.cookies}
+            onChange={(e) => setFormData({ ...formData, cookies: e.target.value })}
+            className="w-full px-3 py-2 border rounded text-xs"
           />
         </>
       )}

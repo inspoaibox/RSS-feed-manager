@@ -143,6 +143,9 @@ class FeedService:
 
     async def refresh(self, user_id: int, feed_id: int) -> FeedResponse:
         """Manually refresh a feed."""
+        from sqlalchemy import select
+        from app.models.custom_rule import CustomRule
+        
         feed = await self.repo.get_by_id(feed_id, user_id)
         if not feed:
             raise HTTPException(
@@ -150,17 +153,36 @@ class FeedService:
                 detail="Feed not found"
             )
         
-        try:
-            parsed = await parse_feed(feed.url, use_playwright=feed.use_playwright)
-            await self.repo.update_fetch_status(feed, success=True)
-            # Save new articles
-            await self._save_articles(feed_id, parsed)
-        except FeedParserError as e:
-            await self.repo.update_fetch_status(feed, success=False, error=str(e))
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=str(e)
-            )
+        # Check if this feed has an associated custom rule
+        result = await self.session.execute(
+            select(CustomRule).where(CustomRule.feed_id == feed_id)
+        )
+        custom_rule = result.scalar_one_or_none()
+        
+        if custom_rule:
+            # Use custom rule service to refresh
+            from app.services.custom_rule_service import CustomRuleService
+            rule_service = CustomRuleService(self.session)
+            try:
+                await rule_service.execute_rule(custom_rule)
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=str(e)
+                )
+        else:
+            # Normal RSS feed refresh
+            try:
+                parsed = await parse_feed(feed.url, use_playwright=feed.use_playwright)
+                await self.repo.update_fetch_status(feed, success=True)
+                # Save new articles
+                await self._save_articles(feed_id, parsed)
+            except FeedParserError as e:
+                await self.repo.update_fetch_status(feed, success=False, error=str(e))
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=str(e)
+                )
         
         counts = await self.repo.get_article_counts(user_id, [feed_id])
         return self._to_response(

@@ -31,7 +31,8 @@ class CustomRule(BaseModel):
     # Rule identification
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     target_url: Mapped[str] = mapped_column(String(2048), nullable=False)
-    rule_type: Mapped[str] = mapped_column(String(20), nullable=False, default='general')  # general, telegram
+    rule_type: Mapped[str] = mapped_column(String(20), nullable=False, default='general')  # general, telegram, twitter
+    cookies: Mapped[str | None] = mapped_column(Text, nullable=True)  # Cookies for authenticated requests
     
     # CSS selectors for content extraction
     list_selector: Mapped[str] = mapped_column(String(500), nullable=False)  # Selector for article list
