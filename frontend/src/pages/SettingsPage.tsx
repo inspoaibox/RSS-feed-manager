@@ -716,23 +716,15 @@ function AITab() {
       const response = await api.get<{ translate_prompt: string; summarize_prompt: string }>('/ai/settings')
       return response.data
     },
-    onSuccess: (data) => {
-      setPrompts({
-        translate: data.translate_prompt,
-        summarize: data.summarize_prompt,
-      })
-    },
   })
 
   // Initialize prompts when settings load
-  useState(() => {
-    if (settings) {
-      setPrompts({
-        translate: settings.translate_prompt,
-        summarize: settings.summarize_prompt,
-      })
-    }
-  })
+  if (settings && !prompts.translate && !prompts.summarize) {
+    setPrompts({
+      translate: settings.translate_prompt,
+      summarize: settings.summarize_prompt,
+    })
+  }
 
   const addProviderMutation = useMutation({
     mutationFn: async () => {
@@ -805,7 +797,6 @@ function AITab() {
   })
 
   const defaultModel = models.find(m => m.is_default)
-  const getProviderName = (providerId: number) => providers.find(p => p.id === providerId)?.name || ''
 
   return (
     <div className="space-y-6">
