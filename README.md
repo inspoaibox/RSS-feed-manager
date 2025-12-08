@@ -8,10 +8,12 @@
 - 📁 分类管理
 - 📖 文章阅读（已读/未读、收藏）
 - 🔍 全文搜索和排序
-- ⏰ 定时自动抓取（可设置 1-60 分钟间隔）
-- 🤖 AI 翻译和摘要（支持 OpenAI、Gemini 等）
+- ⏰ 定时自动抓取（可设置 1 分钟 - 24 小时间隔）
+- 🌐 Playwright 浏览器模式（支持 Cloudflare 保护的网站）
+- 🤖 AI 自动翻译和整理（支持 OpenAI、Gemini 及兼容 API）
 - 🕷️ 自定义抓取规则
-- � OPML 取导入导出
+- 📦 OPML 导入导出
+- 💾 配置备份恢复
 
 ## 技术栈
 
@@ -33,7 +35,7 @@
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-启动后访问：http://localhost:5173
+启动后访问：http://localhost:5666
 
 包含的服务：
 - PostgreSQL 数据库
@@ -139,7 +141,8 @@ npm run dev
 
 | 服务 | 地址 |
 |------|------|
-| 前端界面 | http://localhost:5173 |
+| 前端界面（生产） | http://localhost:5666 |
+| 前端界面（开发） | http://localhost:5173 |
 | 后端 API | http://localhost:8000 |
 | API 文档 | http://localhost:8000/docs |
 
