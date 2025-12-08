@@ -43,7 +43,7 @@ export default function HomePage() {
   const categoryId = searchParams.get('category')
   const isFavorite = searchParams.get('favorite') === 'true'
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ['articles', feedId, categoryId, isFavorite, sortBy, sortOrder, isSearching ? null : 'list'],
     queryFn: async () => {
       const params = new URLSearchParams()
@@ -61,7 +61,7 @@ export default function HomePage() {
     refetchInterval: 30000, // 每30秒自动刷新
   })
 
-  const { data: searchData, isLoading: isSearchLoading, refetch: refetchSearch } = useQuery({
+  const { data: searchData, isLoading: isSearchLoading } = useQuery({
     queryKey: ['articles-search', searchQuery, feedId, categoryId],
     queryFn: async () => {
       const params = new URLSearchParams()
