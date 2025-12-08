@@ -8,7 +8,15 @@ import httpx
 # 默认 Prompt 模板
 DEFAULT_PROMPTS = {
     "translate": "You are a translator. Translate the following text to {target_language}. Keep the original paragraph structure and formatting. Only output the translation, nothing else.",
-    "summarize": "You are a summarizer. Provide a concise summary of the following text in 2-3 sentences. Output in the same language as the input text.",
+    "summarize": """You are a content organizer. Please organize and summarize the following article content:
+
+1. Extract the key points and main ideas
+2. Organize the information in a clear, structured format
+3. Use bullet points or numbered lists where appropriate
+4. Keep the summary concise but comprehensive
+5. Output in the same language as the input text
+
+Only output the organized summary, nothing else.""",
 }
 
 # 运行时 Prompt（可被用户设置覆盖）

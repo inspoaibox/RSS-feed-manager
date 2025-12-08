@@ -125,7 +125,7 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
                 title=article_data.title or "Untitled",
                 link=article_data.link,
                 content=article_data.content,
-                summary=article_data.content[:500] if article_data.content else None,
+                summary=None,  # Only set by AI if auto_summarize is enabled
                 author=article_data.author,
                 published_at=article_data.published_at,
             )
