@@ -109,7 +109,17 @@ async def generate_rule(
 ):
     """Use AI to automatically generate CSS selectors for a webpage."""
     service = CustomRuleService(db)
-    return await service.generate_rule_with_ai(current_user.id, data.target_url)
+    return await service.generate_rule_with_ai(current_user.id, data.target_url, data.custom_prompt)
+
+
+@router.get("/generate/default-prompt")
+async def get_default_generate_prompt(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get the default prompt template for AI rule generation."""
+    service = CustomRuleService(db)
+    return {"prompt": service.get_default_generate_prompt()}
 
 
 @router.post("/{rule_id}/execute", response_model=dict)

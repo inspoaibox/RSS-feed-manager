@@ -196,11 +196,11 @@ export default function HomePage() {
     <div className="flex h-full">
       {/* Article List */}
       <div className={clsx(
-        'border-r bg-white overflow-y-auto',
+        'border-r dark:border-gray-700 bg-white dark:bg-gray-800 overflow-y-auto',
         selectedArticle ? 'hidden md:block md:w-96' : 'w-full'
       )}>
         {/* Toolbar */}
-        <div className="sticky top-0 bg-white border-b p-3 space-y-2">
+        <div className="sticky top-0 bg-white dark:bg-gray-800 border-b dark:border-gray-700 p-3 space-y-2">
           {/* Search Bar */}
           <form onSubmit={handleSearch} className="flex gap-2">
             <div className="flex-1 relative">
@@ -209,14 +209,14 @@ export default function HomePage() {
                 placeholder="搜索文章..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-8 py-1.5 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full pl-8 pr-8 py-1.5 text-sm border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               {searchQuery && (
                 <button
                   type="button"
                   onClick={clearSearch}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -244,7 +244,7 @@ export default function HomePage() {
                 }
               }}
               disabled={refreshFeedMutation.isPending || refreshAllMutation.isPending || isFavorite}
-              className="p-2 hover:bg-gray-100 rounded disabled:opacity-50"
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50 dark:text-gray-300"
               title={feedId ? "同步订阅源" : categoryId ? "同步该分类所有订阅" : "同步所有订阅"}
             >
               <RefreshCw className={clsx("w-4 h-4", (refreshFeedMutation.isPending || refreshAllMutation.isPending) && "animate-spin")} />
@@ -252,7 +252,7 @@ export default function HomePage() {
             <button
               onClick={() => markAllReadMutation.mutate()}
               disabled={markAllReadMutation.isPending}
-              className="p-2 hover:bg-gray-100 rounded"
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-gray-300"
               title="全部标记已读"
             >
               <Check className="w-4 h-4" />
@@ -261,11 +261,11 @@ export default function HomePage() {
             {/* Sort Controls */}
             {!isSearching && (
               <>
-                <div className="h-4 w-px bg-gray-300 mx-1" />
+                <div className="h-4 w-px bg-gray-300 dark:bg-gray-600 mx-1" />
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-                  className="text-xs border rounded px-2 py-1"
+                  className="text-xs border dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700 dark:text-gray-200"
                 >
                   <option value="published_at">发布时间</option>
                   <option value="created_at">抓取时间</option>
@@ -273,7 +273,7 @@ export default function HomePage() {
                 </select>
                 <button
                   onClick={toggleSortOrder}
-                  className="p-1.5 hover:bg-gray-100 rounded"
+                  className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-gray-300"
                   title={sortOrder === 'desc' ? '降序' : '升序'}
                 >
                   {sortOrder === 'desc' ? <SortDesc className="w-4 h-4" /> : <SortAsc className="w-4 h-4" />}
@@ -281,8 +281,8 @@ export default function HomePage() {
               </>
             )}
             
-            <span className="text-sm text-gray-500 ml-auto">
-              {isSearching && <span className="text-blue-600 mr-1">搜索结果:</span>}
+            <span className="text-sm text-gray-500 dark:text-gray-400 ml-auto">
+              {isSearching && <span className="text-blue-600 dark:text-blue-400 mr-1">搜索结果:</span>}
               {currentData?.total || 0} 篇文章
             </span>
           </div>
@@ -290,19 +290,19 @@ export default function HomePage() {
 
         {/* List */}
         {loading ? (
-          <div className="p-4 text-center text-gray-500">加载中...</div>
+          <div className="p-4 text-center text-gray-500 dark:text-gray-400">加载中...</div>
         ) : articles.length === 0 ? (
-          <div className="p-4 text-center text-gray-500">暂无文章</div>
+          <div className="p-4 text-center text-gray-500 dark:text-gray-400">暂无文章</div>
         ) : (
-          <div className="divide-y">
+          <div className="divide-y dark:divide-gray-700">
             {articles.map((article) => (
               <div
                 key={article.id}
                 className={clsx(
-                  'p-4 hover:bg-gray-50 transition-colors',
-                  selectedArticle?.id === article.id && 'bg-blue-50',
-                  !article.is_read && 'bg-white',
-                  article.is_read && 'bg-gray-50'
+                  'p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors',
+                  selectedArticle?.id === article.id && 'bg-blue-50 dark:bg-blue-900/30',
+                  !article.is_read && 'bg-white dark:bg-gray-800',
+                  article.is_read && 'bg-gray-50 dark:bg-gray-800/50'
                 )}
               >
                 <div className="flex items-start gap-2">
@@ -313,15 +313,15 @@ export default function HomePage() {
                     <div className="flex items-center gap-2">
                       <h3 className={clsx(
                         'text-sm truncate flex-1',
-                        !article.is_read ? 'font-semibold text-gray-900' : 'text-gray-600'
+                        !article.is_read ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400'
                       )}>
                         {article.title}
                       </h3>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
                       {stripHtml(article.summary || article.content)?.slice(0, 150)}
                     </p>
-                    <div className="flex items-center gap-2 mt-2 text-xs text-gray-400">
+                    <div className="flex items-center gap-2 mt-2 text-xs text-gray-400 dark:text-gray-500">
                       <span>{new Date(article.published_at).toLocaleString('zh-CN', { 
                         year: 'numeric', 
                         month: '2-digit', 
@@ -337,12 +337,12 @@ export default function HomePage() {
                       e.stopPropagation()
                       toggleFavoriteMutation.mutate(article.id)
                     }}
-                    className="p-1.5 hover:bg-gray-200 rounded flex-shrink-0"
+                    className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded flex-shrink-0"
                     title={article.is_favorite ? '取消收藏' : '收藏'}
                   >
                     <Star className={clsx(
                       'w-4 h-4',
-                      article.is_favorite ? 'text-yellow-500 fill-yellow-500' : 'text-gray-300 hover:text-yellow-400'
+                      article.is_favorite ? 'text-yellow-500 fill-yellow-500' : 'text-gray-300 dark:text-gray-500 hover:text-yellow-400'
                     )} />
                   </button>
                 </div>
@@ -354,11 +354,11 @@ export default function HomePage() {
 
       {/* Article Detail */}
       {selectedArticle && (
-        <div className="flex-1 overflow-y-auto bg-white">
-          <div className="sticky top-0 bg-white border-b p-3 flex items-center gap-2">
+        <div className="flex-1 overflow-y-auto bg-white dark:bg-gray-800">
+          <div className="sticky top-0 bg-white dark:bg-gray-800 border-b dark:border-gray-700 p-3 flex items-center gap-2">
             <button
               onClick={() => setSelectedArticle(null)}
-              className="md:hidden p-2 hover:bg-gray-100 rounded"
+              className="md:hidden p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-gray-200"
             >
               ← 返回
             </button>
@@ -366,7 +366,7 @@ export default function HomePage() {
               <button
                 onClick={() => translateMutation.mutate(selectedArticle.id)}
                 disabled={translateMutation.isPending}
-                className="p-2 hover:bg-gray-100 rounded text-purple-600 disabled:opacity-50"
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-purple-600 dark:text-purple-400 disabled:opacity-50"
                 title="AI 翻译"
               >
                 {translateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Languages className="w-4 h-4" />}
@@ -374,7 +374,7 @@ export default function HomePage() {
               <button
                 onClick={() => summarizeMutation.mutate(selectedArticle.id)}
                 disabled={summarizeMutation.isPending}
-                className="p-2 hover:bg-gray-100 rounded text-green-600 disabled:opacity-50"
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-green-600 dark:text-green-400 disabled:opacity-50"
                 title="AI 整理"
               >
                 {summarizeMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
@@ -384,7 +384,7 @@ export default function HomePage() {
                   href={selectedArticle.link}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="p-2 hover:bg-gray-100 rounded"
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-gray-300"
                   title="打开原文"
                 >
                   <ExternalLink className="w-4 h-4" />
@@ -399,17 +399,17 @@ export default function HomePage() {
               
               return (
                 <>
-                  <h1 className="text-2xl font-bold text-gray-900 mb-4">
+                  <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
                     {showingTranslation && translatedData.title ? translatedData.title : selectedArticle.title}
                   </h1>
-                  <div className="flex items-center gap-4 text-sm text-gray-500 mb-6">
+                  <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 mb-6">
                     <span>{new Date(selectedArticle.published_at).toLocaleString()}</span>
                     {selectedArticle.author && <span>作者: {selectedArticle.author}</span>}
                   </div>
                   {selectedArticle.summary && (
-                    <div className="mb-6 p-4 bg-green-50 rounded-lg">
-                      <h3 className="text-sm font-semibold text-green-700 mb-2">AI 整理</h3>
-                      <div className="text-gray-700 prose prose-sm max-w-none whitespace-pre-wrap">
+                    <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/30 rounded-lg">
+                      <h3 className="text-sm font-semibold text-green-700 dark:text-green-400 mb-2">AI 整理</h3>
+                      <div className="text-gray-700 dark:text-gray-300 prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap">
                         {selectedArticle.summary}
                       </div>
                     </div>
@@ -420,7 +420,7 @@ export default function HomePage() {
                         onClick={() => setShowTranslation(true)}
                         className={clsx(
                           'px-3 py-1 text-sm rounded',
-                          showTranslation ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                          showTranslation ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
                         )}
                       >
                         译文
@@ -429,7 +429,7 @@ export default function HomePage() {
                         onClick={() => setShowTranslation(false)}
                         className={clsx(
                           'px-3 py-1 text-sm rounded',
-                          !showTranslation ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                          !showTranslation ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
                         )}
                       >
                         原文
@@ -437,12 +437,12 @@ export default function HomePage() {
                     </div>
                   )}
                   {showingTranslation ? (
-                    <div className="prose prose-sm max-w-none whitespace-pre-wrap">
+                    <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap dark:text-gray-200">
                       {translatedData.content}
                     </div>
                   ) : (
                     <div
-                      className="prose prose-sm max-w-none"
+                      className="prose prose-sm dark:prose-invert max-w-none dark:text-gray-200"
                       dangerouslySetInnerHTML={{
                         __html: selectedArticle.full_content || selectedArticle.content || ''
                       }}

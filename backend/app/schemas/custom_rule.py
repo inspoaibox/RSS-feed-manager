@@ -86,6 +86,7 @@ class CustomRuleTestResult(BaseModel):
 class AIGenerateRuleRequest(BaseModel):
     """Schema for AI-generated rule request."""
     target_url: str = Field(..., max_length=2048)
+    custom_prompt: str | None = Field(None, max_length=10000)  # Custom prompt for AI generation
 
 
 class AIGenerateRuleResponse(BaseModel):

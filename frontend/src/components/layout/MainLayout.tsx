@@ -72,15 +72,15 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
       {/* Sidebar */}
       <aside
         className={clsx(
-          'fixed lg:static inset-y-0 left-0 z-30 w-64 bg-white border-r transform transition-transform duration-200 ease-in-out',
+          'fixed lg:static inset-y-0 left-0 z-30 w-64 bg-white dark:bg-gray-800 border-r dark:border-gray-700 transform transition-transform duration-200 ease-in-out',
           isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         )}
       >
         <div className="flex flex-col h-full">
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b">
-            <h1 className="text-xl font-bold text-gray-900">RSS 管理器</h1>
-            <button onClick={onClose} className="lg:hidden">
+          <div className="flex items-center justify-between p-4 border-b dark:border-gray-700">
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">RSS 管理器</h1>
+            <button onClick={onClose} className="lg:hidden dark:text-gray-300">
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -90,7 +90,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
             {/* All Articles */}
             <button
               onClick={() => navigate('/')}
-              className="w-full flex items-center gap-2 px-3 py-2 text-gray-700 hover:bg-gray-100 rounded-md"
+              className="w-full flex items-center gap-2 px-3 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
             >
               <Rss className="w-4 h-4" />
               <span>全部文章</span>
@@ -99,7 +99,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
             {/* Favorites */}
             <button
               onClick={() => navigate('/?favorite=true')}
-              className="w-full flex items-center gap-2 px-3 py-2 text-gray-700 hover:bg-gray-100 rounded-md"
+              className="w-full flex items-center gap-2 px-3 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
             >
               <Star className="w-4 h-4" />
               <span>收藏</span>
@@ -107,7 +107,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
 
             {/* Categories */}
             <div className="mt-4">
-              <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase">
+              <div className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
                 分类
               </div>
               {categories.map((category) => {
@@ -115,10 +115,10 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
                 const isExpanded = expandedCategories.has(category.id)
                 return (
                   <div key={category.id}>
-                    <div className="flex items-center gap-1 px-3 py-2 text-gray-700 hover:bg-gray-100 rounded-md">
+                    <div className="flex items-center gap-1 px-3 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                       <button
                         onClick={() => toggleCategory(category.id)}
-                        className="p-0.5 hover:bg-gray-200 rounded"
+                        className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
                       >
                         {isExpanded ? (
                           <ChevronDown className="w-4 h-4" />
@@ -137,7 +137,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
                         <FolderOpen className="w-4 h-4" />
                         <span className="flex-1 truncate">{category.name}</span>
                         {category.unread_count > 0 && (
-                          <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">
+                          <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300 px-2 py-0.5 rounded-full">
                             {category.unread_count}
                           </span>
                         )}
@@ -149,11 +149,11 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
                           <button
                             key={feed.id}
                             onClick={() => navigate(`/?feed=${feed.id}`)}
-                            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-md"
+                            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
                           >
                             <span className="flex-1 text-left truncate">{feed.title}</span>
                             {feed.unread_count > 0 && (
-                              <span className="text-xs text-gray-500">{feed.unread_count}</span>
+                              <span className="text-xs text-gray-500 dark:text-gray-400">{feed.unread_count}</span>
                             )}
                           </button>
                         ))}
@@ -167,19 +167,19 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
             {/* Uncategorized Feeds */}
             {uncategorizedFeeds.length > 0 && (
               <div className="mt-4">
-                <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase">
+                <div className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
                   未分类
                 </div>
                 {uncategorizedFeeds.map((feed) => (
                   <button
                     key={feed.id}
                     onClick={() => navigate(`/?feed=${feed.id}`)}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-gray-700 hover:bg-gray-100 rounded-md"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
                   >
                     <Rss className="w-4 h-4" />
                     <span className="flex-1 text-left truncate">{feed.title}</span>
                     {feed.unread_count > 0 && (
-                      <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">
+                      <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300 px-2 py-0.5 rounded-full">
                         {feed.unread_count}
                       </span>
                     )}
@@ -190,17 +190,17 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
           </nav>
 
           {/* Footer */}
-          <div className="border-t p-2">
+          <div className="border-t dark:border-gray-700 p-2">
             <button
               onClick={() => navigate('/settings')}
-              className="w-full flex items-center gap-2 px-3 py-2 text-gray-700 hover:bg-gray-100 rounded-md"
+              className="w-full flex items-center gap-2 px-3 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
             >
               <Settings className="w-4 h-4" />
               <span>设置</span>
             </button>
             <button
               onClick={handleLogout}
-              className="w-full flex items-center gap-2 px-3 py-2 text-gray-700 hover:bg-gray-100 rounded-md"
+              className="w-full flex items-center gap-2 px-3 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
             >
               <LogOut className="w-4 h-4" />
               <span>退出登录</span>
@@ -216,16 +216,16 @@ export default function MainLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       
       <main className="flex-1 flex flex-col overflow-hidden">
         {/* Mobile header */}
-        <header className="lg:hidden flex items-center gap-4 p-4 bg-white border-b">
-          <button onClick={() => setSidebarOpen(true)}>
+        <header className="lg:hidden flex items-center gap-4 p-4 bg-white dark:bg-gray-800 border-b dark:border-gray-700">
+          <button onClick={() => setSidebarOpen(true)} className="dark:text-gray-200">
             <Menu className="w-6 h-6" />
           </button>
-          <h1 className="text-lg font-semibold">RSS 管理器</h1>
+          <h1 className="text-lg font-semibold dark:text-white">RSS 管理器</h1>
         </header>
         
         <div className="flex-1 overflow-auto">
