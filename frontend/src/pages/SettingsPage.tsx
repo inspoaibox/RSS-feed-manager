@@ -35,7 +35,7 @@ export default function SettingsPage() {
             onClick={() => setActiveTab(tab.id as Tab)}
             className={`px-4 py-2 border-b-2 -mb-px flex items-center gap-1 ${
               activeTab === tab.id
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                ? 'border-primary-500 text-primary-600 dark:text-primary-400'
                 : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
             }`}
           >
@@ -344,7 +344,7 @@ function FeedsTab() {
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <button
           onClick={() => setShowAddForm(true)}
-          className="flex items-center gap-1 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          className="flex items-center gap-1 px-3 py-2 bg-primary-600 text-white rounded hover:bg-primary-700"
         >
           <Plus className="w-4 h-4" /> 添加订阅
         </button>
@@ -380,7 +380,7 @@ function FeedsTab() {
             onClick={() => setSelectedCategory('all')}
             className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
               selectedCategory === 'all'
-                ? 'bg-blue-600 text-white'
+                ? 'bg-primary-600 text-white'
                 : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
             }`}
           >
@@ -390,7 +390,7 @@ function FeedsTab() {
             onClick={() => setSelectedCategory('uncategorized')}
             className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
               selectedCategory === 'uncategorized'
-                ? 'bg-blue-600 text-white'
+                ? 'bg-primary-600 text-white'
                 : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
             }`}
           >
@@ -402,7 +402,7 @@ function FeedsTab() {
               onClick={() => setSelectedCategory(cat.id)}
               className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
                 selectedCategory === cat.id
-                  ? 'bg-blue-600 text-white'
+                  ? 'bg-primary-600 text-white'
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
@@ -466,7 +466,7 @@ function FeedsTab() {
             <span className="text-xs text-yellow-600 dark:text-yellow-400">适用于 Cloudflare 保护的网站</span>
           </label>
           <div className="flex gap-2 flex-wrap">
-            <label className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded">
+            <label className="flex items-center gap-2 p-2 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded">
               <input
                 type="checkbox"
                 checked={newFeedAutoTranslate}
@@ -500,7 +500,7 @@ function FeedsTab() {
             <button
               onClick={() => addFeedMutation.mutate()}
               disabled={!newFeedUrl || addFeedMutation.isPending}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+              className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
             >
               {addFeedMutation.isPending ? '添加中...' : '添加'}
             </button>
@@ -576,7 +576,7 @@ function FeedsTab() {
                   浏览器模式 (Playwright)
                 </label>
                 <div className="flex gap-2 flex-wrap">
-                  <label className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded text-sm dark:text-blue-200">
+                  <label className="flex items-center gap-2 p-2 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded text-sm dark:text-blue-200">
                     <input
                       type="checkbox"
                       checked={editData.auto_translate}
@@ -660,7 +660,7 @@ function FeedsTab() {
                       <span className="text-yellow-600 dark:text-yellow-400">🌐 浏览器模式</span>
                     )}
                     {feed.auto_translate && (
-                      <span className="text-blue-600 dark:text-blue-400">🌐 AI翻译</span>
+                      <span className="text-primary-600 dark:text-primary-400">🌐 AI翻译</span>
                     )}
                     {feed.auto_summarize && (
                       <span className="text-green-600 dark:text-green-400">📝 AI整理</span>
@@ -670,7 +670,7 @@ function FeedsTab() {
                 <button
                   onClick={() => refreshFeedMutation.mutate(feed.id)}
                   disabled={refreshFeedMutation.isPending}
-                  className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded disabled:opacity-50"
+                  className="p-2 text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded disabled:opacity-50"
                   title="刷新订阅源"
                 >
                   <RefreshCw className={`w-4 h-4 ${refreshFeedMutation.isPending ? 'animate-spin' : ''}`} />
@@ -821,7 +821,7 @@ function CategoriesTab() {
         <button
           onClick={() => createMutation.mutate()}
           disabled={!newName || createMutation.isPending}
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+          className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
         >
           添加
         </button>
@@ -1027,7 +1027,7 @@ function AITab() {
       )}
 
       {/* Default Model Selection */}
-      <div className="p-4 border dark:border-gray-700 rounded bg-blue-50 dark:bg-blue-900/30">
+      <div className="p-4 border dark:border-gray-700 rounded bg-primary-50 dark:bg-primary-900/30">
         <h2 className="text-lg font-semibold mb-3 dark:text-white">默认模型</h2>
         <select
           value={defaultModel?.id || ''}
@@ -1061,7 +1061,7 @@ function AITab() {
           <h2 className="text-lg font-semibold dark:text-white">AI 渠道</h2>
           <button
             onClick={() => setShowAddProvider(true)}
-            className="flex items-center gap-1 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            className="flex items-center gap-1 px-3 py-2 bg-primary-600 text-white rounded hover:bg-primary-700"
           >
             <Plus className="w-4 h-4" /> 添加渠道
           </button>
@@ -1105,7 +1105,7 @@ function AITab() {
               <button
                 onClick={() => addProviderMutation.mutate()}
                 disabled={!newProvider.name || !newProvider.api_key || addProviderMutation.isPending}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
               >
                 保存
               </button>
@@ -1194,7 +1194,7 @@ function AITab() {
           <button
             onClick={() => savePromptsMutation.mutate()}
             disabled={savePromptsMutation.isPending}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+            className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
           >
             保存 Prompt
           </button>
@@ -1614,7 +1614,7 @@ function RulesTab() {
                   {testRuleMutation.data.sample_items.map((item: any, idx: number) => (
                     <div key={idx} className="p-2 bg-white dark:bg-gray-800 rounded border dark:border-gray-600 text-sm">
                       <p className="font-medium truncate dark:text-white">{item.title || '(无标题)'}</p>
-                      {item.link && <p className="text-xs text-blue-600 dark:text-blue-400 truncate">{item.link}</p>}
+                      {item.link && <p className="text-xs text-primary-600 dark:text-primary-400 truncate">{item.link}</p>}
                       {item.content && <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{item.content}</p>}
                     </div>
                   ))}
@@ -1638,7 +1638,7 @@ function RulesTab() {
         <button
           onClick={() => isEdit ? updateRuleMutation.mutate({ id: editingId!, data: formData }) : addRuleMutation.mutate()}
           disabled={!formData.name || !formData.target_url || addRuleMutation.isPending || updateRuleMutation.isPending}
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+          className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
         >
           {isEdit ? '更新' : '保存'}
         </button>
@@ -1663,25 +1663,25 @@ function RulesTab() {
       )}
       
       {/* 使用说明 */}
-      <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded">
+      <div className="mb-4 p-4 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded">
         <div className="flex items-center justify-between">
-          <h3 className="font-medium text-blue-800 dark:text-blue-300">什么是自定义抓取规则？</h3>
+          <h3 className="font-medium text-blue-800 dark:text-primary-300">什么是自定义抓取规则？</h3>
           <button 
             onClick={() => setShowHelp(!showHelp)}
-            className="text-blue-600 dark:text-blue-400 text-sm hover:underline"
+            className="text-primary-600 dark:text-primary-400 text-sm hover:underline"
           >
             {showHelp ? '收起' : '查看详情'}
           </button>
         </div>
-        <p className="text-sm text-blue-700 dark:text-blue-400 mt-1">
+        <p className="text-sm text-blue-700 dark:text-primary-400 mt-1">
           自定义规则用于抓取没有 RSS 订阅的网站内容，通过 CSS 选择器提取文章列表。
         </p>
         
         {showHelp && (
-          <div className="mt-4 space-y-4 text-sm text-blue-800 dark:text-blue-300">
+          <div className="mt-4 space-y-4 text-sm text-blue-800 dark:text-primary-300">
             <div>
               <h4 className="font-medium mb-2">字段说明：</h4>
-              <ul className="list-disc list-inside space-y-1 text-blue-700 dark:text-blue-400">
+              <ul className="list-disc list-inside space-y-1 text-blue-700 dark:text-primary-400">
                 <li><span className="font-medium">目标网址</span> - 要抓取的网页 URL</li>
                 <li><span className="font-medium">列表选择器</span> - 文章列表项的 CSS 选择器（每个匹配元素代表一篇文章）</li>
                 <li><span className="font-medium">标题选择器</span> - 在列表项内，文章标题的选择器</li>
@@ -1713,7 +1713,7 @@ function RulesTab() {
             
             <div>
               <h4 className="font-medium mb-2">如何获取 CSS 选择器：</h4>
-              <ol className="list-decimal list-inside space-y-1 text-blue-700 dark:text-blue-400">
+              <ol className="list-decimal list-inside space-y-1 text-blue-700 dark:text-primary-400">
                 <li>在浏览器中打开目标网页</li>
                 <li>按 F12 打开开发者工具</li>
                 <li>使用元素选择器（左上角箭头图标）点击要抓取的元素</li>
@@ -1722,7 +1722,7 @@ function RulesTab() {
               </ol>
             </div>
             
-            <p className="text-blue-600 dark:text-blue-400 italic">
+            <p className="text-primary-600 dark:text-primary-400 italic">
               提示：添加规则后点击"测试规则"按钮验证选择器是否正确。
             </p>
           </div>
@@ -1733,7 +1733,7 @@ function RulesTab() {
         <h2 className="text-lg font-semibold dark:text-white">自定义抓取规则</h2>
         <button
           onClick={() => { setShowAddRule(true); setEditingId(null); setFormData(emptyRule) }}
-          className="flex items-center gap-1 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          className="flex items-center gap-1 px-3 py-2 bg-primary-600 text-white rounded hover:bg-primary-700"
         >
           <Plus className="w-4 h-4" /> 添加规则
         </button>
@@ -1772,7 +1772,7 @@ function RulesTab() {
                   <button
                     onClick={() => executeRuleMutation.mutate(rule.id)}
                     disabled={executeRuleMutation.isPending}
-                    className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded disabled:opacity-50"
+                    className="p-2 text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded disabled:opacity-50"
                     title="立即抓取"
                   >
                     <RefreshCw className={`w-4 h-4 ${executeRuleMutation.isPending ? 'animate-spin' : ''}`} />
@@ -1885,9 +1885,9 @@ function BackupTab() {
       )}
 
       {/* 说明 */}
-      <div className="p-4 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded">
-        <h3 className="font-medium text-blue-800 dark:text-blue-300 mb-2">备份与恢复</h3>
-        <p className="text-sm text-blue-700 dark:text-blue-400">
+      <div className="p-4 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded">
+        <h3 className="font-medium text-blue-800 dark:text-primary-300 mb-2">备份与恢复</h3>
+        <p className="text-sm text-blue-700 dark:text-primary-400">
           导出功能会将所有配置保存为 JSON 文件，包括：订阅源、分类、AI 设置、自定义规则。
           导入时会跳过已存在的配置，不会覆盖现有数据。
         </p>
@@ -1897,7 +1897,7 @@ function BackupTab() {
       <div className="flex gap-4">
         <button
           onClick={handleExport}
-          className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          className="flex items-center gap-2 px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
         >
           <Save className="w-5 h-5" />
           导出所有配置
@@ -1956,7 +1956,7 @@ function BackupTab() {
         <h3 className="font-medium p-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-700 dark:text-white">备份包含的内容</h3>
         <div className="divide-y dark:divide-gray-700">
           <div className="p-4 flex items-center gap-3">
-            <span className="w-8 h-8 flex items-center justify-center bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 rounded">📁</span>
+            <span className="w-8 h-8 flex items-center justify-center bg-primary-100 dark:bg-primary-900/50 text-primary-600 dark:text-primary-400 rounded">📁</span>
             <div>
               <p className="font-medium dark:text-white">分类</p>
               <p className="text-sm text-gray-500 dark:text-gray-400">所有自定义分类名称</p>
@@ -1997,7 +1997,7 @@ function AppearanceTab() {
   const { mode, color, setMode, setColor } = useThemeStore()
 
   const colorOptions: { value: ThemeColor; label: string; class: string }[] = [
-    { value: 'blue', label: '蓝色', class: 'bg-blue-500' },
+    { value: 'blue', label: '蓝色', class: 'bg-primary-500' },
     { value: 'green', label: '绿色', class: 'bg-green-500' },
     { value: 'purple', label: '紫色', class: 'bg-purple-500' },
     { value: 'orange', label: '橙色', class: 'bg-orange-500' },
@@ -2013,14 +2013,14 @@ function AppearanceTab() {
             onClick={() => setMode('light')}
             className={`flex-1 p-4 rounded-lg border-2 transition-all ${
               mode === 'light'
-                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
                 : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
             }`}
           >
             <div className="w-full h-24 rounded bg-white border mb-3 flex items-center justify-center">
               <div className="w-16 h-3 bg-gray-200 rounded"></div>
             </div>
-            <p className={`text-center font-medium ${mode === 'light' ? 'text-blue-600' : 'text-gray-600 dark:text-gray-400'}`}>
+            <p className={`text-center font-medium ${mode === 'light' ? 'text-primary-600' : 'text-gray-600 dark:text-gray-400'}`}>
               浅色模式
             </p>
           </button>
@@ -2028,14 +2028,14 @@ function AppearanceTab() {
             onClick={() => setMode('dark')}
             className={`flex-1 p-4 rounded-lg border-2 transition-all ${
               mode === 'dark'
-                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
                 : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
             }`}
           >
             <div className="w-full h-24 rounded bg-gray-800 border border-gray-700 mb-3 flex items-center justify-center">
               <div className="w-16 h-3 bg-gray-600 rounded"></div>
             </div>
-            <p className={`text-center font-medium ${mode === 'dark' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'}`}>
+            <p className={`text-center font-medium ${mode === 'dark' ? 'text-primary-600 dark:text-primary-400' : 'text-gray-600 dark:text-gray-400'}`}>
               深色模式
             </p>
           </button>
@@ -2052,12 +2052,12 @@ function AppearanceTab() {
               onClick={() => setColor(opt.value)}
               className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
                 color === opt.value
-                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                  ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
                   : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
               }`}
             >
               <div className={`w-10 h-10 rounded-full ${opt.class}`}></div>
-              <span className={`text-sm ${color === opt.value ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-600 dark:text-gray-400'}`}>
+              <span className={`text-sm ${color === opt.value ? 'text-primary-600 dark:text-primary-400 font-medium' : 'text-gray-600 dark:text-gray-400'}`}>
                 {opt.label}
               </span>
             </button>
@@ -2070,13 +2070,13 @@ function AppearanceTab() {
         <h3 className="font-medium mb-4 dark:text-white">预览</h3>
         <div className={`p-4 rounded-lg border ${mode === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
           <div className="flex items-center gap-3 mb-3">
-            <div className={`w-8 h-8 rounded-full ${colorOptions.find(c => c.value === color)?.class}`}></div>
+            <div className="w-8 h-8 rounded-full bg-primary-500"></div>
             <div>
               <p className={`font-medium ${mode === 'dark' ? 'text-white' : 'text-gray-900'}`}>示例标题</p>
               <p className={`text-sm ${mode === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>这是一段示例文字</p>
             </div>
           </div>
-          <button className={`px-4 py-2 rounded text-white ${colorOptions.find(c => c.value === color)?.class}`}>
+          <button className="px-4 py-2 rounded text-white bg-primary-600 hover:bg-primary-700">
             示例按钮
           </button>
         </div>
@@ -2163,7 +2163,7 @@ function SystemTab() {
               <button
                 onClick={() => updateSettingsMutation.mutate({ site_name: siteName })}
                 disabled={updateSettingsMutation.isPending}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
               >
                 {updateSettingsMutation.isPending ? '保存中...' : '保存'}
               </button>
@@ -2184,7 +2184,7 @@ function SystemTab() {
             type="checkbox"
             checked={settings?.allow_registration ?? true}
             onChange={(e) => updateSettingsMutation.mutate({ allow_registration: e.target.checked })}
-            className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
           />
           <div>
             <p className="font-medium dark:text-white">允许新用户注册</p>

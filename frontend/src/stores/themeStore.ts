@@ -25,7 +25,7 @@ export const useThemeStore = create<ThemeState>()(
   )
 )
 
-// Theme color definitions
+// Theme color definitions - used for display in settings
 export const themeColors = {
   blue: {
     primary: 'bg-blue-600',
@@ -55,4 +55,9 @@ export const themeColors = {
     primaryBg: 'bg-orange-100',
     accent: 'bg-orange-500',
   },
+}
+
+// Helper function to get current theme colors
+export function getThemeColors(color: ThemeColor) {
+  return themeColors[color]
 }

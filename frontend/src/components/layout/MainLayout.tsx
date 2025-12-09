@@ -29,7 +29,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
     staleTime: 60000, // 1分钟内不重新请求
   })
 
-  // 更新网站名称到 store
+  // 更新网站名称�?store
   useEffect(() => {
     if (publicSettings?.site_name) {
       setSiteName(publicSettings.site_name)
@@ -42,7 +42,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
       const response = await api.get<Category[]>('/categories')
       return response.data
     },
-    refetchInterval: 30000, // 每30秒自动刷新
+    refetchInterval: 30000, // �?0秒自动刷�?
   })
 
   const { data: feeds = [] } = useQuery({
@@ -51,7 +51,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
       const response = await api.get<Feed[]>('/feeds')
       return response.data
     },
-    refetchInterval: 30000, // 每30秒自动刷新
+    refetchInterval: 30000, // �?0秒自动刷�?
   })
 
   const toggleCategory = (categoryId: number) => {
@@ -147,7 +147,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
                       </button>
                       <button
                         onClick={() => {
-                          // 展开该分类
+                          // 展开该分�?
                           setExpandedCategories((prev) => new Set(prev).add(category.id))
                           navigate(`/?category=${category.id}`)
                         }}
@@ -156,7 +156,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
                         <FolderOpen className="w-4 h-4" />
                         <span className="flex-1 truncate">{category.name}</span>
                         {category.unread_count > 0 && (
-                          <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300 px-2 py-0.5 rounded-full">
+                          <span className="text-xs bg-primary-100 dark:bg-primary-900 text-primary-600 dark:text-primary-300 px-2 py-0.5 rounded-full">
                             {category.unread_count}
                           </span>
                         )}
@@ -187,7 +187,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
             {uncategorizedFeeds.length > 0 && (
               <div className="mt-4">
                 <div className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
-                  未分类
+                  未分�?
                 </div>
                 {uncategorizedFeeds.map((feed) => (
                   <button
@@ -198,7 +198,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
                     <Rss className="w-4 h-4" />
                     <span className="flex-1 text-left truncate">{feed.title}</span>
                     {feed.unread_count > 0 && (
-                      <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300 px-2 py-0.5 rounded-full">
+                      <span className="text-xs bg-primary-100 dark:bg-primary-900 text-primary-600 dark:text-primary-300 px-2 py-0.5 rounded-full">
                         {feed.unread_count}
                       </span>
                     )}
@@ -222,7 +222,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
               className="w-full flex items-center gap-2 px-3 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
             >
               <LogOut className="w-4 h-4" />
-              <span>退出登录</span>
+              <span>退出登�?/span>
             </button>
           </div>
         </div>
