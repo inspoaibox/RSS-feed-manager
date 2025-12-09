@@ -37,7 +37,11 @@ export default function LoginPage() {
       const response = await api.post<AuthResponse>('/auth/login', data)
       return response.data
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
+      // 清除旧用户的缓存数据
+      const { queryClient } = await import('@/main')
+      queryClient.clear()
+      
       setAuth(data.user, data.access_token, data.refresh_token)
       navigate('/')
     },
