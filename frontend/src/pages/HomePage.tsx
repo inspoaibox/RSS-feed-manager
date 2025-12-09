@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, Check, Star, ExternalLink, Search, SortAsc, SortDesc, X, Languages, FileText, Loader2 } from 'lucide-react'
 import api from '@/services/api'
 import type { Article, PaginatedResponse } from '@/types'
@@ -29,6 +29,8 @@ const parseTranslation = (translation: string | null | undefined): { title: stri
   }
 }
 
+const PAGE_SIZE = 50
+
 export default function HomePage() {
   const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
@@ -38,30 +40,28 @@ export default function HomePage() {
   const [sortBy, setSortBy] = useState<'published_at' | 'created_at' | 'title'>('published_at')
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
   const [showTranslation, setShowTranslation] = useState(true)
+  
+  const listRef = useRef<HTMLDivElement>(null)
+  const loadMoreRef = useRef<HTMLDivElement>(null)
 
   const feedId = searchParams.get('feed')
   const categoryId = searchParams.get('category')
   const isFavorite = searchParams.get('favorite') === 'true'
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['articles', feedId, categoryId, isFavorite, sortBy, sortOrder, isSearching ? null : 'list'],
-    queryFn: async () => {
+  // Infinite query for articles
+  const {
+    data,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ['articles', feedId, categoryId, isFavorite, sortBy, sortOrder],
+    queryFn: async ({ pageParam = 1 }) => {
       const params = new URLSearchParams()
       if (feedId) params.append('feed_id', feedId)
       if (categoryId) params.append('category_id', categoryId)
-      if (isFavorite) params.append('is_favorite', 'true')
-      params.append('sort_by', sortBy)
-      params.append('sort_order', sortOrder)
-      params.append('page_size', '50')
-      
-      const response = await api.get<PaginatedResponse<Article>>(`/articles?${params}`)
-      return response.data
-    },
-    enabled: !isSearching,
-    refetchInterval: 30000, // 每30秒自动刷新
-  })
-
-  const { data: searchData, isLoading: isSearchLoading } = useQuery({
+      if (isFavorite) params.append('is_sSearchLoading } = useQuery({
     queryKey: ['articles-search', searchQuery, feedId, categoryId],
     queryFn: async () => {
       const params = new URLSearchParams()
@@ -438,9 +438,12 @@ export default function HomePage() {
                     </div>
                   )}
                   {showingTranslation ? (
-                    <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap dark:text-gray-200">
-                      {translatedData.content}
-                    </div>
+                    <div
+                      className="prose prose-sm dark:prose-invert max-w-none dark:text-gray-200"
+                      dangerouslySetInnerHTML={{
+                        __html: translatedData.content
+                      }}
+                    />
                   ) : (
                     <div
                       className="prose prose-sm dark:prose-invert max-w-none dark:text-gray-200"

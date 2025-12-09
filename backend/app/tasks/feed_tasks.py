@@ -32,6 +32,8 @@ SyncSessionLocal = sessionmaker(bind=sync_engine)
 
 def _process_article_with_ai(db: Session, article: Article, feed: Feed) -> None:
     """Process article with AI (translate/summarize) if enabled."""
+    from app.models.user import User
+    
     if not feed.auto_translate and not feed.auto_summarize:
         return
     
@@ -50,6 +52,14 @@ def _process_article_with_ai(db: Session, article: Article, feed: Feed) -> None:
     if not provider:
         return
     
+    # Get user's custom prompts
+    user = db.execute(
+        select(User).where(User.id == feed.user_id)
+    ).scalar_one_or_none()
+    
+    translate_prompt = user.translate_prompt if user and user.translate_prompt else None
+    summarize_prompt = user.summarize_prompt if user and user.summarize_prompt else None
+    
     content = article.content or article.title
     if not content:
         return
@@ -63,14 +73,14 @@ def _process_article_with_ai(db: Session, article: Article, feed: Feed) -> None:
         
         if feed.auto_translate and feed.target_language:
             try:
-                translation = loop.run_until_complete(client.translate(content, feed.target_language))
+                translation = loop.run_until_complete(client.translate(content, feed.target_language, translate_prompt))
                 article.translation = translation
             except AIClientError as e:
                 print(f"AI translate error for article {article.id}: {e}")
         
         if feed.auto_summarize:
             try:
-                summary = loop.run_until_complete(client.summarize(content))
+                summary = loop.run_until_complete(client.summarize(content, summarize_prompt))
                 article.summary = summary
             except AIClientError as e:
                 print(f"AI summarize error for article {article.id}: {e}")
@@ -302,6 +312,8 @@ def execute_all_custom_rules() -> dict:
 @shared_task(name="app.tasks.feed_tasks.translate_feed_articles")
 def translate_feed_articles(feed_id: int) -> dict:
     """Translate all untranslated articles in a feed."""
+    from app.models.user import User
+    
     with SyncSessionLocal() as db:
         feed = db.execute(select(Feed).where(Feed.id == feed_id)).scalar_one_or_none()
         if not feed:
@@ -324,6 +336,12 @@ def translate_feed_articles(feed_id: int) -> dict:
         
         if not provider:
             return {"success": False, "error": "AI provider not found"}
+        
+        # Get user's custom translate prompt
+        user = db.execute(
+            select(User).where(User.id == feed.user_id)
+        ).scalar_one_or_none()
+        translate_prompt = user.translate_prompt if user and user.translate_prompt else None
         
         # Get untranslated articles
         articles = db.execute(
@@ -351,7 +369,7 @@ def translate_feed_articles(feed_id: int) -> dict:
                     continue
                 
                 try:
-                    translation = loop.run_until_complete(client.translate(content, feed.target_language))
+                    translation = loop.run_until_complete(client.translate(content, feed.target_language, translate_prompt))
                     article.translation = translation
                     db.commit()
                     translated_count += 1

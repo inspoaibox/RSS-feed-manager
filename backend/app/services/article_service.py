@@ -230,8 +230,8 @@ class ArticleService:
                 detail="Article has no content to translate"
             )
         
-        # Extract plain text from HTML content
-        content_text = self._extract_text_from_html(content) if content else ""
+        # Keep HTML content for translation (let AI preserve formatting)
+        content_text = content
         
         # Get default AI model
         from app.repositories.ai_repository import AIModelRepository, AIProviderRepository
