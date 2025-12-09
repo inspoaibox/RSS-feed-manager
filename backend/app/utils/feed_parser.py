@@ -34,13 +34,50 @@ class FeedParserError(Exception):
     pass
 
 
+def _detect_encoding(content: bytes, content_type: str | None = None) -> str:
+    """Detect encoding from content and headers."""
+    import re
+    
+    # 1. 尝试从 Content-Type header 获取编码
+    if content_type:
+        match = re.search(r'charset=([^\s;]+)', content_type, re.IGNORECASE)
+        if match:
+            return match.group(1).strip('"\'')
+    
+    # 2. 尝试从 XML 声明获取编码
+    # 先用 ascii 解码前 200 字节来查找 encoding 声明
+    try:
+        header = content[:200].decode('ascii', errors='ignore')
+        match = re.search(r'encoding=["\']([^"\']+)["\']', header, re.IGNORECASE)
+        if match:
+            return match.group(1)
+    except:
+        pass
+    
+    # 3. 常见中文网站编码检测
+    # 检查是否包含 GBK/GB2312 特征字节
+    try:
+        content.decode('utf-8')
+        return 'utf-8'
+    except UnicodeDecodeError:
+        # 尝试 GBK (兼容 GB2312)
+        try:
+            content.decode('gbk')
+            return 'gbk'
+        except UnicodeDecodeError:
+            pass
+    
+    # 4. 默认 UTF-8
+    return 'utf-8'
+
+
 async def fetch_feed_content(url: str, timeout: float = 30.0) -> str:
     """Fetch feed content from URL."""
     # 简化请求头，不请求压缩以避免解压问题
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/rss+xml, application/xml, text/xml, */*",
-        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
     }
     
     async with httpx.AsyncClient() as client:
@@ -52,7 +89,26 @@ async def fetch_feed_content(url: str, timeout: float = 30.0) -> str:
                 headers=headers,
             )
             response.raise_for_status()
-            return response.text
+            
+            # 获取原始字节内容
+            raw_content = response.content
+            content_type = response.headers.get('content-type', '')
+            
+            # 检测并使用正确的编码
+            encoding = _detect_encoding(raw_content, content_type)
+            
+            try:
+                return raw_content.decode(encoding)
+            except (UnicodeDecodeError, LookupError):
+                # 如果检测的编码失败，尝试常见编码
+                for enc in ['utf-8', 'gbk', 'gb2312', 'gb18030', 'latin-1']:
+                    try:
+                        return raw_content.decode(enc)
+                    except (UnicodeDecodeError, LookupError):
+                        continue
+                # 最后使用 errors='replace' 强制解码
+                return raw_content.decode('utf-8', errors='replace')
+                
         except httpx.TimeoutException:
             raise FeedParserError(f"Timeout fetching feed: {url}")
         except httpx.HTTPStatusError as e:
