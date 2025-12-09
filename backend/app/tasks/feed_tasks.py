@@ -283,27 +283,36 @@ def execute_all_custom_rules() -> dict:
         processed = 0
         total_articles = 0
         errors = 0
+        skipped = 0
         
         for rule in rules:
             # Check if rule is due for fetch
             if rule.last_fetched_at:
-                next_fetch = rule.last_fetched_at + timedelta(seconds=rule.fetch_interval)
+                # Remove timezone info for comparison (PostgreSQL returns tz-aware)
+                last_fetched = rule.last_fetched_at.replace(tzinfo=None) if rule.last_fetched_at.tzinfo else rule.last_fetched_at
+                next_fetch = last_fetched + timedelta(seconds=rule.fetch_interval)
                 if now < next_fetch:
-                    continue
+                    skipped += 1
+                    continue  # Not due yet
             
             try:
                 result = execute_custom_rule(rule.id)
                 if result.get("success"):
                     total_articles += result.get("articles_found", 0)
                     processed += 1
+                    print(f"Executed custom rule {rule.id} ({rule.name}): {result.get('articles_found', 0)} articles")
                 else:
                     errors += 1
-            except Exception:
+                    print(f"Error executing custom rule {rule.id}: {result.get('error')}")
+            except Exception as e:
                 errors += 1
+                print(f"Exception executing custom rule {rule.id}: {e}")
         
         return {
             "success": True,
+            "rules_checked": len(rules),
             "rules_processed": processed,
+            "rules_skipped": skipped,
             "articles_found": total_articles,
             "errors": errors
         }
