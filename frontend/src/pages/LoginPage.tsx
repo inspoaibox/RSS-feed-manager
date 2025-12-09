@@ -17,20 +17,23 @@ export default function LoginPage() {
   })
   const [error, setError] = useState('')
 
-  // 获取公开设置
-  const { data: publicSettings } = useQuery({
-    queryKey: ['public-settings'],
+  // 获取注册状态和公开设置
+  const { data: regStatus } = useQuery({
+    queryKey: ['registration-status'],
     queryFn: async () => {
-      const response = await api.get<{ site_name: string }>('/system/public-settings')
+      const response = await api.get<{ allow_registration: boolean; has_users: boolean; site_name: string }>('/system/registration-status')
       return response.data
     },
   })
 
   useEffect(() => {
-    if (publicSettings?.site_name) {
-      setSiteName(publicSettings.site_name)
+    if (regStatus?.site_name) {
+      setSiteName(regStatus.site_name)
     }
-  }, [publicSettings?.site_name, setSiteName])
+  }, [regStatus?.site_name, setSiteName])
+
+  // 是否允许注册（未开启注册但没有用户时也允许，用于创建首个管理员）
+  const allowRegister = regStatus?.allow_registration || regStatus?.has_users === false
 
   const loginMutation = useMutation({
     mutationFn: async (data: LoginRequest) => {
@@ -150,14 +153,16 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-6 text-center">
-            <p className="text-gray-600 dark:text-gray-400">
-              还没有账户？{' '}
-              <Link to="/register" className="text-primary-600 dark:text-primary-400 hover:text-primary-700 font-medium">
-                立即注册
-              </Link>
-            </p>
-          </div>
+          {allowRegister && (
+            <div className="mt-6 text-center">
+              <p className="text-gray-600 dark:text-gray-400">
+                还没有账户？{' '}
+                <Link to="/register" className="text-primary-600 dark:text-primary-400 hover:text-primary-700 font-medium">
+                  立即注册
+                </Link>
+              </p>
+            </div>
+          )}
         </div>
 
         {/* 底部装饰 */}

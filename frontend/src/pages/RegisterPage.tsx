@@ -31,11 +31,12 @@ export default function RegisterPage() {
     }
   }, [regStatus?.site_name, setSiteName])
 
+  // 如果注册关闭且已有用户，重定向到登录页
   useEffect(() => {
-    if (regStatus && !regStatus.allow_registration) {
-      setError('注册功能已关闭，请联系管理员')
+    if (regStatus && !regStatus.allow_registration && regStatus.has_users) {
+      navigate('/login', { replace: true })
     }
-  }, [regStatus])
+  }, [regStatus, navigate])
 
   const registerMutation = useMutation({
     mutationFn: async (data: RegisterRequest) => {
