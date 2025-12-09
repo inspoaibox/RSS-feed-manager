@@ -8,6 +8,9 @@ import RegisterPage from '@/pages/RegisterPage'
 import MainLayout from '@/components/layout/MainLayout'
 import HomePage from '@/pages/HomePage'
 import SettingsPage from '@/pages/SettingsPage'
+import { queryClient } from '@/main'
+
+const CACHE_USER_KEY = 'cache-user-id'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
@@ -19,7 +22,28 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
+  const user = useAuthStore((state) => state.user)
   const siteName = useSiteStore((state) => state.siteName)
+
+  // 检查缓存的用户 ID 是否与当前用户匹配
+  useEffect(() => {
+    if (user) {
+      const cachedUserId = localStorage.getItem(CACHE_USER_KEY)
+      const currentUserId = String(user.id)
+      
+      if (cachedUserId && cachedUserId !== currentUserId) {
+        // 用户 ID 不匹配，清除所有缓存
+        console.log('User changed, clearing cache...')
+        queryClient.clear()
+      }
+      
+      // 更新缓存的用户 ID
+      localStorage.setItem(CACHE_USER_KEY, currentUserId)
+    } else {
+      // 用户登出，清除缓存的用户 ID
+      localStorage.removeItem(CACHE_USER_KEY)
+    }
+  }, [user])
 
   // 更新页面标题
   useEffect(() => {
