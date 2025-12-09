@@ -20,10 +20,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # Add is_admin column to users table
-    op.add_column('users', sa.Column('is_admin', sa.Boolean(), nullable=True, server_default='0'))
+    op.add_column('users', sa.Column('is_admin', sa.Boolean(), nullable=True, server_default='false'))
     
     # Set first user as admin
-    op.execute("UPDATE users SET is_admin = 1 WHERE id = (SELECT MIN(id) FROM users)")
+    op.execute("UPDATE users SET is_admin = true WHERE id = (SELECT MIN(id) FROM users)")
     
     # Make column not nullable
     op.alter_column('users', 'is_admin', nullable=False, server_default=None)
@@ -44,7 +44,7 @@ def upgrade() -> None:
     # Insert default settings
     op.execute("""
         INSERT INTO system_settings (key, value, description, created_at) 
-        VALUES ('allow_registration', 'true', '是否允许新用户注册', datetime('now'))
+        VALUES ('allow_registration', 'true', '是否允许新用户注册', NOW())
     """)
 
 
