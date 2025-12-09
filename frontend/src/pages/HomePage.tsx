@@ -348,6 +348,7 @@ export default function HomePage() {
                           hour: '2-digit',
                           minute: '2-digit'
                         })}</span>
+                        {article.feed_title && <span className="truncate max-w-[120px]" title={article.feed_title}>· {article.feed_title}</span>}
                         {article.author && <span>· {article.author}</span>}
                       </div>
                     </div>
