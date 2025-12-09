@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import api from '@/services/api'
 import type { RegisterRequest } from '@/types'
 
@@ -13,6 +13,21 @@ export default function RegisterPage() {
   })
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
+
+  // Check if registration is allowed
+  const { data: regStatus, isLoading: checkingStatus } = useQuery({
+    queryKey: ['registration-status'],
+    queryFn: async () => {
+      const response = await api.get<{ allow_registration: boolean; has_users: boolean }>('/system/registration-status')
+      return response.data
+    },
+  })
+
+  useEffect(() => {
+    if (regStatus && !regStatus.allow_registration) {
+      setError('注册功能已关闭，请联系管理员')
+    }
+  }, [regStatus])
 
   const registerMutation = useMutation({
     mutationFn: async (data: RegisterRequest) => {
@@ -120,10 +135,10 @@ export default function RegisterPage() {
           </div>
           <button
             type="submit"
-            disabled={registerMutation.isPending}
+            disabled={registerMutation.isPending || checkingStatus || (regStatus && !regStatus.allow_registration)}
             className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
           >
-            {registerMutation.isPending ? '注册中...' : '注册'}
+            {checkingStatus ? '检查中...' : registerMutation.isPending ? '注册中...' : regStatus?.has_users === false ? '创建管理员账户' : '注册'}
           </button>
           <p className="text-center text-sm text-gray-600 dark:text-gray-400">
             已有账户？{' '}

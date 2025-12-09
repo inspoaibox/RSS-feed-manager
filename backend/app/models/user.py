@@ -23,6 +23,7 @@ class User(BaseModel):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(default=True)
+    is_admin: Mapped[bool] = mapped_column(default=False)
     
     # Token version for invalidating tokens on password change
     token_version: Mapped[int] = mapped_column(default=0, nullable=False)

@@ -11,9 +11,9 @@ class UserRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create(self, username: str, email: str, password: str) -> User:
+    async def create(self, username: str, email: str, password: str, is_admin: bool = False) -> User:
         """Create a new user."""
-        user = User(username=username, email=email, token_version=0)
+        user = User(username=username, email=email, token_version=0, is_admin=is_admin)
         user.set_password(password)
         self.session.add(user)
         await self.session.flush()
@@ -53,3 +53,14 @@ class UserRepository:
             select(User.id).where(User.email == email).limit(1)
         )
         return result.scalar_one_or_none() is not None
+
+    async def count_users(self) -> int:
+        """Count total users."""
+        from sqlalchemy import func
+        result = await self.session.execute(select(func.count(User.id)))
+        return result.scalar() or 0
+
+    async def get_all_users(self) -> list[User]:
+        """Get all users (admin only)."""
+        result = await self.session.execute(select(User).order_by(User.id))
+        return list(result.scalars().all())

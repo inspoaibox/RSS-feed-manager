@@ -1,14 +1,27 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, Save, FolderOpen, Languages, ChevronUp, ChevronDown, Search } from 'lucide-react'
+import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, Save, FolderOpen, Languages, ChevronUp, ChevronDown, Search, Shield } from 'lucide-react'
 import api from '@/services/api'
 import type { Category, Feed, AIProvider, AIModel, CustomRule } from '@/types'
 import { useThemeStore, type ThemeColor } from '@/stores/themeStore'
+import { useAuthStore } from '@/stores/authStore'
 
-type Tab = 'feeds' | 'categories' | 'ai' | 'rules' | 'backup' | 'appearance'
+type Tab = 'feeds' | 'categories' | 'ai' | 'rules' | 'backup' | 'appearance' | 'system'
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('feeds')
+  const user = useAuthStore((state) => state.user)
+  const isAdmin = user?.is_admin ?? false
+
+  const tabs = [
+    { id: 'feeds', label: '订阅源' },
+    { id: 'categories', label: '分类' },
+    { id: 'ai', label: 'AI 设置' },
+    { id: 'rules', label: '自定义规则' },
+    { id: 'backup', label: '备份恢复' },
+    { id: 'appearance', label: '外观' },
+    ...(isAdmin ? [{ id: 'system', label: '系统设置', icon: Shield }] : []),
+  ]
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -16,23 +29,17 @@ export default function SettingsPage() {
       
       {/* Tabs */}
       <div className="flex border-b dark:border-gray-700 mb-6 flex-wrap">
-        {[
-          { id: 'feeds', label: '订阅源' },
-          { id: 'categories', label: '分类' },
-          { id: 'ai', label: 'AI 设置' },
-          { id: 'rules', label: '自定义规则' },
-          { id: 'backup', label: '备份恢复' },
-          { id: 'appearance', label: '外观' },
-        ].map((tab) => (
+        {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as Tab)}
-            className={`px-4 py-2 border-b-2 -mb-px ${
+            className={`px-4 py-2 border-b-2 -mb-px flex items-center gap-1 ${
               activeTab === tab.id
                 ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                 : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
             }`}
           >
+            {tab.id === 'system' && <Shield className="w-4 h-4" />}
             {tab.label}
           </button>
         ))}
@@ -44,6 +51,7 @@ export default function SettingsPage() {
       {activeTab === 'rules' && <RulesTab />}
       {activeTab === 'backup' && <BackupTab />}
       {activeTab === 'appearance' && <AppearanceTab />}
+      {activeTab === 'system' && isAdmin && <SystemTab />}
     </div>
   )
 }
@@ -2071,6 +2079,129 @@ function AppearanceTab() {
           <button className={`px-4 py-2 rounded text-white ${colorOptions.find(c => c.value === color)?.class}`}>
             示例按钮
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SystemTab() {
+  const queryClient = useQueryClient()
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  const { data: settings, isLoading } = useQuery({
+    queryKey: ['system-settings'],
+    queryFn: async () => {
+      const response = await api.get<{ allow_registration: boolean }>('/system/settings')
+      return response.data
+    },
+  })
+
+  const { data: users } = useQuery({
+    queryKey: ['system-users'],
+    queryFn: async () => {
+      const response = await api.get<Array<{
+        id: number
+        username: string
+        email: string
+        is_active: boolean
+        is_admin: boolean
+        created_at: string | null
+      }>>('/system/users')
+      return response.data
+    },
+  })
+
+  const updateSettingsMutation = useMutation({
+    mutationFn: async (data: { allow_registration?: boolean }) => {
+      const response = await api.put('/system/settings', data)
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['system-settings'] })
+      setMessage({ type: 'success', text: '设置已保存' })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: any) => {
+      const detail = err.response?.data?.detail
+      setMessage({ type: 'error', text: detail || '保存失败' })
+    },
+  })
+
+  if (isLoading) {
+    return <div className="text-center py-8 text-gray-500 dark:text-gray-400">加载中...</div>
+  }
+
+  return (
+    <div className="space-y-8">
+      {message && (
+        <div className={`p-3 rounded ${message.type === 'success' ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400'}`}>
+          {message.text}
+        </div>
+      )}
+
+      {/* 注册设置 */}
+      <div className="p-4 border dark:border-gray-700 rounded-lg">
+        <h3 className="font-medium mb-4 dark:text-white flex items-center gap-2">
+          <Shield className="w-5 h-5" />
+          注册设置
+        </h3>
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={settings?.allow_registration ?? true}
+            onChange={(e) => updateSettingsMutation.mutate({ allow_registration: e.target.checked })}
+            className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div>
+            <p className="font-medium dark:text-white">允许新用户注册</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">关闭后，只有管理员可以添加新用户</p>
+          </div>
+        </label>
+      </div>
+
+      {/* 用户列表 */}
+      <div className="p-4 border dark:border-gray-700 rounded-lg">
+        <h3 className="font-medium mb-4 dark:text-white">用户列表</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b dark:border-gray-700">
+                <th className="text-left py-2 px-3 dark:text-gray-300">ID</th>
+                <th className="text-left py-2 px-3 dark:text-gray-300">用户名</th>
+                <th className="text-left py-2 px-3 dark:text-gray-300">邮箱</th>
+                <th className="text-left py-2 px-3 dark:text-gray-300">角色</th>
+                <th className="text-left py-2 px-3 dark:text-gray-300">状态</th>
+                <th className="text-left py-2 px-3 dark:text-gray-300">注册时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users?.map((user) => (
+                <tr key={user.id} className="border-b dark:border-gray-700">
+                  <td className="py-2 px-3 dark:text-gray-300">{user.id}</td>
+                  <td className="py-2 px-3 dark:text-white font-medium">{user.username}</td>
+                  <td className="py-2 px-3 dark:text-gray-300">{user.email}</td>
+                  <td className="py-2 px-3">
+                    {user.is_admin ? (
+                      <span className="px-2 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded text-xs">管理员</span>
+                    ) : (
+                      <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded text-xs">普通用户</span>
+                    )}
+                  </td>
+                  <td className="py-2 px-3">
+                    {user.is_active ? (
+                      <span className="text-green-600 dark:text-green-400">正常</span>
+                    ) : (
+                      <span className="text-red-600 dark:text-red-400">禁用</span>
+                    )}
+                  </td>
+                  <td className="py-2 px-3 text-gray-500 dark:text-gray-400">
+                    {user.created_at ? new Date(user.created_at).toLocaleString('zh-CN') : '-'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

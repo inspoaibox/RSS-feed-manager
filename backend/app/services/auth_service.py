@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import create_access_token, create_refresh_token, decode_token
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
+from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.schemas.auth import AuthResponse, UserCreate, UserLogin, UserResponse
 
 
@@ -14,9 +15,23 @@ class AuthService:
     def __init__(self, session: AsyncSession):
         self.session = session
         self.user_repo = UserRepository(session)
+        self.settings_repo = SystemSettingsRepository(session)
 
     async def register(self, data: UserCreate) -> AuthResponse:
         """Register a new user."""
+        # Check if this is the first user (will be admin)
+        user_count = await self.user_repo.count_users()
+        is_first_user = user_count == 0
+        
+        # Check if registration is allowed (skip for first user)
+        if not is_first_user:
+            allow_registration = await self.settings_repo.get_bool('allow_registration', True)
+            if not allow_registration:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Registration is currently disabled"
+                )
+        
         # Check if username exists
         if await self.user_repo.exists_by_username(data.username):
             raise HTTPException(
@@ -31,11 +46,12 @@ class AuthService:
                 detail="Email already exists"
             )
         
-        # Create user
+        # Create user (first user is admin)
         user = await self.user_repo.create(
             username=data.username,
             email=data.email,
-            password=data.password
+            password=data.password,
+            is_admin=is_first_user
         )
         
         # Generate tokens
