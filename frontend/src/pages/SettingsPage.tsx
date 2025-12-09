@@ -1354,6 +1354,7 @@ function RulesTab() {
         title_selector?: string
         link_selector?: string
         content_selector?: string
+        date_selector?: string
         error?: string
       }>('/rules/generate', { 
         target_url: url,
@@ -1370,6 +1371,7 @@ function RulesTab() {
           title_selector: data.title_selector || '',
           link_selector: data.link_selector || '',
           content_selector: data.content_selector || '',
+          date_selector: data.date_selector || '',
         }))
         setMessage({ type: 'success', text: 'AI 已生成规则，请检查并测试' })
         setTimeout(() => setMessage(null), 5000)

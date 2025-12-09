@@ -485,6 +485,11 @@ HTML 内容:
    - 如果列表页有文章摘要，填写对应选择器
    - 如果没有摘要，填写 null
 
+5. date_selector: 时间/日期选择器（可选，相对于列表项内部）
+   - 如果列表页有发布时间，填写对应选择器
+   - 通常是 time, span, 或带有 date/time class 的元素
+   - 如果没有时间信息，填写 null
+
 注意事项：
 - 优先使用简单的 class 选择器，避免过于复杂的选择器
 - 如果 class 名包含动态 hash（如 xxx__abc123），仍然可以使用，但要确保完整
@@ -496,7 +501,8 @@ HTML 内容:
     "list_selector": "列表项选择器",
     "title_selector": "标题选择器",
     "link_selector": "链接选择器，如果列表项本身是a标签则填self",
-    "content_selector": "内容选择器或null"
+    "content_selector": "内容选择器或null",
+    "date_selector": "时间选择器或null"
 }}"""
 
     async def generate_rule_with_ai(self, user_id: int, target_url: str, custom_prompt: str | None = None) -> AIGenerateRuleResponse:
@@ -586,7 +592,8 @@ HTML 内容:
                 list_selector=result.get("list_selector"),
                 title_selector=result.get("title_selector"),
                 link_selector=result.get("link_selector"),
-                content_selector=result.get("content_selector")
+                content_selector=result.get("content_selector"),
+                date_selector=result.get("date_selector")
             )
             
         except AIClientError as e:

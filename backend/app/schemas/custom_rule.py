@@ -97,4 +97,5 @@ class AIGenerateRuleResponse(BaseModel):
     title_selector: str | None = None
     link_selector: str | None = None
     content_selector: str | None = None
+    date_selector: str | None = None
     error: str | None = None
