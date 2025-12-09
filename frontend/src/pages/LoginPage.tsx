@@ -1,18 +1,35 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '@/stores/authStore'
+import { useSiteStore } from '@/stores/siteStore'
 import api from '@/services/api'
 import type { AuthResponse, LoginRequest } from '@/types'
 
 export default function LoginPage() {
   const navigate = useNavigate()
   const setAuth = useAuthStore((state) => state.setAuth)
+  const { siteName, setSiteName } = useSiteStore()
   const [formData, setFormData] = useState<LoginRequest>({
     username: '',
     password: '',
   })
   const [error, setError] = useState('')
+
+  // 获取公开设置
+  const { data: publicSettings } = useQuery({
+    queryKey: ['public-settings'],
+    queryFn: async () => {
+      const response = await api.get<{ site_name: string }>('/system/public-settings')
+      return response.data
+    },
+  })
+
+  useEffect(() => {
+    if (publicSettings?.site_name) {
+      setSiteName(publicSettings.site_name)
+    }
+  }, [publicSettings?.site_name, setSiteName])
 
   const loginMutation = useMutation({
     mutationFn: async (data: LoginRequest) => {
@@ -45,7 +62,7 @@ export default function LoginPage() {
       <div className="max-w-md w-full space-y-8 p-8 bg-white dark:bg-gray-800 rounded-lg shadow">
         <div>
           <h2 className="text-center text-3xl font-bold text-gray-900 dark:text-white">
-            RSS 订阅管理器
+            {siteName}
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">登录您的账户</p>
         </div>

@@ -1,5 +1,7 @@
+import { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
+import { useSiteStore } from '@/stores/siteStore'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import LoginPage from '@/pages/LoginPage'
 import RegisterPage from '@/pages/RegisterPage'
@@ -17,6 +19,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
+  const siteName = useSiteStore((state) => state.siteName)
+
+  // 更新页面标题
+  useEffect(() => {
+    document.title = siteName
+  }, [siteName])
 
   return (
     <ThemeProvider>

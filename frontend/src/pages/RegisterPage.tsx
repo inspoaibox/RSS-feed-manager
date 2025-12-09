@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { useSiteStore } from '@/stores/siteStore'
 import api from '@/services/api'
 import type { RegisterRequest } from '@/types'
 
 export default function RegisterPage() {
   const navigate = useNavigate()
+  const { siteName, setSiteName } = useSiteStore()
   const [formData, setFormData] = useState<RegisterRequest>({
     username: '',
     email: '',
@@ -18,10 +20,17 @@ export default function RegisterPage() {
   const { data: regStatus, isLoading: checkingStatus } = useQuery({
     queryKey: ['registration-status'],
     queryFn: async () => {
-      const response = await api.get<{ allow_registration: boolean; has_users: boolean }>('/system/registration-status')
+      const response = await api.get<{ allow_registration: boolean; has_users: boolean; site_name: string }>('/system/registration-status')
       return response.data
     },
   })
+
+  // 更新网站名称
+  useEffect(() => {
+    if (regStatus?.site_name) {
+      setSiteName(regStatus.site_name)
+    }
+  }, [regStatus?.site_name, setSiteName])
 
   useEffect(() => {
     if (regStatus && !regStatus.allow_registration) {
@@ -69,7 +78,7 @@ export default function RegisterPage() {
       <div className="max-w-md w-full space-y-8 p-8 bg-white dark:bg-gray-800 rounded-lg shadow">
         <div>
           <h2 className="text-center text-3xl font-bold text-gray-900 dark:text-white">
-            RSS 订阅管理器
+            {siteName}
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">创建新账户</p>
         </div>

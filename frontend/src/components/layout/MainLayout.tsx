@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Menu, X, Rss, FolderOpen, Star, Settings, LogOut, ChevronDown, ChevronRight } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
+import { useSiteStore } from '@/stores/siteStore'
 import api from '@/services/api'
 import type { Category, Feed } from '@/types'
 import clsx from 'clsx'
@@ -16,6 +17,24 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
   const navigate = useNavigate()
   const clearAuth = useAuthStore((state) => state.clearAuth)
   const [expandedCategories, setExpandedCategories] = useState<Set<number>>(new Set())
+  const { siteName, setSiteName } = useSiteStore()
+
+  // 获取公开设置（网站名称）
+  const { data: publicSettings } = useQuery({
+    queryKey: ['public-settings'],
+    queryFn: async () => {
+      const response = await api.get<{ site_name: string }>('/system/public-settings')
+      return response.data
+    },
+    staleTime: 60000, // 1分钟内不重新请求
+  })
+
+  // 更新网站名称到 store
+  useEffect(() => {
+    if (publicSettings?.site_name) {
+      setSiteName(publicSettings.site_name)
+    }
+  }, [publicSettings?.site_name, setSiteName])
 
   const { data: categories = [] } = useQuery({
     queryKey: ['categories'],
@@ -79,7 +98,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
         <div className="flex flex-col h-full">
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b dark:border-gray-700">
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">RSS 管理器</h1>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">{siteName}</h1>
             <button onClick={onClose} className="lg:hidden dark:text-gray-300">
               <X className="w-5 h-5" />
             </button>
@@ -214,6 +233,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
 
 export default function MainLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const siteName = useSiteStore((state) => state.siteName)
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
@@ -225,7 +245,7 @@ export default function MainLayout() {
           <button onClick={() => setSidebarOpen(true)} className="dark:text-gray-200">
             <Menu className="w-6 h-6" />
           </button>
-          <h1 className="text-lg font-semibold dark:text-white">RSS 管理器</h1>
+          <h1 className="text-lg font-semibold dark:text-white">{siteName}</h1>
         </header>
         
         <div className="flex-1 overflow-auto">

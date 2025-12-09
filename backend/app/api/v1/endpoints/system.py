@@ -14,11 +14,18 @@ router = APIRouter()
 class SystemSettingsResponse(BaseModel):
     """Response schema for system settings."""
     allow_registration: bool
+    site_name: str
 
 
 class SystemSettingsUpdate(BaseModel):
     """Update schema for system settings."""
     allow_registration: bool | None = None
+    site_name: str | None = None
+
+
+class PublicSettingsResponse(BaseModel):
+    """Response schema for public settings (no auth required)."""
+    site_name: str
 
 
 class UserListResponse(BaseModel):
@@ -38,6 +45,7 @@ class RegistrationStatusResponse(BaseModel):
     """Response schema for registration status (public)."""
     allow_registration: bool
     has_users: bool
+    site_name: str
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:
@@ -50,6 +58,14 @@ def require_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+@router.get("/public-settings", response_model=PublicSettingsResponse)
+async def get_public_settings(db: AsyncSession = Depends(get_db)):
+    """Get public settings (no auth required)."""
+    settings_repo = SystemSettingsRepository(db)
+    site_name = await settings_repo.get('site_name') or 'RSS 管理器'
+    return PublicSettingsResponse(site_name=site_name)
+
+
 @router.get("/registration-status", response_model=RegistrationStatusResponse)
 async def get_registration_status(db: AsyncSession = Depends(get_db)):
     """Get registration status (public endpoint)."""
@@ -58,10 +74,12 @@ async def get_registration_status(db: AsyncSession = Depends(get_db)):
     
     allow_registration = await settings_repo.get_bool('allow_registration', True)
     user_count = await user_repo.count_users()
+    site_name = await settings_repo.get('site_name') or 'RSS 管理器'
     
     return RegistrationStatusResponse(
         allow_registration=allow_registration or user_count == 0,  # Always allow if no users
-        has_users=user_count > 0
+        has_users=user_count > 0,
+        site_name=site_name
     )
 
 
@@ -74,7 +92,8 @@ async def get_system_settings(
     settings_repo = SystemSettingsRepository(db)
     
     return SystemSettingsResponse(
-        allow_registration=await settings_repo.get_bool('allow_registration', True)
+        allow_registration=await settings_repo.get_bool('allow_registration', True),
+        site_name=await settings_repo.get('site_name') or 'RSS 管理器'
     )
 
 
@@ -94,10 +113,18 @@ async def update_system_settings(
             '是否允许新用户注册'
         )
     
+    if data.site_name is not None:
+        await settings_repo.set(
+            'site_name',
+            data.site_name.strip() or 'RSS 管理器',
+            '网站名称'
+        )
+    
     await db.commit()
     
     return SystemSettingsResponse(
-        allow_registration=await settings_repo.get_bool('allow_registration', True)
+        allow_registration=await settings_repo.get_bool('allow_registration', True),
+        site_name=await settings_repo.get('site_name') or 'RSS 管理器'
     )
 
 

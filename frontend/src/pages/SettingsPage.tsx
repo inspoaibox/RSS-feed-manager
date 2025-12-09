@@ -2088,11 +2088,13 @@ function AppearanceTab() {
 function SystemTab() {
   const queryClient = useQueryClient()
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [siteName, setSiteName] = useState('')
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['system-settings'],
     queryFn: async () => {
-      const response = await api.get<{ allow_registration: boolean }>('/system/settings')
+      const response = await api.get<{ allow_registration: boolean; site_name: string }>('/system/settings')
+      setSiteName(response.data.site_name)
       return response.data
     },
   })
@@ -2113,12 +2115,13 @@ function SystemTab() {
   })
 
   const updateSettingsMutation = useMutation({
-    mutationFn: async (data: { allow_registration?: boolean }) => {
+    mutationFn: async (data: { allow_registration?: boolean; site_name?: string }) => {
       const response = await api.put('/system/settings', data)
       return response.data
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['system-settings'] })
+      queryClient.invalidateQueries({ queryKey: ['public-settings'] })
       setMessage({ type: 'success', text: '设置已保存' })
       setTimeout(() => setMessage(null), 3000)
     },
@@ -2139,6 +2142,36 @@ function SystemTab() {
           {message.text}
         </div>
       )}
+
+      {/* 网站设置 */}
+      <div className="p-4 border dark:border-gray-700 rounded-lg">
+        <h3 className="font-medium mb-4 dark:text-white flex items-center gap-2">
+          <Shield className="w-5 h-5" />
+          网站设置
+        </h3>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium dark:text-gray-300 mb-2">网站名称</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={siteName}
+                onChange={(e) => setSiteName(e.target.value)}
+                placeholder="RSS 管理器"
+                className="flex-1 px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+              />
+              <button
+                onClick={() => updateSettingsMutation.mutate({ site_name: siteName })}
+                disabled={updateSettingsMutation.isPending}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+              >
+                {updateSettingsMutation.isPending ? '保存中...' : '保存'}
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">自定义网站名称，将显示在侧边栏和页面标题中</p>
+          </div>
+        </div>
+      </div>
 
       {/* 注册设置 */}
       <div className="p-4 border dark:border-gray-700 rounded-lg">
