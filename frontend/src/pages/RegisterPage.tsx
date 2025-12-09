@@ -61,12 +61,12 @@ export default function RegisterPage() {
     setError('')
     
     if (formData.password !== confirmPassword) {
-      setError('两次输入的密码不一�?)
+      setError('两次输入的密码不一致')
       return
     }
     
     if (formData.password.length < 6) {
-      setError('密码长度至少�?�?)
+      setError('密码长度至少为6位')
       return
     }
     
@@ -80,7 +80,7 @@ export default function RegisterPage() {
           <h2 className="text-center text-3xl font-bold text-gray-900 dark:text-white">
             {siteName}
           </h2>
-          <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">创建新账�?/p>
+          <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">创建新账户</p>
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           {error && (
@@ -91,7 +91,7 @@ export default function RegisterPage() {
           <div className="space-y-4">
             <div>
               <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                用户�?
+                用户名
               </label>
               <input
                 id="username"
@@ -147,7 +147,7 @@ export default function RegisterPage() {
             disabled={registerMutation.isPending || checkingStatus || (regStatus && !regStatus.allow_registration)}
             className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50"
           >
-            {checkingStatus ? '检查中...' : registerMutation.isPending ? '注册�?..' : regStatus?.has_users === false ? '创建管理员账�? : '注册'}
+            {checkingStatus ? '检查中...' : registerMutation.isPending ? '注册中...' : regStatus?.has_users === false ? '创建管理员账户' : '注册'}
           </button>
           <p className="text-center text-sm text-gray-600 dark:text-gray-400">
             已有账户？{' '}

@@ -29,7 +29,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
     staleTime: 60000, // 1分钟内不重新请求
   })
 
-  // 更新网站名称�?store
+  // 更新网站名称到 store
   useEffect(() => {
     if (publicSettings?.site_name) {
       setSiteName(publicSettings.site_name)
@@ -42,7 +42,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
       const response = await api.get<Category[]>('/categories')
       return response.data
     },
-    refetchInterval: 30000, // �?0秒自动刷�?
+    refetchInterval: 30000, // 每30秒自动刷新
   })
 
   const { data: feeds = [] } = useQuery({
@@ -51,7 +51,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
       const response = await api.get<Feed[]>('/feeds')
       return response.data
     },
-    refetchInterval: 30000, // �?0秒自动刷�?
+    refetchInterval: 30000, // 每30秒自动刷新
   })
 
   const toggleCategory = (categoryId: number) => {
@@ -147,7 +147,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
                       </button>
                       <button
                         onClick={() => {
-                          // 展开该分�?
+                          // 展开该分类
                           setExpandedCategories((prev) => new Set(prev).add(category.id))
                           navigate(`/?category=${category.id}`)
                         }}
@@ -187,7 +187,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
             {uncategorizedFeeds.length > 0 && (
               <div className="mt-4">
                 <div className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
-                  未分�?
+                  未分类
                 </div>
                 {uncategorizedFeeds.map((feed) => (
                   <button
@@ -222,7 +222,7 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
               className="w-full flex items-center gap-2 px-3 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
             >
               <LogOut className="w-4 h-4" />
-              <span>退出登�?/span>
+              <span>退出登录</span>
             </button>
           </div>
         </div>
