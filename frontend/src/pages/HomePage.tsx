@@ -1,7 +1,7 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Check, Star, ExternalLink, Search, SortAsc, SortDesc, X, Languages, FileText, Loader2 } from 'lucide-react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { RefreshCw, Check, Star, ExternalLink, Search, SortAsc, SortDesc, X, Languages, FileText, Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
 import api from '@/services/api'
 import type { Article, PaginatedResponse } from '@/types'
 import clsx from 'clsx'
@@ -29,7 +29,7 @@ const parseTranslation = (translation: string | null | undefined): { title: stri
   }
 }
 
-const PAGE_SIZE = 50
+const PAGE_SIZE = 30
 
 export default function HomePage() {
   const [searchParams] = useSearchParams()
@@ -40,41 +40,48 @@ export default function HomePage() {
   const [sortBy, setSortBy] = useState<'published_at' | 'created_at' | 'title'>('published_at')
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
   const [showTranslation, setShowTranslation] = useState(true)
-  
-  const listRef = useRef<HTMLDivElement>(null)
-  const loadMoreRef = useRef<HTMLDivElement>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [searchPage, setSearchPage] = useState(1)
 
   const feedId = searchParams.get('feed')
   const categoryId = searchParams.get('category')
   const isFavorite = searchParams.get('favorite') === 'true'
 
-  // Infinite query for articles
-  const {
-    data,
-    isLoading,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-  } = useInfiniteQuery({
-    queryKey: ['articles', feedId, categoryId, isFavorite, sortBy, sortOrder],
-    queryFn: async ({ pageParam = 1 }) => {
+  const { data, isLoading } = useQuery({
+    queryKey: ['articles', feedId, categoryId, isFavorite, sortBy, sortOrder, currentPage],
+    queryFn: async () => {
       const params = new URLSearchParams()
       if (feedId) params.append('feed_id', feedId)
       if (categoryId) params.append('category_id', categoryId)
-      if (isFavorite) params.append('is_sSearchLoading } = useQuery({
-    queryKey: ['articles-search', searchQuery, feedId, categoryId],
+      if (isFavorite) params.append('is_favorite', 'true')
+      params.append('sort_by', sortBy)
+      params.append('sort_order', sortOrder)
+      params.append('page', currentPage.toString())
+      params.append('page_size', PAGE_SIZE.toString())
+      
+      const response = await api.get<PaginatedResponse<Article>>(`/articles?${params}`)
+      return response.data
+    },
+    enabled: !isSearching,
+    refetchInterval: 30000,
+  })
+
+  const { data: searchData, isLoading: isSearchLoading } = useQuery({
+    queryKey: ['articles-search', searchQuery, feedId, categoryId, searchPage],
     queryFn: async () => {
       const params = new URLSearchParams()
       params.append('q', searchQuery)
       if (feedId) params.append('feed_id', feedId)
       if (categoryId) params.append('category_id', categoryId)
-      params.append('page_size', '50')
+      params.append('page', searchPage.toString())
+      params.append('page_size', PAGE_SIZE.toString())
       
       const response = await api.get<PaginatedResponse<Article>>(`/articles/search?${params}`)
       return response.data
     },
     enabled: isSearching && searchQuery.length > 0,
   })
+
 
   const markReadMutation = useMutation({
     mutationFn: async (articleId: number) => {
@@ -95,7 +102,6 @@ export default function HomePage() {
     onSuccess: (data, articleId) => {
       queryClient.invalidateQueries({ queryKey: ['articles'] })
       queryClient.invalidateQueries({ queryKey: ['articles-search'] })
-      // Update selected article if it's the one being toggled
       if (selectedArticle?.id === articleId) {
         setSelectedArticle(prev => prev ? { ...prev, is_favorite: data.is_favorite } : null)
       }
@@ -182,15 +188,27 @@ export default function HomePage() {
   const clearSearch = () => {
     setSearchQuery('')
     setIsSearching(false)
+    setSearchPage(1)
   }
 
   const toggleSortOrder = () => {
     setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')
+    setCurrentPage(1)
   }
 
   const currentData = isSearching ? searchData : data
   const articles = currentData?.items || []
   const loading = isSearching ? isSearchLoading : isLoading
+  const totalPages = currentData?.total_pages || 1
+  const page = isSearching ? searchPage : currentPage
+  const setPage = isSearching ? setSearchPage : setCurrentPage
+
+  const goToPage = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setPage(newPage)
+    }
+  }
+
 
   return (
     <div className="flex h-full">
@@ -209,7 +227,7 @@ export default function HomePage() {
                 placeholder="搜索文章..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-8 py-1.5 text-sm border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full pl-8 pr-8 py-1.5 text-sm border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500"
               />
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               {searchQuery && (
@@ -225,7 +243,7 @@ export default function HomePage() {
             <button
               type="submit"
               disabled={!searchQuery.trim()}
-              className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+              className="px-3 py-1.5 text-sm bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
             >
               搜索
             </button>
@@ -282,7 +300,7 @@ export default function HomePage() {
             )}
             
             <span className="text-sm text-gray-500 dark:text-gray-400 ml-auto">
-              {isSearching && <span className="text-blue-600 dark:text-blue-400 mr-1">搜索结果:</span>}
+              {isSearching && <span className="text-primary-600 dark:text-primary-400 mr-1">搜索结果:</span>}
               {currentData?.total || 0} 篇文章
             </span>
           </div>
@@ -294,64 +312,103 @@ export default function HomePage() {
         ) : articles.length === 0 ? (
           <div className="p-4 text-center text-gray-500 dark:text-gray-400">暂无文章</div>
         ) : (
-          <div className="divide-y dark:divide-gray-700">
-            {articles.map((article) => (
-              <div
-                key={article.id}
-                className={clsx(
-                  'p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors',
-                  selectedArticle?.id === article.id && 'bg-blue-50 dark:bg-blue-900/30',
-                  !article.is_read && 'bg-white dark:bg-gray-800',
-                  article.is_read && 'bg-gray-50 dark:bg-gray-800/50'
-                )}
-              >
-                <div className="flex items-start gap-2">
-                  <div 
-                    className="flex-1 min-w-0 cursor-pointer"
-                    onClick={() => handleSelectArticle(article)}
-                  >
-                    <div className="flex items-center gap-2">
-                      <h3 className={clsx(
-                        'text-sm truncate flex-1',
-                        !article.is_read ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400'
-                      )}>
-                        {article.title}
-                      </h3>
+          <>
+            <div className="divide-y dark:divide-gray-700">
+              {articles.map((article) => (
+                <div
+                  key={article.id}
+                  className={clsx(
+                    'p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors',
+                    selectedArticle?.id === article.id && 'bg-primary-50 dark:bg-primary-900/30',
+                    !article.is_read && 'bg-white dark:bg-gray-800',
+                    article.is_read && 'bg-gray-50 dark:bg-gray-800/50'
+                  )}
+                >
+                  <div className="flex items-start gap-2">
+                    <div 
+                      className="flex-1 min-w-0 cursor-pointer"
+                      onClick={() => handleSelectArticle(article)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <h3 className={clsx(
+                          'text-sm truncate flex-1',
+                          !article.is_read ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400'
+                        )}>
+                          {article.title}
+                        </h3>
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
+                        {stripHtml(article.summary || article.content)?.slice(0, 150)}
+                      </p>
+                      <div className="flex items-center gap-2 mt-2 text-xs text-gray-400 dark:text-gray-500">
+                        <span>{new Date(article.published_at).toLocaleString('zh-CN', { 
+                          year: 'numeric', 
+                          month: '2-digit', 
+                          day: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}</span>
+                        {article.author && <span>· {article.author}</span>}
+                      </div>
                     </div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
-                      {stripHtml(article.summary || article.content)?.slice(0, 150)}
-                    </p>
-                    <div className="flex items-center gap-2 mt-2 text-xs text-gray-400 dark:text-gray-500 flex-wrap">
-                      <span>{new Date(article.published_at).toLocaleString('zh-CN', { 
-                        year: 'numeric', 
-                        month: '2-digit', 
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}</span>
-                      {article.feed_title && <span className="text-blue-500 dark:text-blue-400">· {article.feed_title}</span>}
-                      {article.author && <span>· {article.author}</span>}
-                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        toggleFavoriteMutation.mutate(article.id)
+                      }}
+                      className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded flex-shrink-0"
+                      title={article.is_favorite ? '取消收藏' : '收藏'}
+                    >
+                      <Star className={clsx(
+                        'w-4 h-4',
+                        article.is_favorite ? 'text-yellow-500 fill-yellow-500' : 'text-gray-300 dark:text-gray-500 hover:text-yellow-400'
+                      )} />
+                    </button>
                   </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      toggleFavoriteMutation.mutate(article.id)
-                    }}
-                    className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded flex-shrink-0"
-                    title={article.is_favorite ? '取消收藏' : '收藏'}
-                  >
-                    <Star className={clsx(
-                      'w-4 h-4',
-                      article.is_favorite ? 'text-yellow-500 fill-yellow-500' : 'text-gray-300 dark:text-gray-500 hover:text-yellow-400'
-                    )} />
-                  </button>
                 </div>
+              ))}
+            </div>
+            
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="sticky bottom-0 bg-white dark:bg-gray-800 border-t dark:border-gray-700 p-3 flex items-center justify-center gap-2">
+                <button
+                  onClick={() => goToPage(1)}
+                  disabled={page === 1}
+                  className="px-2 py-1 text-xs border dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed dark:text-gray-300"
+                >
+                  首页
+                </button>
+                <button
+                  onClick={() => goToPage(page - 1)}
+                  disabled={page === 1}
+                  className="p-1 border dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed dark:text-gray-300"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-sm text-gray-600 dark:text-gray-400 px-2">
+                  {page} / {totalPages}
+                </span>
+                <button
+                  onClick={() => goToPage(page + 1)}
+                  disabled={page === totalPages}
+                  className="p-1 border dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed dark:text-gray-300"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => goToPage(totalPages)}
+                  disabled={page === totalPages}
+                  className="px-2 py-1 text-xs border dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed dark:text-gray-300"
+                >
+                  末页
+                </button>
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
       </div>
+
 
       {/* Article Detail */}
       {selectedArticle && (
@@ -421,7 +478,7 @@ export default function HomePage() {
                         onClick={() => setShowTranslation(true)}
                         className={clsx(
                           'px-3 py-1 text-sm rounded',
-                          showTranslation ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                          showTranslation ? 'bg-primary-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
                         )}
                       >
                         译文
@@ -430,7 +487,7 @@ export default function HomePage() {
                         onClick={() => setShowTranslation(false)}
                         className={clsx(
                           'px-3 py-1 text-sm rounded',
-                          !showTranslation ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                          !showTranslation ? 'bg-primary-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
                         )}
                       >
                         原文
