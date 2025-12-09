@@ -58,6 +58,7 @@ export interface Feed {
 export interface Article {
   id: number
   feed_id: number
+  feed_title: string | null
   title: string
   link: string
   content: string | null

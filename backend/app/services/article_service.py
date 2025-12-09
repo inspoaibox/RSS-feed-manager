@@ -178,6 +178,7 @@ class ArticleService:
         return ArticleResponse(
             id=article.id,
             feed_id=article.feed_id,
+            feed_title=data.get("feed_title"),
             title=article.title,
             link=article.link,
             content=article.content,

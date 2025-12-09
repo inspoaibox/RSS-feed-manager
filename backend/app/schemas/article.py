@@ -8,6 +8,7 @@ class ArticleResponse(BaseModel):
     """Schema for article response."""
     id: int
     feed_id: int
+    feed_title: str | None = None
     title: str
     link: str
     content: str | None

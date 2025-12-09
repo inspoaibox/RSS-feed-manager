@@ -321,7 +321,7 @@ export default function HomePage() {
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
                       {stripHtml(article.summary || article.content)?.slice(0, 150)}
                     </p>
-                    <div className="flex items-center gap-2 mt-2 text-xs text-gray-400 dark:text-gray-500">
+                    <div className="flex items-center gap-2 mt-2 text-xs text-gray-400 dark:text-gray-500 flex-wrap">
                       <span>{new Date(article.published_at).toLocaleString('zh-CN', { 
                         year: 'numeric', 
                         month: '2-digit', 
@@ -329,6 +329,7 @@ export default function HomePage() {
                         hour: '2-digit',
                         minute: '2-digit'
                       })}</span>
+                      {article.feed_title && <span className="text-blue-500 dark:text-blue-400">· {article.feed_title}</span>}
                       {article.author && <span>· {article.author}</span>}
                     </div>
                   </div>

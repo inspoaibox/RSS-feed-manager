@@ -71,7 +71,7 @@ class ArticleRepository:
         """Get paginated articles with user state."""
         # Base query joining articles with feeds
         base_query = (
-            select(Article, UserArticle)
+            select(Article, UserArticle, Feed.title.label('feed_title'))
             .join(Feed, Article.feed_id == Feed.id)
             .outerjoin(
                 UserArticle,
@@ -130,9 +130,10 @@ class ArticleRepository:
         rows = result.all()
         
         articles = []
-        for article, user_article in rows:
+        for article, user_article, feed_title in rows:
             articles.append({
                 "article": article,
+                "feed_title": feed_title,
                 "is_read": user_article.is_read if user_article else False,
                 "is_favorite": user_article.is_favorite if user_article else False,
                 "read_at": user_article.read_at if user_article else None
@@ -153,7 +154,7 @@ class ArticleRepository:
         search_pattern = f"%{query}%"
         
         base_query = (
-            select(Article, UserArticle)
+            select(Article, UserArticle, Feed.title.label('feed_title'))
             .join(Feed, Article.feed_id == Feed.id)
             .outerjoin(
                 UserArticle,
@@ -194,9 +195,10 @@ class ArticleRepository:
         rows = result.all()
         
         articles = []
-        for article, user_article in rows:
+        for article, user_article, feed_title in rows:
             articles.append({
                 "article": article,
+                "feed_title": feed_title,
                 "is_read": user_article.is_read if user_article else False,
                 "is_favorite": user_article.is_favorite if user_article else False
             })
