@@ -296,3 +296,58 @@ async def delete_query_history(
         raise HTTPException(status_code=404, detail="Query not found")
     
     await db.commit()
+
+
+@router.get("/embeddings/status")
+async def get_embedding_status(user_id: CurrentUserId, db: DbSession):
+    """Get embedding generation status for user's articles."""
+    from sqlalchemy import func
+    from app.models.article import Article
+    from app.models.feed import Feed
+    
+    # Count total articles
+    total_result = await db.execute(
+        select(func.count(Article.id))
+        .join(Feed, Article.feed_id == Feed.id)
+        .where(Feed.user_id == user_id)
+    )
+    total = total_result.scalar() or 0
+    
+    # Count articles with embedding
+    with_embedding_result = await db.execute(
+        select(func.count(Article.id))
+        .join(Feed, Article.feed_id == Feed.id)
+        .where(Feed.user_id == user_id, Article.embedding != None)
+    )
+    with_embedding = with_embedding_result.scalar() or 0
+    
+    return {
+        "total": total,
+        "with_embedding": with_embedding,
+        "without_embedding": total - with_embedding,
+        "percentage": round(with_embedding / total * 100, 1) if total > 0 else 0
+    }
+
+
+@router.post("/embeddings/generate")
+async def generate_embeddings(user_id: CurrentUserId, db: DbSession, limit: int = 50):
+    """Trigger batch embedding generation for articles without embeddings."""
+    from app.tasks.feed_tasks import generate_embeddings_batch
+    
+    # Check if user has embedding config
+    ai_service = AIService(db)
+    embedding_config = await ai_service.get_embedding_config(user_id)
+    
+    if not embedding_config:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请先在 AI 设置中配置 Embedding 模型"
+        )
+    
+    # Trigger the Celery task
+    task = generate_embeddings_batch.delay(user_id, limit)
+    
+    return {
+        "message": f"已启动 Embedding 生成任务，最多处理 {limit} 篇文章",
+        "task_id": task.id
+    }

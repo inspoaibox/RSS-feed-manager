@@ -157,4 +157,22 @@ export const deleteQueryHistory = async (queryId: number): Promise<void> => {
   await api.delete(`/ai/history/${queryId}`)
 }
 
+// Embedding status and generation
+export interface EmbeddingStatus {
+  total: number
+  with_embedding: number
+  without_embedding: number
+  percentage: number
+}
+
+export const getEmbeddingStatus = async (): Promise<EmbeddingStatus> => {
+  const response = await api.get('/ai/embeddings/status')
+  return response.data
+}
+
+export const generateEmbeddings = async (limit: number = 50): Promise<{ message: string; task_id: string }> => {
+  const response = await api.post(`/ai/embeddings/generate?limit=${limit}`)
+  return response.data
+}
+
 export default api

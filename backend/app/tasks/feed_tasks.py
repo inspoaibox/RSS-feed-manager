@@ -30,6 +30,55 @@ sync_engine = create_engine(get_sync_database_url())
 SyncSessionLocal = sessionmaker(bind=sync_engine)
 
 
+def _generate_article_embedding_sync(db: Session, article: Article, user_id: int) -> None:
+    """Generate embedding for a single article (sync version, non-blocking on failure)."""
+    from app.models.user import User
+    
+    try:
+        # Get user's embedding configuration
+        user = db.execute(
+            select(User).where(User.id == user_id)
+        ).scalar_one_or_none()
+        
+        if not user or not user.embedding_provider_id or not user.embedding_model:
+            # No embedding config, skip silently
+            return
+        
+        provider = db.execute(
+            select(AIProvider).where(AIProvider.id == user.embedding_provider_id)
+        ).scalar_one_or_none()
+        
+        if not provider:
+            return
+        
+        # Generate embedding
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            from app.services.embedding_service import EmbeddingService
+            
+            service = EmbeddingService(
+                api_key=provider.api_key,
+                base_url=provider.base_url,
+                model=user.embedding_model
+            )
+            
+            # Combine title and content for embedding
+            text = f"{article.title} {article.content or ''}"
+            embedding = loop.run_until_complete(service.generate_embedding(text))
+            
+            if embedding:
+                article.embedding = embedding
+                db.flush()
+                print(f"Generated embedding for article {article.id}: {article.title[:50]}...")
+        finally:
+            loop.close()
+    except Exception as e:
+        # Don't fail the article save if embedding generation fails
+        print(f"Failed to generate embedding for article {article.id}: {e}")
+
+
 def _process_article_with_ai(db: Session, article: Article, feed: Feed) -> None:
     """Process article with AI (translate/summarize) if enabled."""
     from app.models.user import User
@@ -144,6 +193,9 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
             
             # Process with AI if enabled
             _process_article_with_ai(db, article, feed)
+            
+            # Generate embedding for the new article (async, non-blocking)
+            _generate_article_embedding_sync(db, article, feed.user_id)
             
             new_count += 1
         
