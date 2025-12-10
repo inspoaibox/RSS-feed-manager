@@ -6,6 +6,7 @@ from app.models.article import Article, UserArticle
 from app.models.ai_provider import AIProvider, AIModel
 from app.models.custom_rule import CustomRule
 from app.models.system_settings import SystemSettings
+from app.models.analysis_query import AnalysisQuery
 
 __all__ = [
     "User",
@@ -17,4 +18,5 @@ __all__ = [
     "AIModel",
     "CustomRule",
     "SystemSettings",
+    "AnalysisQuery",
 ]

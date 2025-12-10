@@ -11,6 +11,7 @@
 - ⏰ 定时自动抓取（可设置 1 分钟 - 24 小时间隔）
 - 🌐 Playwright 浏览器模式（支持 Cloudflare 保护的网站）
 - 🤖 AI 自动翻译和整理（支持 OpenAI、Gemini 及兼容 API）
+- 🧠 **AI 智能内容分析**（语义搜索 + AI 总结）
 - 🕷️ 自定义抓取规则
 - 📦 OPML 导入导出
 - 💾 配置备份恢复
@@ -23,7 +24,7 @@
 | FastAPI | TypeScript |
 | SQLAlchemy 2.0 | TailwindCSS |
 | Celery + Redis | React Query |
-| PostgreSQL / SQLite | Zustand |
+| PostgreSQL + pgvector | Zustand |
 
 ## 快速开始
 
@@ -134,6 +135,41 @@ npm run dev
 ```
 
 > Windows 上 Celery Worker 需要 `--pool=solo` 参数
+
+## AI 智能内容分析
+
+AI 分析功能允许你使用自然语言查询订阅的文章内容，系统会通过语义搜索找到相关文章，并生成 AI 分析总结。
+
+### 功能特点
+
+- 🔍 **语义搜索**：基于 pgvector 向量数据库，理解查询意图而非简单关键词匹配
+- 📊 **AI 分析总结**：自动生成主题分类、关键点提取、趋势识别
+- 📈 **相关度排序**：按语义相似度排序，最相关的文章优先展示
+- 📝 **查询历史**：保存最近 10 条查询，支持快速重新执行
+- 🔄 **智能回退**：当语义搜索不可用时，自动回退到关键词搜索
+
+### 使用方法
+
+1. 在侧边栏点击「AI 分析」进入分析页面
+2. 在搜索框输入自然语言查询，例如：
+   - "Python 相关的技术文章"
+   - "最近的 AI 发展趋势"
+   - "前端框架对比"
+3. 点击「分析」按钮，等待 AI 处理
+4. 查看 AI 生成的分析总结和相关文章列表
+
+### 技术要求
+
+- **数据库**：需要使用 PostgreSQL + pgvector（生产环境 Docker 配置已包含）
+- **AI 服务**：需要配置 OpenAI 或兼容的 AI 服务（用于生成 embedding 和分析）
+- **注意**：SQLite 开发模式不支持语义搜索，会自动回退到关键词搜索
+
+### Embedding 生成
+
+文章的向量嵌入（embedding）通过 Celery 后台任务异步生成：
+- 新文章入库时自动触发 embedding 生成
+- 可通过 API 手动触发批量生成：`POST /api/v1/ai/embeddings/batch`
+- embedding 生成失败不会影响文章保存
 
 ## 定时任务说明
 

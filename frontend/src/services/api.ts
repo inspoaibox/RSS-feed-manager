@@ -104,4 +104,57 @@ api.interceptors.response.use(
   }
 )
 
+// ============ Content Analysis API ============
+
+export interface AnalyzeRequest {
+  query: string
+  page?: number
+  page_size?: number
+  use_semantic_search?: boolean
+}
+
+export interface ArticleResult {
+  id: number
+  title: string
+  feed_title: string
+  link: string | null
+  published_at: string | null
+  relevance_score: number
+  snippet: string
+}
+
+export interface AnalyzeResponse {
+  query: string
+  analysis: string | null
+  articles: ArticleResult[]
+  total: number
+  page: number
+  page_size: number
+  search_type: string
+}
+
+export interface QueryHistoryItem {
+  id: number
+  query: string
+  created_at: string
+}
+
+export interface QueryHistoryResponse {
+  queries: QueryHistoryItem[]
+}
+
+export const analyzeContent = async (data: AnalyzeRequest): Promise<AnalyzeResponse> => {
+  const response = await api.post('/ai/analyze', data)
+  return response.data
+}
+
+export const getQueryHistory = async (): Promise<QueryHistoryResponse> => {
+  const response = await api.get('/ai/history')
+  return response.data
+}
+
+export const deleteQueryHistory = async (queryId: number): Promise<void> => {
+  await api.delete(`/ai/history/${queryId}`)
+}
+
 export default api

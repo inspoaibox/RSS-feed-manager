@@ -1,7 +1,8 @@
 """Article and UserArticle models for feed content."""
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -41,6 +42,9 @@ class Article(BaseModel):
     
     # Cached images (JSON array of local paths)
     cached_images: Mapped[str | None] = mapped_column(Text, nullable=True)
+    
+    # Vector embedding for semantic search (1536 dimensions for OpenAI text-embedding-3-small)
+    embedding: Mapped[Any | None] = mapped_column(Vector(1536), nullable=True)
 
     # Relationships
     feed: Mapped["Feed"] = relationship("Feed", back_populates="articles")

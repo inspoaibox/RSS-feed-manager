@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Menu, X, Rss, FolderOpen, Star, Settings, LogOut, ChevronDown, ChevronRight, User, BarChart3 } from 'lucide-react'
+import { Menu, X, Rss, FolderOpen, Star, Settings, LogOut, ChevronDown, ChevronRight, User, BarChart3, Sparkles } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { useSiteStore } from '@/stores/siteStore'
 import api from '@/services/api'
@@ -154,6 +154,20 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
           >
             <Star className="w-5 h-5" />
             <span>收藏</span>
+          </button>
+
+          {/* AI Analysis */}
+          <button
+            onClick={() => navigate('/ai-analysis')}
+            className={clsx(
+              'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200',
+              location.pathname === '/ai-analysis'
+                ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 font-medium'
+                : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+            )}
+          >
+            <Sparkles className="w-5 h-5" />
+            <span>AI 分析</span>
           </button>
 
           {/* Categories */}

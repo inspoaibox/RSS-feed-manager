@@ -326,3 +326,53 @@ class ArticleRepository:
             article.translation = translation
         await self.session.flush()
         return article
+
+    async def update_embedding(
+        self,
+        article_id: int,
+        embedding: list[float] | None
+    ) -> bool:
+        """
+        Update article embedding.
+        
+        Args:
+            article_id: The article ID
+            embedding: The embedding vector
+            
+        Returns:
+            True if updated, False if article not found
+        """
+        article = await self.get_by_id(article_id)
+        if not article:
+            return False
+        
+        article.embedding = embedding
+        await self.session.flush()
+        return True
+
+    async def get_articles_without_embedding(
+        self,
+        user_id: int,
+        limit: int = 100
+    ) -> List[Article]:
+        """
+        Get articles without embedding for a user.
+        
+        Args:
+            user_id: The user ID
+            limit: Maximum number of articles to return
+            
+        Returns:
+            List of articles without embedding
+        """
+        result = await self.session.execute(
+            select(Article)
+            .join(Feed, Article.feed_id == Feed.id)
+            .where(
+                Feed.user_id == user_id,
+                Article.embedding == None
+            )
+            .order_by(Article.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())

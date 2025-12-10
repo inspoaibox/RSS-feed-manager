@@ -11,12 +11,22 @@ from app.schemas.ai import (
     AIProviderCreate,
     AIProviderResponse,
     AIProviderUpdate,
+    AnalyzeRequest,
+    AnalyzeResponse,
+    ArticleResult,
+    QueryHistoryItem,
+    QueryHistoryResponse,
     SummarizeResponse,
     TestConnectionResponse,
     TranslateRequest,
     TranslateResponse,
 )
 from app.services.ai_service import AIService
+from app.services.content_analysis_service import ContentAnalysisService
+from app.services.embedding_service import EmbeddingService
+from app.repositories.analysis_query_repository import AnalysisQueryRepository
+from app.repositories.ai_repository import AIProviderRepository
+from app.services.ai_client import create_ai_client
 
 router = APIRouter()
 
@@ -161,3 +171,125 @@ async def update_ai_settings(
     """Update AI prompt settings."""
     service = AIService(db)
     return await service.update_settings(user_id, data)
+
+
+# ============ Content Analysis Endpoints ============
+
+@router.post("/analyze", response_model=AnalyzeResponse)
+async def analyze_content(
+    data: AnalyzeRequest,
+    user_id: CurrentUserId,
+    db: DbSession
+):
+    """
+    Analyze content based on a natural language query.
+    
+    Returns AI-generated analysis and related articles.
+    """
+    # 获取用户的默认 AI 模型配置
+    ai_service = AIService(db)
+    default_model = await ai_service.get_default_model(user_id)
+    
+    embedding_service = None
+    ai_client = None
+    
+    if default_model:
+        # 获取 provider 信息
+        provider_repo = AIProviderRepository(db)
+        provider = await provider_repo.get_by_id(default_model.provider_id, user_id)
+        
+        if provider:
+            # 创建 embedding 服务
+            embedding_service = EmbeddingService(
+                api_key=provider.api_key,
+                base_url=provider.base_url
+            )
+            
+            # 创建 AI 客户端用于生成分析
+            ai_client = create_ai_client(
+                provider.type,
+                provider.api_key,
+                provider.base_url,
+                default_model.model_id
+            )
+    
+    # 创建内容分析服务
+    analysis_service = ContentAnalysisService(
+        session=db,
+        embedding_service=embedding_service,
+        ai_client=ai_client
+    )
+    
+    # 执行分析
+    result = await analysis_service.analyze(
+        user_id=user_id,
+        query=data.query,
+        page=data.page,
+        page_size=data.page_size,
+        use_semantic_search=data.use_semantic_search
+    )
+    
+    # 保存查询历史
+    query_repo = AnalysisQueryRepository(db)
+    await query_repo.create(user_id=user_id, query=data.query)
+    await query_repo.delete_old_queries(user_id=user_id, keep_count=10)
+    await db.commit()
+    
+    # 转换为响应格式
+    articles = [
+        ArticleResult(
+            id=a.id,
+            title=a.title,
+            feed_title=a.feed_title,
+            link=a.link,
+            published_at=a.published_at.isoformat() if a.published_at else None,
+            relevance_score=a.relevance_score,
+            snippet=a.get_snippet()
+        )
+        for a in result.articles
+    ]
+    
+    return AnalyzeResponse(
+        query=result.query,
+        analysis=result.analysis,
+        articles=articles,
+        total=result.total,
+        page=result.page,
+        page_size=result.page_size,
+        search_type=result.search_type
+    )
+
+
+@router.get("/history", response_model=QueryHistoryResponse)
+async def get_query_history(user_id: CurrentUserId, db: DbSession):
+    """Get user's recent analysis query history."""
+    query_repo = AnalysisQueryRepository(db)
+    queries = await query_repo.get_recent_by_user(user_id, limit=10)
+    
+    return QueryHistoryResponse(
+        queries=[
+            QueryHistoryItem(
+                id=q.id,
+                query=q.query,
+                created_at=q.created_at.isoformat() if q.created_at else ""
+            )
+            for q in queries
+        ]
+    )
+
+
+@router.delete("/history/{query_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_query_history(
+    query_id: int,
+    user_id: CurrentUserId,
+    db: DbSession
+):
+    """Delete a query from history."""
+    query_repo = AnalysisQueryRepository(db)
+    deleted = await query_repo.delete(query_id, user_id)
+    
+    if not deleted:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Query not found")
+    
+    await db.commit()

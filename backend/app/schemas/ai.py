@@ -78,3 +78,53 @@ class SummarizeResponse(BaseModel):
 class TranslateResponse(BaseModel):
     """Schema for translate response."""
     translation: str
+
+
+# ============ Content Analysis Schemas ============
+
+class AnalyzeRequest(BaseModel):
+    """Schema for content analysis request."""
+    query: str = Field(..., min_length=1, max_length=500, description="搜索查询文本")
+    page: int = Field(default=1, ge=1, description="页码")
+    page_size: int = Field(default=20, ge=1, le=100, description="每页数量")
+    use_semantic_search: bool = Field(default=True, description="是否使用语义搜索")
+
+
+class ArticleResult(BaseModel):
+    """Schema for article in analysis results."""
+    id: int
+    title: str
+    feed_title: str
+    link: str | None
+    published_at: str | None
+    relevance_score: float
+    snippet: str
+
+    class Config:
+        from_attributes = True
+
+
+class AnalyzeResponse(BaseModel):
+    """Schema for content analysis response."""
+    query: str
+    analysis: str | None
+    articles: list[ArticleResult]
+    total: int
+    page: int
+    page_size: int
+    search_type: str  # "semantic" or "keyword"
+
+
+class QueryHistoryItem(BaseModel):
+    """Schema for query history item."""
+    id: int
+    query: str
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class QueryHistoryResponse(BaseModel):
+    """Schema for query history response."""
+    queries: list[QueryHistoryItem]

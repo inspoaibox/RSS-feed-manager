@@ -436,3 +436,146 @@ def cleanup_old_articles(days: int = 90) -> dict:
         
         db.commit()
         return {"success": True, "deleted": count}
+
+
+@shared_task(name="app.tasks.feed_tasks.generate_article_embedding")
+def generate_article_embedding(article_id: int) -> dict:
+    """Generate embedding for a single article."""
+    with SyncSessionLocal() as db:
+        article = db.execute(
+            select(Article).where(Article.id == article_id)
+        ).scalar_one_or_none()
+        
+        if not article:
+            return {"success": False, "error": "Article not found"}
+        
+        if article.embedding is not None:
+            return {"success": True, "message": "Embedding already exists"}
+        
+        # Get the feed to find the user
+        feed = db.execute(
+            select(Feed).where(Feed.id == article.feed_id)
+        ).scalar_one_or_none()
+        
+        if not feed:
+            return {"success": False, "error": "Feed not found"}
+        
+        # Get default model for embedding
+        default_model = db.execute(
+            select(AIModel).where(AIModel.is_default == True)
+        ).scalar_one_or_none()
+        
+        if not default_model:
+            return {"success": False, "error": "No default AI model configured"}
+        
+        provider = db.execute(
+            select(AIProvider).where(AIProvider.id == default_model.provider_id)
+        ).scalar_one_or_none()
+        
+        if not provider:
+            return {"success": False, "error": "AI provider not found"}
+        
+        # Generate embedding
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            from app.services.embedding_service import EmbeddingService
+            
+            service = EmbeddingService(
+                api_key=provider.api_key,
+                base_url=provider.base_url
+            )
+            
+            # Combine title and content for embedding
+            text = f"{article.title} {article.content or ''}"
+            embedding = loop.run_until_complete(service.generate_embedding(text))
+            
+            if embedding:
+                article.embedding = embedding
+                db.commit()
+                return {"success": True, "article_id": article_id}
+            else:
+                return {"success": False, "error": "Failed to generate embedding"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+        finally:
+            loop.close()
+
+
+@shared_task(name="app.tasks.feed_tasks.generate_embeddings_batch")
+def generate_embeddings_batch(user_id: int, limit: int = 50) -> dict:
+    """Generate embeddings for articles without embeddings for a user."""
+    with SyncSessionLocal() as db:
+        # Get articles without embeddings
+        articles = db.execute(
+            select(Article)
+            .join(Feed, Article.feed_id == Feed.id)
+            .where(
+                Feed.user_id == user_id,
+                Article.embedding == None
+            )
+            .order_by(Article.created_at.desc())
+            .limit(limit)
+        ).scalars().all()
+        
+        if not articles:
+            return {"success": True, "processed": 0, "message": "No articles need embeddings"}
+        
+        # Get default model
+        default_model = db.execute(
+            select(AIModel).where(AIModel.is_default == True)
+        ).scalar_one_or_none()
+        
+        if not default_model:
+            return {"success": False, "error": "No default AI model configured"}
+        
+        provider = db.execute(
+            select(AIProvider).where(AIProvider.id == default_model.provider_id)
+        ).scalar_one_or_none()
+        
+        if not provider:
+            return {"success": False, "error": "AI provider not found"}
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        processed = 0
+        errors = 0
+        
+        try:
+            from app.services.embedding_service import EmbeddingService
+            
+            service = EmbeddingService(
+                api_key=provider.api_key,
+                base_url=provider.base_url
+            )
+            
+            # Prepare texts for batch processing
+            texts = [f"{a.title} {a.content or ''}" for a in articles]
+            
+            # Generate embeddings in batch
+            embeddings = loop.run_until_complete(
+                service.batch_generate_embeddings(texts)
+            )
+            
+            # Update articles with embeddings
+            for article, embedding in zip(articles, embeddings):
+                if embedding:
+                    article.embedding = embedding
+                    processed += 1
+                else:
+                    errors += 1
+            
+            db.commit()
+            
+            return {
+                "success": True,
+                "processed": processed,
+                "errors": errors,
+                "total": len(articles)
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+        finally:
+            loop.close()

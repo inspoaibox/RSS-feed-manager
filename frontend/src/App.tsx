@@ -9,6 +9,7 @@ import MainLayout from '@/components/layout/MainLayout'
 import HomePage from '@/pages/HomePage'
 import SettingsPage from '@/pages/SettingsPage'
 import StatsPage from '@/pages/StatsPage'
+import AIAnalysisPage from '@/pages/AIAnalysisPage'
 import { queryClient } from '@/main'
 
 const CACHE_USER_KEY = 'cache-user-id'
@@ -80,6 +81,7 @@ function App() {
           }
         >
           <Route index element={<HomePage />} />
+          <Route path="ai-analysis" element={<AIAnalysisPage />} />
           <Route path="stats" element={<StatsPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>

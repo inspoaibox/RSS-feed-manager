@@ -9,6 +9,7 @@ from app.core.security import get_password_hash, verify_password
 
 if TYPE_CHECKING:
     from app.models.ai_provider import AIProvider
+    from app.models.analysis_query import AnalysisQuery
     from app.models.category import Category
     from app.models.custom_rule import CustomRule
     from app.models.feed import Feed
@@ -44,6 +45,9 @@ class User(BaseModel):
     )
     custom_rules: Mapped[List["CustomRule"]] = relationship(
         "CustomRule", back_populates="user", cascade="all, delete-orphan"
+    )
+    analysis_queries: Mapped[List["AnalysisQuery"]] = relationship(
+        "AnalysisQuery", back_populates="user", cascade="all, delete-orphan"
     )
 
     def set_password(self, password: str) -> None:
