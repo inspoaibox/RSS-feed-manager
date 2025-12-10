@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, Save, FolderOpen, Languages, ChevronUp, ChevronDown, Search, Shield } from 'lucide-react'
+import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, FolderOpen, Languages, ChevronUp, ChevronDown, Search, Shield } from 'lucide-react'
 import api from '@/services/api'
 import type { Category, Feed, AIProvider, AIModel, CustomRule } from '@/types'
 import { useThemeStore, type ThemeColor } from '@/stores/themeStore'
@@ -1802,16 +1802,65 @@ function RulesTab() {
   )
 }
 
+// WebDAV types
+interface WebDAVConfig {
+  server_url: string
+  username: string
+  password: string
+  backup_path: string
+}
+
+interface WebDAVBackupInfo {
+  filename: string
+  size: number
+  modified: string
+}
+
+interface ImportResult {
+  success: boolean
+  categories_imported: number
+  feeds_imported: number
+  ai_providers_imported: number
+  custom_rules_imported: number
+  errors: string[]
+}
+
 function BackupTab() {
   const queryClient = useQueryClient()
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [importResult, setImportResult] = useState<{
-    categories_imported: number
-    feeds_imported: number
-    ai_providers_imported: number
-    custom_rules_imported: number
-    errors: string[]
-  } | null>(null)
+  const [importResult, setImportResult] = useState<ImportResult | null>(null)
+  
+  // WebDAV states
+  const [showWebDAVConfig, setShowWebDAVConfig] = useState(false)
+  const [webdavConfig, setWebdavConfig] = useState<WebDAVConfig>({
+    server_url: '',
+    username: '',
+    password: '',
+    backup_path: '/rss_manager_backups/',
+  })
+  const [webdavSaving, setWebdavSaving] = useState(false)
+  const [webdavUploading, setWebdavUploading] = useState(false)
+  const [restoringFile, setRestoringFile] = useState<string | null>(null)
+  const [deletingFile, setDeletingFile] = useState<string | null>(null)
+
+  // Fetch WebDAV config
+  const { data: webdavConfigData, refetch: refetchWebdavConfig } = useQuery({
+    queryKey: ['webdav-config'],
+    queryFn: async () => {
+      const response = await api.get('/backup/webdav/config')
+      return response.data
+    },
+  })
+
+  // Fetch WebDAV backup list
+  const { data: webdavBackups = [], refetch: refetchBackups, isLoading: loadingBackups } = useQuery({
+    queryKey: ['webdav-backups'],
+    queryFn: async () => {
+      const response = await api.get('/backup/webdav/list')
+      return response.data.backups as WebDAVBackupInfo[]
+    },
+    enabled: webdavConfigData?.configured === true,
+  })
 
   const handleExport = async () => {
     try {
@@ -1820,7 +1869,6 @@ function BackupTab() {
       const link = document.createElement('a')
       link.href = url
       
-      // Get filename from header or use default
       const contentDisposition = response.headers['content-disposition']
       let filename = 'rss_manager_backup.json'
       if (contentDisposition) {
@@ -1855,7 +1903,6 @@ function BackupTab() {
       
       setImportResult(response.data)
       
-      // Refresh all data
       queryClient.invalidateQueries({ queryKey: ['feeds'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
       queryClient.invalidateQueries({ queryKey: ['ai-providers'] })
@@ -1872,8 +1919,107 @@ function BackupTab() {
       setMessage({ type: 'error', text: detail || '导入失败' })
     }
     
-    // Reset file input
     e.target.value = ''
+  }
+
+  // WebDAV handlers
+  const handleSaveWebDAVConfig = async () => {
+    setWebdavSaving(true)
+    try {
+      await api.post('/backup/webdav/config', webdavConfig)
+      setMessage({ type: 'success', text: 'WebDAV 配置已保存' })
+      setShowWebDAVConfig(false)
+      refetchWebdavConfig()
+      refetchBackups()
+      setTimeout(() => setMessage(null), 3000)
+    } catch (err: any) {
+      const detail = err.response?.data?.detail
+      setMessage({ type: 'error', text: detail || 'WebDAV 配置保存失败' })
+    } finally {
+      setWebdavSaving(false)
+    }
+  }
+
+  const handleWebDAVUpload = async () => {
+    setWebdavUploading(true)
+    try {
+      await api.post('/backup/webdav/upload')
+      setMessage({ type: 'success', text: '备份已上传到 WebDAV' })
+      refetchBackups()
+      setTimeout(() => setMessage(null), 3000)
+    } catch (err: any) {
+      const detail = err.response?.data?.detail
+      setMessage({ type: 'error', text: detail || '上传备份失败' })
+    } finally {
+      setWebdavUploading(false)
+    }
+  }
+
+  const handleWebDAVRestore = async (filename: string) => {
+    if (!confirm(`确定要从 "${filename}" 恢复配置吗？已存在的配置不会被覆盖。`)) return
+    
+    setRestoringFile(filename)
+    try {
+      const response = await api.post(`/backup/webdav/restore/${encodeURIComponent(filename)}`)
+      setImportResult(response.data)
+      
+      queryClient.invalidateQueries({ queryKey: ['feeds'] })
+      queryClient.invalidateQueries({ queryKey: ['categories'] })
+      queryClient.invalidateQueries({ queryKey: ['ai-providers'] })
+      queryClient.invalidateQueries({ queryKey: ['ai-models'] })
+      queryClient.invalidateQueries({ queryKey: ['custom-rules'] })
+      
+      if (response.data.errors?.length === 0) {
+        setMessage({ type: 'success', text: '配置恢复成功' })
+      } else {
+        setMessage({ type: 'error', text: '部分配置恢复失败，请查看详情' })
+      }
+    } catch (err: any) {
+      const detail = err.response?.data?.detail
+      setMessage({ type: 'error', text: detail || '恢复备份失败' })
+    } finally {
+      setRestoringFile(null)
+    }
+  }
+
+  const handleWebDAVDelete = async (filename: string) => {
+    if (!confirm(`确定要删除备份 "${filename}" 吗？此操作不可恢复。`)) return
+    
+    setDeletingFile(filename)
+    try {
+      await api.delete(`/backup/webdav/delete/${encodeURIComponent(filename)}`)
+      setMessage({ type: 'success', text: '备份已删除' })
+      refetchBackups()
+      setTimeout(() => setMessage(null), 3000)
+    } catch (err: any) {
+      const detail = err.response?.data?.detail
+      setMessage({ type: 'error', text: detail || '删除备份失败' })
+    } finally {
+      setDeletingFile(null)
+    }
+  }
+
+  const handleWebDAVDownload = async (filename: string) => {
+    try {
+      const response = await api.get(`/backup/webdav/download/${encodeURIComponent(filename)}`, { responseType: 'blob' })
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', filename)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err: any) {
+      const detail = err.response?.data?.detail
+      setMessage({ type: 'error', text: detail || '下载备份失败' })
+    }
+  }
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
   return (
@@ -1884,28 +2030,28 @@ function BackupTab() {
         </div>
       )}
 
-      {/* 说明 */}
+      {/* 本地备份说明 */}
       <div className="p-4 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded">
-        <h3 className="font-medium text-blue-800 dark:text-primary-300 mb-2">备份与恢复</h3>
+        <h3 className="font-medium text-blue-800 dark:text-primary-300 mb-2">本地备份与恢复</h3>
         <p className="text-sm text-blue-700 dark:text-primary-400">
           导出功能会将所有配置保存为 JSON 文件，包括：订阅源、分类、AI 设置、自定义规则。
           导入时会跳过已存在的配置，不会覆盖现有数据。
         </p>
       </div>
 
-      {/* 操作按钮 */}
-      <div className="flex gap-4">
+      {/* 本地操作按钮 */}
+      <div className="flex gap-4 flex-wrap">
         <button
           onClick={handleExport}
           className="flex items-center gap-2 px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
         >
-          <Save className="w-5 h-5" />
-          导出所有配置
+          <Download className="w-5 h-5" />
+          导出到本地
         </button>
         
         <label className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer">
           <FolderOpen className="w-5 h-5" />
-          导入配置文件
+          从本地导入
           <input
             type="file"
             accept=".json"
@@ -1915,10 +2061,170 @@ function BackupTab() {
         </label>
       </div>
 
+      {/* WebDAV 备份 */}
+      <div className="border dark:border-gray-700 rounded">
+        <div className="p-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-700 flex justify-between items-center">
+          <div>
+            <h3 className="font-medium dark:text-white">WebDAV 云备份</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              {webdavConfigData?.configured 
+                ? `已连接: ${webdavConfigData.server_url}` 
+                : '未配置 WebDAV 服务器'}
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              if (webdavConfigData?.configured) {
+                setWebdavConfig({
+                  server_url: webdavConfigData.server_url || '',
+                  username: webdavConfigData.username || '',
+                  password: '',
+                  backup_path: webdavConfigData.backup_path || '/rss_manager_backups/',
+                })
+              }
+              setShowWebDAVConfig(!showWebDAVConfig)
+            }}
+            className="px-4 py-2 text-sm bg-primary-600 text-white rounded hover:bg-primary-700"
+          >
+            {webdavConfigData?.configured ? '修改配置' : '配置 WebDAV'}
+          </button>
+        </div>
+
+        {/* WebDAV 配置表单 */}
+        {showWebDAVConfig && (
+          <div className="p-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-800 space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1 dark:text-gray-300">服务器地址</label>
+              <input
+                type="url"
+                value={webdavConfig.server_url}
+                onChange={(e) => setWebdavConfig({ ...webdavConfig, server_url: e.target.value })}
+                placeholder="https://dav.example.com"
+                className="w-full px-3 py-2 border dark:border-gray-600 rounded dark:bg-gray-700 dark:text-white"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1 dark:text-gray-300">用户名</label>
+                <input
+                  type="text"
+                  value={webdavConfig.username}
+                  onChange={(e) => setWebdavConfig({ ...webdavConfig, username: e.target.value })}
+                  className="w-full px-3 py-2 border dark:border-gray-600 rounded dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 dark:text-gray-300">密码</label>
+                <input
+                  type="password"
+                  value={webdavConfig.password}
+                  onChange={(e) => setWebdavConfig({ ...webdavConfig, password: e.target.value })}
+                  placeholder={webdavConfigData?.configured ? '留空保持不变' : ''}
+                  className="w-full px-3 py-2 border dark:border-gray-600 rounded dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1 dark:text-gray-300">备份路径</label>
+              <input
+                type="text"
+                value={webdavConfig.backup_path}
+                onChange={(e) => setWebdavConfig({ ...webdavConfig, backup_path: e.target.value })}
+                placeholder="/rss_manager_backups/"
+                className="w-full px-3 py-2 border dark:border-gray-600 rounded dark:bg-gray-700 dark:text-white"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleSaveWebDAVConfig}
+                disabled={webdavSaving || !webdavConfig.server_url || !webdavConfig.username}
+                className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
+              >
+                {webdavSaving ? '保存中...' : '保存配置'}
+              </button>
+              <button
+                onClick={() => setShowWebDAVConfig(false)}
+                className="px-4 py-2 border dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:text-gray-300"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* WebDAV 操作按钮 */}
+        {webdavConfigData?.configured && (
+          <div className="p-4 border-b dark:border-gray-700 flex gap-4">
+            <button
+              onClick={handleWebDAVUpload}
+              disabled={webdavUploading}
+              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
+            >
+              <Upload className="w-4 h-4" />
+              {webdavUploading ? '上传中...' : '备份到 WebDAV'}
+            </button>
+            <button
+              onClick={() => refetchBackups()}
+              disabled={loadingBackups}
+              className="flex items-center gap-2 px-4 py-2 border dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:text-gray-300"
+            >
+              <RefreshCw className={`w-4 h-4 ${loadingBackups ? 'animate-spin' : ''}`} />
+              刷新列表
+            </button>
+          </div>
+        )}
+
+        {/* WebDAV 备份列表 */}
+        {webdavConfigData?.configured && (
+          <div className="divide-y dark:divide-gray-700">
+            {loadingBackups ? (
+              <div className="p-4 text-center text-gray-500 dark:text-gray-400">加载中...</div>
+            ) : webdavBackups.length === 0 ? (
+              <div className="p-4 text-center text-gray-500 dark:text-gray-400">暂无备份</div>
+            ) : (
+              webdavBackups.map((backup) => (
+                <div key={backup.filename} className="p-4 flex items-center justify-between">
+                  <div>
+                    <p className="font-medium dark:text-white">{backup.filename}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      {formatFileSize(backup.size)} · {backup.modified}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleWebDAVDownload(backup.filename)}
+                      className="p-2 text-gray-600 hover:text-primary-600 dark:text-gray-400 dark:hover:text-primary-400"
+                      title="下载"
+                    >
+                      <Download className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleWebDAVRestore(backup.filename)}
+                      disabled={restoringFile === backup.filename}
+                      className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                    >
+                      {restoringFile === backup.filename ? '恢复中...' : '恢复'}
+                    </button>
+                    <button
+                      onClick={() => handleWebDAVDelete(backup.filename)}
+                      disabled={deletingFile === backup.filename}
+                      className="p-2 text-red-600 hover:text-red-700 dark:text-red-400 disabled:opacity-50"
+                      title="删除"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
       {/* 导入结果 */}
       {importResult && (
         <div className="p-4 border dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-700">
-          <h3 className="font-medium mb-3 dark:text-white">导入结果</h3>
+          <h3 className="font-medium mb-3 dark:text-white">导入/恢复结果</h3>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded dark:text-gray-200">
               <span>分类</span>

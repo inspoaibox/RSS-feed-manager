@@ -28,6 +28,7 @@ dependencies = [
     "google-generativeai>=0.3.2",
     "playwright>=1.40.0",
     "python-dateutil>=2.8.2",
+    "webdavclient3>=3.14.6",
 ]
 
 [project.optional-dependencies]
