@@ -301,7 +301,7 @@ async def delete_query_history(
 @router.get("/embeddings/status")
 async def get_embedding_status(user_id: CurrentUserId, db: DbSession):
     """Get embedding generation status for user's articles."""
-    from sqlalchemy import func
+    from sqlalchemy import func, select
     from app.models.article import Article
     from app.models.feed import Feed
     
