@@ -2082,46 +2082,48 @@ function AppearanceTab() {
       <div>
         <h3 className="font-medium mb-4 dark:text-white">渐变主题</h3>
         <div className="flex gap-4 flex-wrap">
-          {gradientColors.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => setColor(opt.value)}
-              className={`group flex flex-col items-center gap-3 p-4 rounded-xl border-2 transition-all duration-300 ${
-                color === opt.value
-                  ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 shadow-lg'
-                  : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-md'
-              }`}
-              style={{ transform: color === opt.value ? 'scale(1.05)' : 'scale(1)' }}
-            >
-              <div className="relative">
-                {/* 光晕背景 - 放在外层 */}
-                <div 
-                  className={`absolute -inset-2 rounded-full transition-all duration-300 ${opt.gradient}`}
-                  style={{ 
-                    filter: 'blur(12px)', 
-                    opacity: color === opt.value ? 0.6 : 0,
-                    transform: 'scale(1.2)'
-                  }}
-                ></div>
-                {/* 主圆形 */}
-                <div className={`relative w-14 h-14 rounded-full ${opt.gradient} shadow-lg transition-all duration-300`}>
-                  {/* 高光 */}
-                  <div className="absolute top-1.5 left-3 w-3 h-3 rounded-full bg-white/40"></div>
-                  {/* 选中标记 */}
-                  {color === opt.value && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <svg className="w-6 h-6 text-white drop-shadow-md" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
-                  )}
+          {gradientColors.map((opt) => {
+            const isSelected = color === opt.value
+            return (
+              <button
+                key={opt.value}
+                onClick={() => setColor(opt.value)}
+                className={`group flex flex-col items-center gap-3 p-4 rounded-xl border-2 transition-all duration-300 overflow-visible ${
+                  isSelected
+                    ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 shadow-lg scale-105'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-md'
+                }`}
+              >
+                <div className="relative w-16 h-16 flex items-center justify-center">
+                  {/* 光晕背景 */}
+                  <div 
+                    className={`absolute inset-0 rounded-full ${opt.gradient} transition-opacity duration-300`}
+                    style={{ 
+                      filter: 'blur(10px)', 
+                      opacity: isSelected ? 0.7 : 0,
+                      transform: 'scale(1.3)'
+                    }}
+                  />
+                  {/* 主圆形 */}
+                  <div className={`relative w-12 h-12 rounded-full ${opt.gradient} shadow-lg`}>
+                    {/* 高光 */}
+                    <div className="absolute top-1 left-2.5 w-2.5 h-2.5 rounded-full bg-white/50" />
+                    {/* 选中标记 */}
+                    {isSelected && (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <svg className="w-5 h-5 text-white drop-shadow" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <span className={`text-sm transition-colors ${color === opt.value ? 'text-primary-600 dark:text-primary-400 font-semibold' : 'text-gray-600 dark:text-gray-400'}`}>
-                {opt.label}
-              </span>
-            </button>
-          ))}
+                <span className={`text-sm ${isSelected ? 'text-primary-600 dark:text-primary-400 font-semibold' : 'text-gray-600 dark:text-gray-400'}`}>
+                  {opt.label}
+                </span>
+              </button>
+            )
+          })}
         </div>
       </div>
 
