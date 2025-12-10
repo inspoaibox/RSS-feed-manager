@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
 export type ThemeMode = 'light' | 'dark'
-export type ThemeColor = 'blue' | 'green' | 'purple' | 'orange'
+export type ThemeColor = 'blue' | 'green' | 'purple' | 'orange' | 'rose' | 'cyan' | 'sunset' | 'ocean'
 
 interface ThemeState {
   mode: ThemeMode
@@ -54,6 +54,34 @@ export const themeColors = {
     primaryText: 'text-orange-600',
     primaryBg: 'bg-orange-100',
     accent: 'bg-orange-500',
+  },
+  rose: {
+    primary: 'bg-rose-600',
+    primaryHover: 'hover:bg-rose-700',
+    primaryText: 'text-rose-600',
+    primaryBg: 'bg-rose-100',
+    accent: 'bg-rose-500',
+  },
+  cyan: {
+    primary: 'bg-cyan-600',
+    primaryHover: 'hover:bg-cyan-700',
+    primaryText: 'text-cyan-600',
+    primaryBg: 'bg-cyan-100',
+    accent: 'bg-cyan-500',
+  },
+  sunset: {
+    primary: 'bg-orange-600',
+    primaryHover: 'hover:bg-orange-700',
+    primaryText: 'text-orange-600',
+    primaryBg: 'bg-orange-100',
+    accent: 'bg-orange-500',
+  },
+  ocean: {
+    primary: 'bg-teal-600',
+    primaryHover: 'hover:bg-teal-700',
+    primaryText: 'text-teal-600',
+    primaryBg: 'bg-teal-100',
+    accent: 'bg-teal-500',
   },
 }
 

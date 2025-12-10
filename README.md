@@ -156,6 +156,30 @@ npm run dev
 
 > 部署到公网服务器时，建议通过环境变量修改默认密码
 
+## 注意事项
+
+### 部署相关
+- 项目可以安装在任意目录，没有路径限制
+- 端口 5666 需要可用，如需修改请编辑 `docker-compose.prod.yml` 中的端口映射
+- 首次部署必须执行数据库迁移：`docker exec -it rss_manager_backend alembic upgrade head`
+- 首个注册的用户将自动成为管理员
+
+### 更新部署
+- 修改后端代码（包括 Celery 任务）需要重建对应容器：
+  ```bash
+  # 重建所有服务（推荐）
+  docker compose -f docker-compose.prod.yml up -d --build
+  
+  # 或只重建特定服务
+  docker compose -f docker-compose.prod.yml up -d --build backend celery_worker celery_beat
+  ```
+- 只重建 `backend frontend` 不会更新 Celery 定时任务
+
+### 安全建议
+- 公网部署时务必修改默认密码（通过环境变量设置）
+- 建议使用反向代理（如 Nginx）并配置 HTTPS
+- 可以关闭注册功能（管理员在设置页面操作）
+
 ## 访问地址
 
 | 服务 | 地址 |
