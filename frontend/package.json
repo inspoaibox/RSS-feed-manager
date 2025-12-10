@@ -19,9 +19,11 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.21.3",
+    "recharts": "^2.12.0",
     "zustand": "^4.5.0"
   },
   "devDependencies": {
+    "@types/recharts": "^1.8.29",
     "vite-plugin-pwa": "^0.17.4",
     "@tailwindcss/typography": "^0.5.10",
     "@testing-library/jest-dom": "^6.2.0",
