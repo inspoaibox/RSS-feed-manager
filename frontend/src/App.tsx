@@ -45,9 +45,14 @@ function App() {
     }
   }, [user])
 
-  // 更新页面标题
+  // 更新页面标题和 PWA 名称
   useEffect(() => {
     document.title = siteName
+    // 更新 Apple PWA 标题
+    const appleTitleMeta = document.getElementById('apple-mobile-web-app-title')
+    if (appleTitleMeta) {
+      appleTitleMeta.setAttribute('content', siteName)
+    }
   }, [siteName])
 
   return (

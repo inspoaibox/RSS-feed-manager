@@ -1,5 +1,6 @@
 """System settings API endpoints."""
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -148,3 +149,43 @@ async def get_all_users(
         )
         for u in users
     ]
+
+
+
+@router.get("/manifest.json")
+async def get_manifest(db: AsyncSession = Depends(get_db)):
+    """Generate dynamic PWA manifest with site name from settings."""
+    settings_repo = SystemSettingsRepository(db)
+    site_name = await settings_repo.get('site_name') or 'RSS 管理器'
+    
+    manifest = {
+        "name": site_name,
+        "short_name": site_name[:12] if len(site_name) > 12 else site_name,
+        "description": "RSS 订阅管理器",
+        "theme_color": "#3b82f6",
+        "background_color": "#ffffff",
+        "display": "standalone",
+        "orientation": "portrait",
+        "scope": "/",
+        "start_url": "/",
+        "icons": [
+            {
+                "src": "/pwa-192x192.png",
+                "sizes": "192x192",
+                "type": "image/png"
+            },
+            {
+                "src": "/pwa-512x512.png",
+                "sizes": "512x512",
+                "type": "image/png"
+            },
+            {
+                "src": "/pwa-512x512.png",
+                "sizes": "512x512",
+                "type": "image/png",
+                "purpose": "any maskable"
+            }
+        ]
+    }
+    
+    return JSONResponse(content=manifest, media_type="application/manifest+json")
