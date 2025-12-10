@@ -116,6 +116,12 @@ class ContentAnalysisService:
                     user_id, query_embedding, page, page_size
                 )
                 search_type = "semantic"
+                
+                # 如果语义搜索没有结果（可能是文章没有 embedding），回退到关键词搜索
+                if total == 0:
+                    logger.info("Semantic search returned no results, falling back to keyword search")
+                    articles, total = await self.keyword_search(user_id, query, page, page_size)
+                    search_type = "keyword"
             except EmbeddingServiceError as e:
                 logger.warning(f"Semantic search failed, falling back to keyword: {e}")
                 articles, total = await self.keyword_search(user_id, query, page, page_size)
