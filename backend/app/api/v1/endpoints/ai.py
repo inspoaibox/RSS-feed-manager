@@ -313,11 +313,11 @@ async def get_embedding_status(user_id: CurrentUserId, db: DbSession):
     )
     total = total_result.scalar() or 0
     
-    # Count articles with embedding
+    # Count articles with embedding (use isnot for proper NULL comparison)
     with_embedding_result = await db.execute(
         select(func.count(Article.id))
         .join(Feed, Article.feed_id == Feed.id)
-        .where(Feed.user_id == user_id, Article.embedding != None)
+        .where(Feed.user_id == user_id, Article.embedding.isnot(None))
     )
     with_embedding = with_embedding_result.scalar() or 0
     
