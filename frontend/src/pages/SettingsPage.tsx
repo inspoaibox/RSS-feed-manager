@@ -2004,12 +2004,12 @@ function AppearanceTab() {
     { value: 'orange', label: '橙色', bgClass: 'bg-orange-500' },
   ]
 
-  // 渐变主题
-  const gradientColors: { value: ThemeColor; label: string; gradient: string; glow: string }[] = [
-    { value: 'rose', label: '玫红', gradient: 'bg-gradient-to-br from-pink-400 via-rose-500 to-red-500', glow: 'shadow-rose-500/50' },
-    { value: 'cyan', label: '青色', gradient: 'bg-gradient-to-br from-cyan-400 via-cyan-500 to-blue-500', glow: 'shadow-cyan-500/50' },
-    { value: 'sunset', label: '日落', gradient: 'bg-gradient-to-br from-yellow-400 via-orange-500 to-pink-500', glow: 'shadow-orange-500/50' },
-    { value: 'ocean', label: '海洋', gradient: 'bg-gradient-to-br from-teal-400 via-cyan-500 to-blue-600', glow: 'shadow-teal-500/50' },
+  // 渐变主题 - 使用自定义 CSS 类
+  const gradientColors: { value: ThemeColor; label: string; gradientClass: string }[] = [
+    { value: 'rose', label: '玫红', gradientClass: 'gradient-rose' },
+    { value: 'cyan', label: '青色', gradientClass: 'gradient-cyan' },
+    { value: 'sunset', label: '日落', gradientClass: 'gradient-sunset' },
+    { value: 'ocean', label: '海洋', gradientClass: 'gradient-ocean' },
   ]
 
   return (
@@ -2088,7 +2088,7 @@ function AppearanceTab() {
               <button
                 key={opt.value}
                 onClick={() => setColor(opt.value)}
-                className={`group flex flex-col items-center gap-3 p-4 rounded-xl border-2 transition-all duration-300 overflow-visible ${
+                className={`group flex flex-col items-center gap-3 p-4 rounded-xl border-2 transition-all duration-300 ${
                   isSelected
                     ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 shadow-lg scale-105'
                     : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-md'
@@ -2097,7 +2097,7 @@ function AppearanceTab() {
                 <div className="relative w-16 h-16 flex items-center justify-center">
                   {/* 光晕背景 */}
                   <div 
-                    className={`absolute inset-0 rounded-full ${opt.gradient} transition-opacity duration-300`}
+                    className={`absolute inset-0 rounded-full ${opt.gradientClass} transition-opacity duration-300`}
                     style={{ 
                       filter: 'blur(10px)', 
                       opacity: isSelected ? 0.7 : 0,
@@ -2105,7 +2105,7 @@ function AppearanceTab() {
                     }}
                   />
                   {/* 主圆形 */}
-                  <div className={`relative w-12 h-12 rounded-full ${opt.gradient} shadow-lg`}>
+                  <div className={`relative w-12 h-12 rounded-full ${opt.gradientClass} shadow-lg`}>
                     {/* 高光 */}
                     <div className="absolute top-1 left-2.5 w-2.5 h-2.5 rounded-full bg-white/50" />
                     {/* 选中标记 */}
