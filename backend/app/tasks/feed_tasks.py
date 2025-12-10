@@ -559,8 +559,11 @@ def generate_article_embedding(article_id: int) -> dict:
 
 
 @shared_task(name="app.tasks.feed_tasks.generate_embeddings_batch")
-def generate_embeddings_batch(user_id: int, limit: int = 50) -> dict:
-    """Generate embeddings for articles without embeddings for a user."""
+def generate_embeddings_batch(user_id: int, limit: int = 100) -> dict:
+    """Generate embeddings for articles without embeddings for a user.
+    
+    Uses batch API calls for efficiency - processes up to 20 articles per API call.
+    """
     from app.models.user import User
     
     with SyncSessionLocal() as db:
@@ -599,6 +602,7 @@ def generate_embeddings_batch(user_id: int, limit: int = 50) -> dict:
         
         processed = 0
         errors = 0
+        batch_size = 20  # Process 20 articles per API call
         
         try:
             from app.services.embedding_service import EmbeddingService
@@ -609,23 +613,28 @@ def generate_embeddings_batch(user_id: int, limit: int = 50) -> dict:
                 model=user.embedding_model
             )
             
-            # Prepare texts for batch processing
-            texts = [f"{a.title} {a.content or ''}" for a in articles]
-            
-            # Generate embeddings in batch
-            embeddings = loop.run_until_complete(
-                service.batch_generate_embeddings(texts)
-            )
-            
-            # Update articles with embeddings
-            for article, embedding in zip(articles, embeddings):
-                if embedding:
-                    article.embedding = embedding
-                    processed += 1
-                else:
-                    errors += 1
-            
-            db.commit()
+            # Process in batches
+            for i in range(0, len(articles), batch_size):
+                batch_articles = articles[i:i + batch_size]
+                texts = [f"{a.title} {a.content or ''}" for a in batch_articles]
+                
+                # Generate embeddings in batch
+                embeddings = loop.run_until_complete(
+                    service.batch_generate_embeddings(texts)
+                )
+                
+                # Update articles with embeddings
+                for article, embedding in zip(batch_articles, embeddings):
+                    if embedding:
+                        article.embedding = embedding
+                        processed += 1
+                        print(f"Generated embedding for article {article.id}: {article.title[:50]}...")
+                    else:
+                        errors += 1
+                
+                # Commit after each batch to save progress
+                db.commit()
+                print(f"Batch {i // batch_size + 1} completed: {len(batch_articles)} articles")
             
             return {
                 "success": True,
@@ -634,6 +643,7 @@ def generate_embeddings_batch(user_id: int, limit: int = 50) -> dict:
                 "total": len(articles)
             }
         except Exception as e:
+            print(f"Error in batch embedding generation: {e}")
             return {"success": False, "error": str(e)}
         finally:
             loop.close()

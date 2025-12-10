@@ -48,12 +48,14 @@ export default function AIAnalysisPage() {
 
   // 生成 embedding mutation
   const generateMutation = useMutation({
-    mutationFn: () => generateEmbeddings(100),
+    mutationFn: () => generateEmbeddings(200),  // 每次处理200篇
     onSuccess: () => {
-      // 延迟刷新状态，给任务一些执行时间
-      setTimeout(() => {
+      // 定期刷新状态，跟踪进度
+      const refreshInterval = setInterval(() => {
         queryClient.invalidateQueries({ queryKey: ['embeddingStatus'] })
-      }, 3000)
+      }, 5000)
+      // 60秒后停止刷新
+      setTimeout(() => clearInterval(refreshInterval), 60000)
     },
   })
 
@@ -85,6 +87,13 @@ export default function AIAnalysisPage() {
                 <div className="text-xs text-green-600 dark:text-green-400">
                   {embeddingStatus.with_embedding} / {embeddingStatus.total} 篇文章已索引 ({embeddingStatus.percentage}%)
                 </div>
+                {/* 进度条 */}
+                <div className="mt-1.5 w-48 h-1.5 bg-green-200 dark:bg-green-800 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-green-500 dark:bg-green-400 transition-all duration-500"
+                    style={{ width: `${embeddingStatus.percentage}%` }}
+                  />
+                </div>
               </div>
             </div>
             {embeddingStatus.without_embedding > 0 && (
@@ -98,13 +107,13 @@ export default function AIAnalysisPage() {
                 ) : (
                   <RefreshCw className="w-4 h-4" />
                 )}
-                生成索引
+                批量生成 (200篇)
               </button>
             )}
           </div>
           {generateMutation.isSuccess && (
             <div className="mt-2 text-xs text-green-600 dark:text-green-400">
-              ✓ 任务已启动，正在后台生成索引...
+              ✓ 任务已启动，正在后台批量生成索引（每批20篇）...
             </div>
           )}
         </div>
