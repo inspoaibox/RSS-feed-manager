@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
 export type ThemeMode = 'light' | 'dark'
-export type ThemeColor = 'blue' | 'green' | 'purple' | 'orange' | 'rose' | 'cyan' | 'indigo' | 'amber'
+export type ThemeColor = 'blue' | 'green' | 'purple' | 'orange' | 'rose' | 'cyan' | 'indigo' | 'amber' | 'red' | 'pink' | 'teal' | 'slate'
 
 interface ThemeState {
   mode: ThemeMode
@@ -82,6 +82,34 @@ export const themeColors = {
     primaryText: 'text-amber-600',
     primaryBg: 'bg-amber-100',
     accent: 'bg-amber-500',
+  },
+  red: {
+    primary: 'bg-red-600',
+    primaryHover: 'hover:bg-red-700',
+    primaryText: 'text-red-600',
+    primaryBg: 'bg-red-100',
+    accent: 'bg-red-500',
+  },
+  pink: {
+    primary: 'bg-pink-600',
+    primaryHover: 'hover:bg-pink-700',
+    primaryText: 'text-pink-600',
+    primaryBg: 'bg-pink-100',
+    accent: 'bg-pink-500',
+  },
+  teal: {
+    primary: 'bg-teal-600',
+    primaryHover: 'hover:bg-teal-700',
+    primaryText: 'text-teal-600',
+    primaryBg: 'bg-teal-100',
+    accent: 'bg-teal-500',
+  },
+  slate: {
+    primary: 'bg-slate-600',
+    primaryHover: 'hover:bg-slate-700',
+    primaryText: 'text-slate-600',
+    primaryBg: 'bg-slate-100',
+    accent: 'bg-slate-500',
   },
 }
 

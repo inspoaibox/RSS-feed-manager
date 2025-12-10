@@ -2006,6 +2006,10 @@ function AppearanceTab() {
     { value: 'cyan', label: '青色', bgClass: 'bg-cyan-500' },
     { value: 'indigo', label: '靛蓝', bgClass: 'bg-indigo-500' },
     { value: 'amber', label: '琥珀', bgClass: 'bg-amber-500' },
+    { value: 'red', label: '红色', bgClass: 'bg-red-500' },
+    { value: 'pink', label: '粉色', bgClass: 'bg-pink-500' },
+    { value: 'teal', label: '青绿', bgClass: 'bg-teal-500' },
+    { value: 'slate', label: '石板', bgClass: 'bg-slate-500' },
   ]
 
   return (
