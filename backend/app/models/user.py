@@ -32,6 +32,10 @@ class User(BaseModel):
     # AI Prompt settings
     translate_prompt: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     summarize_prompt: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    
+    # Embedding model settings
+    embedding_provider_id: Mapped[int | None] = mapped_column(nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # Relationships
     categories: Mapped[List["Category"]] = relationship(

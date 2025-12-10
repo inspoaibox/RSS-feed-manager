@@ -193,18 +193,21 @@ async def analyze_content(
     embedding_service = None
     ai_client = None
     
+    # 获取用户的 embedding 配置
+    embedding_config = await ai_service.get_embedding_config(user_id)
+    if embedding_config:
+        embedding_service = EmbeddingService(
+            api_key=embedding_config["api_key"],
+            base_url=embedding_config["base_url"],
+            model=embedding_config["model"]
+        )
+    
     if default_model:
         # 获取 provider 信息
         provider_repo = AIProviderRepository(db)
         provider = await provider_repo.get_by_id(default_model.provider_id, user_id)
         
         if provider:
-            # 创建 embedding 服务
-            embedding_service = EmbeddingService(
-                api_key=provider.api_key,
-                base_url=provider.base_url
-            )
-            
             # 创建 AI 客户端用于生成分析
             ai_client = create_ai_client(
                 provider.type,

@@ -71,7 +71,7 @@ docker exec -it rss_manager_backend alembic upgrade head
 
 ### 方式二：开发环境（SQLite，无需 Docker）
 
-适合本地开发调试，不支持定时抓取功能。
+适合本地开发调试，不支持定时抓取功能和 AI 语义搜索（会自动回退到关键词搜索）。
 
 **后端设置：**
 ```bash
@@ -164,12 +164,24 @@ AI 分析功能允许你使用自然语言查询订阅的文章内容，系统�
 - **AI 服务**：需要配置 OpenAI 或兼容的 AI 服务（用于生成 embedding 和分析）
 - **注意**：SQLite 开发模式不支持语义搜索，会自动回退到关键词搜索
 
+### 配置 Embedding 模型
+
+1. 进入「设置 → AI 设置」
+2. 在「Embedding 模型」区域选择 AI 渠道
+3. 输入 embedding 模型名称（如 `text-embedding-3-small`）
+4. 点击「保存 Embedding 配置」
+
+常用 Embedding 模型：
+- `text-embedding-3-small` - OpenAI 推荐，性价比高
+- `text-embedding-3-large` - 更高精度
+- `text-embedding-ada-002` - 旧版模型
+
 ### Embedding 生成
 
 文章的向量嵌入（embedding）通过 Celery 后台任务异步生成：
-- 新文章入库时自动触发 embedding 生成
-- 可通过 API 手动触发批量生成：`POST /api/v1/ai/embeddings/batch`
-- embedding 生成失败不会影响文章保存
+- 需要先配置 Embedding 模型才能生成
+- 批量生成任务：`generate_embeddings_batch`（通过 Celery 调用）
+- embedding 生成失败不会影响文章保存，会自动回退到关键词搜索
 
 ## 定时任务说明
 
@@ -210,6 +222,27 @@ AI 分析功能允许你使用自然语言查询订阅的文章内容，系统�
   docker compose -f docker-compose.prod.yml up -d --build backend celery_worker celery_beat
   ```
 - 只重建 `backend frontend` 不会更新 Celery 定时任务
+- **数据库结构变更时**，必须执行迁移：
+  ```bash
+  docker exec -it rss_manager_backend alembic upgrade head
+  ```
+
+### 从旧版本升级（添加 AI 分析功能）
+如果你是从不支持 AI 分析的旧版本升级，需要执行以下步骤：
+```bash
+# 1. 备份数据库（可选但推荐）
+docker exec rss_manager_postgres pg_dump -U rss_manager rss_manager > backup.sql
+
+# 2. 拉取最新代码
+git pull
+
+# 3. 重建所有服务（PostgreSQL 镜像已更换为支持 pgvector 的版本）
+docker compose -f docker-compose.prod.yml up -d --build
+
+# 4. 执行数据库迁移（添加 embedding 列和查询历史表）
+docker exec -it rss_manager_backend alembic upgrade head
+```
+> 数据不会丢失，pgvector 镜像与原 PostgreSQL 镜像完全兼容
 
 ### 安全建议
 - 公网部署时务必修改默认密码（通过环境变量设置）

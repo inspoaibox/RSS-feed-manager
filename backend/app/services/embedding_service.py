@@ -6,8 +6,8 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# OpenAI Embedding 模型配置
-EMBEDDING_MODEL = "text-embedding-3-small"
+# 默认 OpenAI Embedding 模型配置
+DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIMENSIONS = 1536
 
 
@@ -19,16 +19,23 @@ class EmbeddingServiceError(Exception):
 class EmbeddingService:
     """Service for generating text embeddings using OpenAI API."""
 
-    def __init__(self, api_key: str, base_url: str | None = None):
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str | None = None,
+        model: str | None = None
+    ):
         """
         Initialize the embedding service.
         
         Args:
             api_key: OpenAI API key
             base_url: Optional custom base URL for OpenAI-compatible APIs
+            model: Optional embedding model name (default: text-embedding-3-small)
         """
         self.api_key = api_key
         self.base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
+        self.model = model or DEFAULT_EMBEDDING_MODEL
 
     async def generate_embedding(self, text: str) -> List[float] | None:
         """
@@ -60,7 +67,7 @@ class EmbeddingService:
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": EMBEDDING_MODEL,
+                        "model": self.model,
                         "input": text,
                         "dimensions": EMBEDDING_DIMENSIONS
                     },
@@ -140,7 +147,7 @@ class EmbeddingService:
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": EMBEDDING_MODEL,
+                        "model": self.model,
                         "input": valid_texts,
                         "dimensions": EMBEDDING_DIMENSIONS
                     },

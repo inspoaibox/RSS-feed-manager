@@ -441,6 +441,8 @@ def cleanup_old_articles(days: int = 90) -> dict:
 @shared_task(name="app.tasks.feed_tasks.generate_article_embedding")
 def generate_article_embedding(article_id: int) -> dict:
     """Generate embedding for a single article."""
+    from app.models.user import User
+    
     with SyncSessionLocal() as db:
         article = db.execute(
             select(Article).where(Article.id == article_id)
@@ -460,20 +462,20 @@ def generate_article_embedding(article_id: int) -> dict:
         if not feed:
             return {"success": False, "error": "Feed not found"}
         
-        # Get default model for embedding
-        default_model = db.execute(
-            select(AIModel).where(AIModel.is_default == True)
+        # Get user's embedding configuration
+        user = db.execute(
+            select(User).where(User.id == feed.user_id)
         ).scalar_one_or_none()
         
-        if not default_model:
-            return {"success": False, "error": "No default AI model configured"}
+        if not user or not user.embedding_provider_id or not user.embedding_model:
+            return {"success": False, "error": "No embedding model configured"}
         
         provider = db.execute(
-            select(AIProvider).where(AIProvider.id == default_model.provider_id)
+            select(AIProvider).where(AIProvider.id == user.embedding_provider_id)
         ).scalar_one_or_none()
         
         if not provider:
-            return {"success": False, "error": "AI provider not found"}
+            return {"success": False, "error": "Embedding provider not found"}
         
         # Generate embedding
         loop = asyncio.new_event_loop()
@@ -484,7 +486,8 @@ def generate_article_embedding(article_id: int) -> dict:
             
             service = EmbeddingService(
                 api_key=provider.api_key,
-                base_url=provider.base_url
+                base_url=provider.base_url,
+                model=user.embedding_model
             )
             
             # Combine title and content for embedding
@@ -506,6 +509,8 @@ def generate_article_embedding(article_id: int) -> dict:
 @shared_task(name="app.tasks.feed_tasks.generate_embeddings_batch")
 def generate_embeddings_batch(user_id: int, limit: int = 50) -> dict:
     """Generate embeddings for articles without embeddings for a user."""
+    from app.models.user import User
+    
     with SyncSessionLocal() as db:
         # Get articles without embeddings
         articles = db.execute(
@@ -522,20 +527,20 @@ def generate_embeddings_batch(user_id: int, limit: int = 50) -> dict:
         if not articles:
             return {"success": True, "processed": 0, "message": "No articles need embeddings"}
         
-        # Get default model
-        default_model = db.execute(
-            select(AIModel).where(AIModel.is_default == True)
+        # Get user's embedding configuration
+        user = db.execute(
+            select(User).where(User.id == user_id)
         ).scalar_one_or_none()
         
-        if not default_model:
-            return {"success": False, "error": "No default AI model configured"}
+        if not user or not user.embedding_provider_id or not user.embedding_model:
+            return {"success": False, "error": "No embedding model configured"}
         
         provider = db.execute(
-            select(AIProvider).where(AIProvider.id == default_model.provider_id)
+            select(AIProvider).where(AIProvider.id == user.embedding_provider_id)
         ).scalar_one_or_none()
         
         if not provider:
-            return {"success": False, "error": "AI provider not found"}
+            return {"success": False, "error": "Embedding provider not found"}
         
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -548,7 +553,8 @@ def generate_embeddings_batch(user_id: int, limit: int = 50) -> dict:
             
             service = EmbeddingService(
                 api_key=provider.api_key,
-                base_url=provider.base_url
+                base_url=provider.base_url,
+                model=user.embedding_model
             )
             
             # Prepare texts for batch processing

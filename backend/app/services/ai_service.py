@@ -287,6 +287,8 @@ class AIService:
         return {
             "translate_prompt": user.translate_prompt or default_translate if user else default_translate,
             "summarize_prompt": user.summarize_prompt or default_summarize if user else default_summarize,
+            "embedding_provider_id": user.embedding_provider_id if user else None,
+            "embedding_model": user.embedding_model if user else None,
         }
 
     async def update_settings(self, user_id: int, data: dict) -> dict:
@@ -304,7 +306,32 @@ class AIService:
             user.translate_prompt = data["translate_prompt"]
         if "summarize_prompt" in data:
             user.summarize_prompt = data["summarize_prompt"]
+        if "embedding_provider_id" in data:
+            user.embedding_provider_id = data["embedding_provider_id"]
+        if "embedding_model" in data:
+            user.embedding_model = data["embedding_model"]
         
         await self.session.commit()
         
         return await self.get_settings(user_id)
+    
+    async def get_embedding_config(self, user_id: int) -> dict | None:
+        """Get embedding configuration for a user."""
+        from app.models.user import User
+        from sqlalchemy import select
+        
+        result = await self.session.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        
+        if not user or not user.embedding_provider_id or not user.embedding_model:
+            return None
+        
+        provider = await self.provider_repo.get_by_id(user.embedding_provider_id, user_id)
+        if not provider:
+            return None
+        
+        return {
+            "api_key": provider.api_key,
+            "base_url": provider.base_url,
+            "model": user.embedding_model,
+        }

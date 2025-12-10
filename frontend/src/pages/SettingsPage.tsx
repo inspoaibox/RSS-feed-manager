@@ -933,17 +933,32 @@ function AITab() {
   const { data: settings } = useQuery({
     queryKey: ['ai-settings'],
     queryFn: async () => {
-      const response = await api.get<{ translate_prompt: string; summarize_prompt: string }>('/ai/settings')
+      const response = await api.get<{ translate_prompt: string; summarize_prompt: string; embedding_provider_id: number | null; embedding_model: string | null }>('/ai/settings')
       return response.data
     },
   })
 
-  // Initialize prompts when settings load
+  const [embeddingConfig, setEmbeddingConfig] = useState<{
+    provider_id: number | null
+    model: string
+  }>({ provider_id: null, model: '' })
+
+  // Initialize prompts and embedding config when settings load
   if (settings && !prompts.translate && !prompts.summarize) {
     setPrompts({
       translate: settings.translate_prompt,
       summarize: settings.summarize_prompt,
     })
+  }
+  
+  // Initialize embedding config when settings load
+  if (settings && embeddingConfig.provider_id === null && !embeddingConfig.model) {
+    if (settings.embedding_provider_id || settings.embedding_model) {
+      setEmbeddingConfig({
+        provider_id: settings.embedding_provider_id,
+        model: settings.embedding_model || '',
+      })
+    }
   }
 
   const addProviderMutation = useMutation({
@@ -1016,6 +1031,23 @@ function AITab() {
     },
   })
 
+  const saveEmbeddingConfigMutation = useMutation({
+    mutationFn: async () => {
+      await api.put('/ai/settings', {
+        embedding_provider_id: embeddingConfig.provider_id,
+        embedding_model: embeddingConfig.model || null,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ai-settings'] })
+      setMessage({ type: 'success', text: 'Embedding 模型已保存' })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: any) => {
+      setMessage({ type: 'error', text: err.response?.data?.detail || '保存失败' })
+    },
+  })
+
   const defaultModel = models.find(m => m.is_default)
 
   return (
@@ -1029,6 +1061,7 @@ function AITab() {
       {/* Default Model Selection */}
       <div className="p-4 border dark:border-gray-700 rounded bg-primary-50 dark:bg-primary-900/30">
         <h2 className="text-lg font-semibold mb-3 dark:text-white">默认模型</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">用于 AI 翻译、整理和分析总结</p>
         <select
           value={defaultModel?.id || ''}
           onChange={(e) => e.target.value && setDefaultModelMutation.mutate(parseInt(e.target.value))}
@@ -1053,6 +1086,47 @@ function AITab() {
         {models.length === 0 && (
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">请先添加 AI 渠道并获取模型</p>
         )}
+      </div>
+
+      {/* Embedding Model Configuration */}
+      <div className="p-4 border dark:border-gray-700 rounded bg-green-50 dark:bg-green-900/30">
+        <h2 className="text-lg font-semibold mb-3 dark:text-white">Embedding 模型</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">用于 AI 分析的语义搜索功能，需要 OpenAI 兼容的 Embedding API</p>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">AI 渠道</label>
+            <select
+              value={embeddingConfig.provider_id || ''}
+              onChange={(e) => setEmbeddingConfig({ ...embeddingConfig, provider_id: e.target.value ? parseInt(e.target.value) : null })}
+              className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+            >
+              <option value="">请选择渠道</option>
+              {providers.map(provider => (
+                <option key={provider.id} value={provider.id}>{provider.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">模型名称</label>
+            <input
+              type="text"
+              value={embeddingConfig.model}
+              onChange={(e) => setEmbeddingConfig({ ...embeddingConfig, model: e.target.value })}
+              placeholder="text-embedding-3-small"
+              className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+            />
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              常用模型：text-embedding-3-small, text-embedding-3-large, text-embedding-ada-002
+            </p>
+          </div>
+          <button
+            onClick={() => saveEmbeddingConfigMutation.mutate()}
+            disabled={saveEmbeddingConfigMutation.isPending || !embeddingConfig.provider_id}
+            className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+          >
+            保存 Embedding 配置
+          </button>
+        </div>
       </div>
 
       {/* Providers */}
