@@ -499,6 +499,34 @@ async def save_webdav_config(config: WebDAVConfig, user_id: CurrentUserId, db: D
     return {"success": True, "message": "WebDAV 配置已保存"}
 
 
+@router.post("/webdav/test")
+async def test_webdav_connection(config: WebDAVConfig, user_id: CurrentUserId, db: DbSession):
+    """Test WebDAV connection without saving."""
+    config_dict = config.dict()
+    if not config_dict.get("password"):
+        existing_config = await get_webdav_config_from_db(db, user_id)
+        if existing_config and existing_config.get("password"):
+            config_dict["password"] = existing_config["password"]
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="密码不能为空"
+            )
+    
+    try:
+        client = get_webdav_client(config_dict)
+        # Test by checking root or backup path
+        backup_path = config_dict["backup_path"].rstrip('/') + '/'
+        # Try to list root to verify connection
+        client.list("/")
+        return {"success": True, "message": "WebDAV 连接成功"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"WebDAV 连接失败: {str(e)}"
+        )
+
+
 @router.get("/webdav/list", response_model=WebDAVBackupList)
 async def list_webdav_backups(user_id: CurrentUserId, db: DbSession):
     """List all backups from WebDAV."""
@@ -516,24 +544,33 @@ async def list_webdav_backups(user_id: CurrentUserId, db: DbSession):
         if not client.check(backup_path):
             return WebDAVBackupList(backups=[])
         
-        files = client.list(backup_path, get_info=True)
+        # webdavclient3 list() returns list of filenames (strings)
+        files = client.list(backup_path)
         backups = []
         
-        for file_info in files:
-            # Skip directories and the path itself
-            if file_info.get('isdir') or file_info.get('path', '').rstrip('/') == backup_path.rstrip('/'):
+        for filename in files:
+            # Skip empty strings and non-json files
+            if not filename or not filename.endswith('.json'):
                 continue
             
-            filename = file_info.get('name', '')
-            if filename.endswith('.json'):
-                backups.append(WebDAVBackupInfo(
-                    filename=filename,
-                    size=int(file_info.get('size', 0)),
-                    modified=file_info.get('modified', ''),
-                ))
+            # Try to get file info
+            try:
+                remote_path = backup_path + filename
+                info = client.info(remote_path)
+                size = int(info.get('size', 0) or 0)
+                modified = str(info.get('modified', '') or '')
+            except Exception:
+                size = 0
+                modified = ''
+            
+            backups.append(WebDAVBackupInfo(
+                filename=filename,
+                size=size,
+                modified=modified,
+            ))
         
-        # Sort by modified date descending
-        backups.sort(key=lambda x: x.modified, reverse=True)
+        # Sort by filename descending (since filenames contain timestamps)
+        backups.sort(key=lambda x: x.filename, reverse=True)
         return WebDAVBackupList(backups=backups)
     
     except Exception as e:

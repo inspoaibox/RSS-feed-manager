@@ -1839,6 +1839,7 @@ function BackupTab() {
     backup_path: '/rss_manager_backups/',
   })
   const [webdavSaving, setWebdavSaving] = useState(false)
+  const [webdavTesting, setWebdavTesting] = useState(false)
   const [webdavUploading, setWebdavUploading] = useState(false)
   const [restoringFile, setRestoringFile] = useState<string | null>(null)
   const [deletingFile, setDeletingFile] = useState<string | null>(null)
@@ -1923,6 +1924,20 @@ function BackupTab() {
   }
 
   // WebDAV handlers
+  const handleTestWebDAVConnection = async () => {
+    setWebdavTesting(true)
+    try {
+      await api.post('/backup/webdav/test', webdavConfig)
+      setMessage({ type: 'success', text: 'WebDAV 连接测试成功' })
+      setTimeout(() => setMessage(null), 3000)
+    } catch (err: any) {
+      const detail = err.response?.data?.detail
+      setMessage({ type: 'error', text: detail || 'WebDAV 连接测试失败' })
+    } finally {
+      setWebdavTesting(false)
+    }
+  }
+
   const handleSaveWebDAVConfig = async () => {
     setWebdavSaving(true)
     try {
@@ -2135,6 +2150,13 @@ function BackupTab() {
               />
             </div>
             <div className="flex gap-2">
+              <button
+                onClick={handleTestWebDAVConnection}
+                disabled={webdavTesting || !webdavConfig.server_url || !webdavConfig.username}
+                className="px-4 py-2 border border-primary-600 text-primary-600 dark:text-primary-400 rounded hover:bg-primary-50 dark:hover:bg-primary-900/30 disabled:opacity-50"
+              >
+                {webdavTesting ? '测试中...' : '测试连接'}
+              </button>
               <button
                 onClick={handleSaveWebDAVConfig}
                 disabled={webdavSaving || !webdavConfig.server_url || !webdavConfig.username}
