@@ -291,6 +291,9 @@ def execute_all_custom_rules() -> dict:
                 # Remove timezone info for comparison (PostgreSQL returns tz-aware)
                 last_fetched = rule.last_fetched_at.replace(tzinfo=None) if rule.last_fetched_at.tzinfo else rule.last_fetched_at
                 next_fetch = last_fetched + timedelta(seconds=rule.fetch_interval)
+                # Ensure next_fetch is also naive
+                if hasattr(next_fetch, 'tzinfo') and next_fetch.tzinfo:
+                    next_fetch = next_fetch.replace(tzinfo=None)
                 if now < next_fetch:
                     skipped += 1
                     continue  # Not due yet
