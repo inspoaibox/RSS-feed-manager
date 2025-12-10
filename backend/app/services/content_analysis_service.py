@@ -173,11 +173,13 @@ class ContentAnalysisService:
             FROM articles a
             JOIN feeds f ON a.feed_id = f.id
             WHERE f.user_id = :user_id AND a.embedding IS NOT NULL
-        """)
-        count_result = await self.session.execute(count_sql, {"user_id": user_id})
+        """).bindparams(user_id=user_id)
+        count_result = await self.session.execute(count_sql)
         total = count_result.scalar() or 0
 
-        # 搜索文章
+        # 搜索文章 - 使用 bindparams 绑定参数
+        from sqlalchemy import bindparam, literal_column
+        
         search_sql = text("""
             SELECT 
                 a.id,
@@ -186,23 +188,20 @@ class ContentAnalysisService:
                 a.link,
                 a.published_at,
                 f.title as feed_title,
-                1 - (a.embedding <=> :embedding::vector) as relevance_score
+                1 - (a.embedding <=> cast(:embedding as vector)) as relevance_score
             FROM articles a
             JOIN feeds f ON a.feed_id = f.id
             WHERE f.user_id = :user_id AND a.embedding IS NOT NULL
-            ORDER BY a.embedding <=> :embedding::vector
+            ORDER BY a.embedding <=> cast(:embedding as vector)
             LIMIT :limit OFFSET :offset
-        """)
-        
-        result = await self.session.execute(
-            search_sql,
-            {
-                "user_id": user_id,
-                "embedding": embedding_str,
-                "limit": page_size,
-                "offset": offset
-            }
+        """).bindparams(
+            user_id=user_id,
+            embedding=embedding_str,
+            limit=page_size,
+            offset=offset
         )
+        
+        result = await self.session.execute(search_sql)
         rows = result.fetchall()
 
         articles = [
