@@ -5,6 +5,16 @@ export default {
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
   darkMode: 'class',
+  safelist: [
+    // 渐变主题所需的类
+    'bg-gradient-to-br',
+    'from-pink-400', 'via-rose-500', 'to-red-500',
+    'from-cyan-400', 'via-cyan-500', 'to-blue-500',
+    'from-yellow-400', 'via-orange-500', 'to-pink-500',
+    'from-teal-400', 'via-cyan-500', 'to-blue-600',
+    'shadow-rose-500/50', 'shadow-cyan-500/50', 'shadow-orange-500/50', 'shadow-teal-500/50',
+    'blur-md', 'scale-105', 'scale-102',
+  ],
   theme: {
     extend: {
       colors: {
