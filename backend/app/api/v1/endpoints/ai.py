@@ -1,7 +1,7 @@
 """AI API endpoints."""
 from typing import List
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import CurrentUserId, DbSession
 from app.schemas.ai import (
