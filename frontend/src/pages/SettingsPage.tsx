@@ -1996,20 +1996,16 @@ function BackupTab() {
 function AppearanceTab() {
   const { mode, color, setMode, setColor } = useThemeStore()
 
-  // 纯色主题
-  const solidColors: { value: ThemeColor; label: string; bgClass: string }[] = [
+  // 主题颜色
+  const colorOptions: { value: ThemeColor; label: string; bgClass: string }[] = [
     { value: 'blue', label: '蓝色', bgClass: 'bg-blue-500' },
     { value: 'green', label: '绿色', bgClass: 'bg-green-500' },
     { value: 'purple', label: '紫色', bgClass: 'bg-purple-500' },
     { value: 'orange', label: '橙色', bgClass: 'bg-orange-500' },
-  ]
-
-  // 渐变主题 - 使用自定义 CSS 类
-  const gradientColors: { value: ThemeColor; label: string; gradientClass: string }[] = [
-    { value: 'rose', label: '玫红', gradientClass: 'gradient-rose' },
-    { value: 'cyan', label: '青色', gradientClass: 'gradient-cyan' },
-    { value: 'sunset', label: '日落', gradientClass: 'gradient-sunset' },
-    { value: 'ocean', label: '海洋', gradientClass: 'gradient-ocean' },
+    { value: 'rose', label: '玫红', bgClass: 'bg-rose-500' },
+    { value: 'cyan', label: '青色', bgClass: 'bg-cyan-500' },
+    { value: 'indigo', label: '靛蓝', bgClass: 'bg-indigo-500' },
+    { value: 'amber', label: '琥珀', bgClass: 'bg-amber-500' },
   ]
 
   return (
@@ -2055,11 +2051,11 @@ function AppearanceTab() {
         </div>
       </div>
 
-      {/* 主题颜色 - 纯色 */}
+      {/* 主题颜色 */}
       <div>
         <h3 className="font-medium mb-4 dark:text-white">主题颜色</h3>
         <div className="flex gap-4 flex-wrap">
-          {solidColors.map((opt) => (
+          {colorOptions.map((opt) => (
             <button
               key={opt.value}
               onClick={() => setColor(opt.value)}
@@ -2078,78 +2074,20 @@ function AppearanceTab() {
         </div>
       </div>
 
-      {/* 主题颜色 - 渐变 */}
-      <div>
-        <h3 className="font-medium mb-4 dark:text-white">渐变主题</h3>
-        <div className="flex gap-4 flex-wrap">
-          {gradientColors.map((opt) => {
-            const isSelected = color === opt.value
-            return (
-              <button
-                key={opt.value}
-                onClick={() => setColor(opt.value)}
-                className={`group flex flex-col items-center gap-3 p-4 rounded-xl border-2 transition-all duration-300 ${
-                  isSelected
-                    ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 shadow-lg scale-105'
-                    : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-md'
-                }`}
-              >
-                <div className="relative w-16 h-16 flex items-center justify-center">
-                  {/* 光晕背景 */}
-                  <div 
-                    className={`absolute inset-0 rounded-full ${opt.gradientClass} transition-opacity duration-300`}
-                    style={{ 
-                      filter: 'blur(10px)', 
-                      opacity: isSelected ? 0.7 : 0,
-                      transform: 'scale(1.3)'
-                    }}
-                  />
-                  {/* 主圆形 */}
-                  <div className={`relative w-12 h-12 rounded-full ${opt.gradientClass} shadow-lg`}>
-                    {/* 高光 */}
-                    <div className="absolute top-1 left-2.5 w-2.5 h-2.5 rounded-full bg-white/50" />
-                    {/* 选中标记 */}
-                    {isSelected && (
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <svg className="w-5 h-5 text-white drop-shadow" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <span className={`text-sm ${isSelected ? 'text-primary-600 dark:text-primary-400 font-semibold' : 'text-gray-600 dark:text-gray-400'}`}>
-                  {opt.label}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
       {/* 预览 */}
       <div>
         <h3 className="font-medium mb-4 dark:text-white">预览</h3>
-        <div className={`p-6 rounded-xl border-2 transition-all duration-300 ${mode === 'dark' ? 'bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700' : 'bg-gradient-to-br from-white to-gray-50 border-gray-200'}`}>
-          <div className="flex items-center gap-4 mb-4">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-400 to-primary-600 shadow-lg shadow-primary-500/30 flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-            </div>
+        <div className={`p-4 rounded-lg border ${mode === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-8 h-8 rounded-full bg-primary-500"></div>
             <div>
-              <p className={`font-semibold text-lg ${mode === 'dark' ? 'text-white' : 'text-gray-900'}`}>示例标题</p>
-              <p className={`text-sm ${mode === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>这是一段示例文字，展示主题效果</p>
+              <p className={`font-medium ${mode === 'dark' ? 'text-white' : 'text-gray-900'}`}>示例标题</p>
+              <p className={`text-sm ${mode === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>这是一段示例文字</p>
             </div>
           </div>
-          <div className="flex gap-3">
-            <button className="px-5 py-2.5 rounded-xl text-white bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 shadow-lg shadow-primary-500/30 hover:shadow-primary-500/50 transition-all duration-300 hover:scale-105">
-              主要按钮
-            </button>
-            <button className={`px-5 py-2.5 rounded-xl border-2 transition-all duration-300 hover:scale-105 ${mode === 'dark' ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-100'}`}>
-              次要按钮
-            </button>
-          </div>
+          <button className="px-4 py-2 rounded text-white bg-primary-600 hover:bg-primary-700">
+            示例按钮
+          </button>
         </div>
       </div>
     </div>
