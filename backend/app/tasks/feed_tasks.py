@@ -653,16 +653,24 @@ def generate_embeddings_batch(self, user_id: int, limit: int = 500) -> dict:
                         service.batch_generate_embeddings(texts)
                     )
                     
-                    # Update articles with embeddings
+                    # Update articles with embeddings one by one to handle errors
+                    batch_processed = 0
                     for article, embedding in zip(batch_articles, embeddings):
                         if embedding:
-                            article.embedding = embedding
-                            processed += 1
+                            try:
+                                article.embedding = embedding
+                                db.flush()  # Try to flush this single update
+                                batch_processed += 1
+                            except Exception as update_error:
+                                db.rollback()  # Rollback on error
+                                print(f"Error updating article {article.id}: {update_error}")
+                                errors += 1
                         else:
                             errors += 1
                     
-                    # Commit after each batch to save progress
+                    # Commit successful updates
                     db.commit()
+                    processed += batch_processed
                     
                     # Update task state for progress tracking
                     self.update_state(
@@ -683,6 +691,7 @@ def generate_embeddings_batch(self, user_id: int, limit: int = 500) -> dict:
                         time.sleep(0.5)
                         
                 except Exception as batch_error:
+                    db.rollback()  # Rollback on batch error
                     print(f"Error in batch {batch_num + 1}: {batch_error}")
                     errors += len(batch_articles)
                     # Continue with next batch instead of failing completely
