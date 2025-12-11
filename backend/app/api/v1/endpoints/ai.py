@@ -335,10 +335,11 @@ async def generate_embeddings(user_id: CurrentUserId, db: DbSession, limit: int 
     
     If limit is not specified, processes all articles without embeddings.
     """
+    import os
+    from celery import Celery
     from sqlalchemy import func, select
     from app.models.article import Article
     from app.models.feed import Feed
-    from app.tasks.feed_tasks import generate_embeddings_batch
     
     # Check if user has embedding config
     ai_service = AIService(db)
@@ -365,8 +366,15 @@ async def generate_embeddings(user_id: CurrentUserId, db: DbSession, limit: int 
             "task_id": None
         }
     
-    # Trigger the Celery task
-    task = generate_embeddings_batch.delay(user_id, limit)
+    # Create a fresh Celery app with correct Redis URL to send task
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    celery = Celery(broker=redis_url)
+    
+    # Send task by name (doesn't require importing the task module)
+    task = celery.send_task(
+        "app.tasks.feed_tasks.generate_embeddings_batch",
+        args=[user_id, limit]
+    )
     
     return {
         "message": f"已启动 Embedding 生成任务，将处理 {limit} 篇文章",
