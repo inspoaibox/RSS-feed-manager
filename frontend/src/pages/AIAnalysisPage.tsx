@@ -18,6 +18,8 @@ import {
 export default function AIAnalysisPage() {
   const [query, setQuery] = useState('')
   const [result, setResult] = useState<AnalyzeResponse | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(() => {
     // 从 localStorage 恢复任务 ID
     return localStorage.getItem('embeddingTaskId')
@@ -84,9 +86,37 @@ export default function AIAnalysisPage() {
     mutationFn: analyzeContent,
     onSuccess: (data) => {
       setResult(data)
+      setCurrentPage(1)
       queryClient.invalidateQueries({ queryKey: ['queryHistory'] })
     },
   })
+
+  // 加载更多文章
+  const handleLoadMore = async () => {
+    if (!result || isLoadingMore) return
+    
+    setIsLoadingMore(true)
+    try {
+      const nextPage = currentPage + 1
+      const moreData = await analyzeContent({
+        query: result.query,
+        page: nextPage,
+        page_size: result.page_size,
+      })
+      
+      // 合并文章列表
+      setResult({
+        ...result,
+        articles: [...result.articles, ...moreData.articles],
+        page: nextPage,
+      })
+      setCurrentPage(nextPage)
+    } catch (error) {
+      console.error('Failed to load more:', error)
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }
 
   // 删除历史 mutation
   const deleteMutation = useMutation({
@@ -349,6 +379,26 @@ export default function AIAnalysisPage() {
                 {result.articles.map((article) => (
                   <ArticleCard key={article.id} article={article} />
                 ))}
+                
+                {/* 加载更多按钮 */}
+                {result.articles.length < result.total && (
+                  <div className="flex justify-center pt-4">
+                    <button
+                      onClick={handleLoadMore}
+                      disabled={isLoadingMore}
+                      className="px-6 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {isLoadingMore ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          加载中...
+                        </>
+                      ) : (
+                        <>加载更多 ({result.articles.length}/{result.total})</>
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
