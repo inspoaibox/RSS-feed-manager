@@ -1,5 +1,6 @@
 """Feed-related background tasks."""
 import asyncio
+import os
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -7,7 +8,6 @@ from celery import shared_task
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.core.config import settings
 from app.models.article import Article
 from app.models.feed import Feed
 from app.models.custom_rule import CustomRule
@@ -16,9 +16,9 @@ from app.utils.feed_parser import parse_feed, ParsedFeed
 
 
 # Create sync engine for Celery tasks
-# Convert async URL to sync URL
+# Read DATABASE_URL directly from environment to avoid caching issues
 def get_sync_database_url() -> str:
-    url = settings.DATABASE_URL
+    url = os.environ.get("DATABASE_URL", "sqlite:///./rss_manager.db")
     if "postgresql+asyncpg" in url:
         return url.replace("postgresql+asyncpg", "postgresql+psycopg2")
     elif "sqlite+aiosqlite" in url:
@@ -26,8 +26,18 @@ def get_sync_database_url() -> str:
     return url
 
 
-sync_engine = create_engine(get_sync_database_url())
-SyncSessionLocal = sessionmaker(bind=sync_engine)
+# Lazy initialization of database engine
+_sync_engine = None
+_SyncSessionLocal = None
+
+
+def get_sync_session():
+    """Get a sync database session, initializing engine if needed."""
+    global _sync_engine, _SyncSessionLocal
+    if _sync_engine is None:
+        _sync_engine = create_engine(get_sync_database_url())
+        _SyncSessionLocal = sessionmaker(bind=_sync_engine)
+    return _SyncSessionLocal()
 
 
 def _generate_article_embedding_sync(db: Session, article: Article, user_id: int) -> None:
@@ -215,7 +225,7 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
 @shared_task(name="app.tasks.feed_tasks.refresh_feed")
 def refresh_feed(feed_id: int) -> dict:
     """Refresh a single feed."""
-    with SyncSessionLocal() as db:
+    with get_sync_session() as db:
         feed = db.execute(select(Feed).where(Feed.id == feed_id)).scalar_one_or_none()
         if not feed:
             return {"success": False, "error": "Feed not found"}
@@ -227,7 +237,7 @@ def refresh_feed(feed_id: int) -> dict:
 @shared_task(name="app.tasks.feed_tasks.refresh_all_feeds")
 def refresh_all_feeds() -> dict:
     """Refresh all active feeds."""
-    with SyncSessionLocal() as db:
+    with get_sync_session() as db:
         feeds = db.execute(
             select(Feed).where(Feed.is_active == True)
         ).scalars().all()
@@ -252,7 +262,7 @@ def refresh_all_feeds() -> dict:
 @shared_task(name="app.tasks.feed_tasks.refresh_due_feeds")
 def refresh_due_feeds() -> dict:
     """Refresh feeds that are due based on their fetch_interval."""
-    with SyncSessionLocal() as db:
+    with get_sync_session() as db:
         now = datetime.utcnow()
         
         # Get all active feeds
@@ -326,7 +336,7 @@ def execute_custom_rule(rule_id: int) -> dict:
 @shared_task(name="app.tasks.feed_tasks.execute_all_custom_rules")
 def execute_all_custom_rules() -> dict:
     """Execute all active custom rules that are due."""
-    with SyncSessionLocal() as db:
+    with get_sync_session() as db:
         now = datetime.utcnow()
         rules = db.execute(
             select(CustomRule).where(CustomRule.is_active == True)
@@ -378,7 +388,7 @@ def translate_feed_articles(feed_id: int) -> dict:
     """Translate all untranslated articles in a feed."""
     from app.models.user import User
     
-    with SyncSessionLocal() as db:
+    with get_sync_session() as db:
         feed = db.execute(select(Feed).where(Feed.id == feed_id)).scalar_one_or_none()
         if not feed:
             return {"success": False, "error": "Feed not found"}
@@ -460,7 +470,7 @@ def cleanup_old_articles(days: int = 90) -> dict:
     """Clean up articles older than specified days (excluding favorites)."""
     from app.models.article import UserArticle
     
-    with SyncSessionLocal() as db:
+    with get_sync_session() as db:
         cutoff = datetime.utcnow() - timedelta(days=days)
         
         # Get IDs of favorited articles
@@ -495,7 +505,7 @@ def generate_article_embedding(article_id: int) -> dict:
     """Generate embedding for a single article."""
     from app.models.user import User
     
-    with SyncSessionLocal() as db:
+    with get_sync_session() as db:
         article = db.execute(
             select(Article).where(Article.id == article_id)
         ).scalar_one_or_none()
@@ -568,7 +578,7 @@ def generate_embeddings_batch(self, user_id: int, limit: int = 500) -> dict:
     from app.models.user import User
     import time
     
-    with SyncSessionLocal() as db:
+    with get_sync_session() as db:
         # Get articles without embeddings
         articles = db.execute(
             select(Article)
