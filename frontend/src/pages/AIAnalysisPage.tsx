@@ -93,11 +93,13 @@ export default function AIAnalysisPage() {
 
   // 生成 embedding mutation
   const generateMutation = useMutation({
-    mutationFn: () => generateEmbeddings(500),  // 每次处理500篇
+    mutationFn: () => generateEmbeddings(),  // 处理所有未索引文章
     onSuccess: (data) => {
-      setCurrentTaskId(data.task_id)
-      localStorage.setItem('embeddingTaskId', data.task_id)
-      setTaskStatus(null)
+      if (data.task_id) {
+        setCurrentTaskId(data.task_id)
+        localStorage.setItem('embeddingTaskId', data.task_id)
+        setTaskStatus(null)
+      }
     },
   })
 
@@ -179,7 +181,7 @@ export default function AIAnalysisPage() {
                   ) : (
                     <Play className="w-4 h-4" />
                   )}
-                  生成索引 (500篇)
+                  生成全部索引 ({embeddingStatus.without_embedding}篇)
                 </button>
               )}
             </div>

@@ -330,8 +330,14 @@ async def get_embedding_status(user_id: CurrentUserId, db: DbSession):
 
 
 @router.post("/embeddings/generate")
-async def generate_embeddings(user_id: CurrentUserId, db: DbSession, limit: int = 500):
-    """Trigger batch embedding generation for articles without embeddings."""
+async def generate_embeddings(user_id: CurrentUserId, db: DbSession, limit: int | None = None):
+    """Trigger batch embedding generation for articles without embeddings.
+    
+    If limit is not specified, processes all articles without embeddings.
+    """
+    from sqlalchemy import func, select
+    from app.models.article import Article
+    from app.models.feed import Feed
     from app.tasks.feed_tasks import generate_embeddings_batch
     
     # Check if user has embedding config
@@ -344,11 +350,26 @@ async def generate_embeddings(user_id: CurrentUserId, db: DbSession, limit: int 
             detail="请先在 AI 设置中配置 Embedding 模型"
         )
     
+    # If no limit specified, count all articles without embeddings
+    if limit is None:
+        count_result = await db.execute(
+            select(func.count(Article.id))
+            .join(Feed, Article.feed_id == Feed.id)
+            .where(Feed.user_id == user_id, Article.embedding.is_(None))
+        )
+        limit = count_result.scalar() or 0
+    
+    if limit == 0:
+        return {
+            "message": "所有文章已完成索引",
+            "task_id": None
+        }
+    
     # Trigger the Celery task
     task = generate_embeddings_batch.delay(user_id, limit)
     
     return {
-        "message": f"已启动 Embedding 生成任务，最多处理 {limit} 篇文章",
+        "message": f"已启动 Embedding 生成任务，将处理 {limit} 篇文章",
         "task_id": task.id
     }
 

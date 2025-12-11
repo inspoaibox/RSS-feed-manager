@@ -170,8 +170,9 @@ export const getEmbeddingStatus = async (): Promise<EmbeddingStatus> => {
   return response.data
 }
 
-export const generateEmbeddings = async (limit: number = 500): Promise<{ message: string; task_id: string }> => {
-  const response = await api.post(`/ai/embeddings/generate?limit=${limit}`)
+export const generateEmbeddings = async (limit?: number): Promise<{ message: string; task_id: string | null }> => {
+  const url = limit ? `/ai/embeddings/generate?limit=${limit}` : '/ai/embeddings/generate'
+  const response = await api.post(url)
   return response.data
 }
 
