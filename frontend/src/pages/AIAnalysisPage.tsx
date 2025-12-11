@@ -372,13 +372,13 @@ export default function AIAnalysisPage() {
                 <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
                   <span>共 {result.total} 篇</span>
                   <span className="text-green-600">
-                    高相关 (≥80%): {result.articles.filter(a => a.relevance_score >= 0.8).length} 篇
+                    高相关 (≥50%): {result.articles.filter(a => a.relevance_score >= 0.5).length} 篇
                   </span>
                   <span className="text-yellow-600">
-                    中相关 (60-79%): {result.articles.filter(a => a.relevance_score >= 0.6 && a.relevance_score < 0.8).length} 篇
+                    中相关 (30-49%): {result.articles.filter(a => a.relevance_score >= 0.3 && a.relevance_score < 0.5).length} 篇
                   </span>
                   <span className="text-gray-500">
-                    低相关 (&lt;60%): {result.articles.filter(a => a.relevance_score < 0.6).length} 篇
+                    低相关 (&lt;30%): {result.articles.filter(a => a.relevance_score < 0.3).length} 篇
                   </span>
                 </div>
               </div>

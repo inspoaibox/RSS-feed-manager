@@ -36,6 +36,10 @@ class User(BaseModel):
     # Embedding model settings
     embedding_provider_id: Mapped[int | None] = mapped_column(nullable=True)
     embedding_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    
+    # OAuth fields
+    oauth_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    oauth_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
 
     # Relationships
     categories: Mapped[List["Category"]] = relationship(

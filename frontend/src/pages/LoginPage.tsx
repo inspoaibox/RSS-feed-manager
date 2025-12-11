@@ -26,6 +26,41 @@ export default function LoginPage() {
     },
   })
 
+  // 获取 OAuth 状态
+  const { data: oauthStatus } = useQuery({
+    queryKey: ['oauth-status'],
+    queryFn: async () => {
+      const response = await api.get<{ linuxdo_enabled: boolean }>('/auth/status')
+      return response.data
+    },
+  })
+
+  // 处理 OAuth 回调
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const oauthSuccess = params.get('oauth_success')
+    const accessToken = params.get('access_token')
+    const refreshToken = params.get('refresh_token')
+    const oauthError = params.get('error')
+    
+    if (oauthSuccess === 'true' && accessToken && refreshToken) {
+      // OAuth 登录成功
+      api.get('/auth/me', { headers: { Authorization: `Bearer ${accessToken}` } })
+        .then(response => {
+          setAuth(response.data, accessToken, refreshToken)
+          navigate('/')
+        })
+        .catch(() => {
+          setError('OAuth 登录失败，请重试')
+        })
+      // 清除 URL 参数
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if (oauthError) {
+      setError(`OAuth 登录失败: ${params.get('message') || oauthError}`)
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [navigate, setAuth])
+
   useEffect(() => {
     if (regStatus?.site_name) {
       setSiteName(regStatus.site_name)
@@ -152,6 +187,32 @@ export default function LoginPage() {
               ) : '登录'}
             </button>
           </form>
+
+          {/* OAuth 登录 */}
+          {oauthStatus?.linuxdo_enabled && (
+            <div className="mt-6">
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-200 dark:border-gray-600"></div>
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">或</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href = '/api/v1/auth/linuxdo/login'
+                }}
+                className="mt-4 w-full py-3 px-4 bg-[#f0b90b] hover:bg-[#d9a60a] text-black font-medium rounded-xl shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 transition-all duration-200 flex items-center justify-center gap-2"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                </svg>
+                使用 Linux.do 登录
+              </button>
+            </div>
+          )}
 
           {allowRegister && (
             <div className="mt-6 text-center">

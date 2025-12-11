@@ -49,6 +49,7 @@ services:
       - SECRET_KEY=${SECRET_KEY:-rss_manager_secret_key_2024_production}
       - DEBUG=false
       - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:5173"]}
+      - BASE_URL=${BASE_URL:-https://rss.8y.cx}
     depends_on:
       postgres:
         condition: service_healthy

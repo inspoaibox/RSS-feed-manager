@@ -2500,16 +2500,42 @@ function AppearanceTab() {
   )
 }
 
+interface OAuthConfig {
+  enabled: boolean
+  client_id: string
+  client_secret: string
+  authorize_url: string
+  token_url: string
+  userinfo_url: string
+}
+
+interface SystemSettings {
+  allow_registration: boolean
+  site_name: string
+  oauth_linuxdo: OAuthConfig
+}
+
 function SystemTab() {
   const queryClient = useQueryClient()
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [siteName, setSiteName] = useState('')
+  const [oauthLinuxdo, setOauthLinuxdo] = useState<OAuthConfig>({
+    enabled: false,
+    client_id: '',
+    client_secret: '',
+    authorize_url: 'https://connect.linux.do/oauth2/authorize',
+    token_url: 'https://connect.linux.do/oauth2/token',
+    userinfo_url: 'https://connect.linux.do/api/user',
+  })
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['system-settings'],
     queryFn: async () => {
-      const response = await api.get<{ allow_registration: boolean; site_name: string }>('/system/settings')
+      const response = await api.get<SystemSettings>('/system/settings')
       setSiteName(response.data.site_name)
+      if (response.data.oauth_linuxdo) {
+        setOauthLinuxdo(response.data.oauth_linuxdo)
+      }
       return response.data
     },
   })
@@ -2530,13 +2556,14 @@ function SystemTab() {
   })
 
   const updateSettingsMutation = useMutation({
-    mutationFn: async (data: { allow_registration?: boolean; site_name?: string }) => {
+    mutationFn: async (data: { allow_registration?: boolean; site_name?: string; oauth_linuxdo?: OAuthConfig }) => {
       const response = await api.put('/system/settings', data)
       return response.data
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['system-settings'] })
       queryClient.invalidateQueries({ queryKey: ['public-settings'] })
+      queryClient.invalidateQueries({ queryKey: ['oauth-status'] })
       setMessage({ type: 'success', text: '设置已保存' })
       setTimeout(() => setMessage(null), 3000)
     },
@@ -2606,6 +2633,96 @@ function SystemTab() {
             <p className="text-sm text-gray-500 dark:text-gray-400">关闭后，只有管理员可以添加新用户</p>
           </div>
         </label>
+      </div>
+
+      {/* OAuth 设置 - Linux.do */}
+      <div className="p-4 border dark:border-gray-700 rounded-lg">
+        <h3 className="font-medium mb-4 dark:text-white flex items-center gap-2">
+          <Shield className="w-5 h-5" />
+          第三方登录 - Linux.do
+        </h3>
+        <div className="space-y-4">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={oauthLinuxdo.enabled}
+              onChange={(e) => setOauthLinuxdo({ ...oauthLinuxdo, enabled: e.target.checked })}
+              className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            />
+            <div>
+              <p className="font-medium dark:text-white">启用 Linux.do 登录</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">允许用户使用 Linux.do 账号登录</p>
+            </div>
+          </label>
+          
+          {oauthLinuxdo.enabled && (
+            <div className="space-y-3 pl-8">
+              <div>
+                <label className="block text-sm font-medium dark:text-gray-300 mb-1">Client ID</label>
+                <input
+                  type="text"
+                  value={oauthLinuxdo.client_id}
+                  onChange={(e) => setOauthLinuxdo({ ...oauthLinuxdo, client_id: e.target.value })}
+                  placeholder="OAuth Client ID"
+                  className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium dark:text-gray-300 mb-1">Client Secret</label>
+                <input
+                  type="password"
+                  value={oauthLinuxdo.client_secret}
+                  onChange={(e) => setOauthLinuxdo({ ...oauthLinuxdo, client_secret: e.target.value })}
+                  placeholder="OAuth Client Secret"
+                  className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium dark:text-gray-300 mb-1">Authorization URL</label>
+                <input
+                  type="text"
+                  value={oauthLinuxdo.authorize_url}
+                  onChange={(e) => setOauthLinuxdo({ ...oauthLinuxdo, authorize_url: e.target.value })}
+                  placeholder="https://connect.linux.do/oauth2/authorize"
+                  className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium dark:text-gray-300 mb-1">Token URL</label>
+                <input
+                  type="text"
+                  value={oauthLinuxdo.token_url}
+                  onChange={(e) => setOauthLinuxdo({ ...oauthLinuxdo, token_url: e.target.value })}
+                  placeholder="https://connect.linux.do/oauth2/token"
+                  className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium dark:text-gray-300 mb-1">User Info URL</label>
+                <input
+                  type="text"
+                  value={oauthLinuxdo.userinfo_url}
+                  onChange={(e) => setOauthLinuxdo({ ...oauthLinuxdo, userinfo_url: e.target.value })}
+                  placeholder="https://connect.linux.do/api/user"
+                  className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                />
+              </div>
+              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded text-sm">
+                <p className="font-medium dark:text-gray-300 mb-1">回调地址 (Redirect URI):</p>
+                <code className="text-primary-600 dark:text-primary-400 break-all">
+                  {window.location.origin}/api/v1/auth/callback/linuxdo
+                </code>
+              </div>
+              <button
+                onClick={() => updateSettingsMutation.mutate({ oauth_linuxdo: oauthLinuxdo })}
+                disabled={updateSettingsMutation.isPending}
+                className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
+              >
+                {updateSettingsMutation.isPending ? '保存中...' : '保存 OAuth 设置'}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 用户列表 */}

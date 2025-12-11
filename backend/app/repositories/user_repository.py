@@ -64,3 +64,45 @@ class UserRepository:
         """Get all users (admin only)."""
         result = await self.session.execute(select(User).order_by(User.id))
         return list(result.scalars().all())
+
+    async def get_by_oauth(self, provider: str, oauth_id: str) -> User | None:
+        """Get user by OAuth provider and ID."""
+        result = await self.session.execute(
+            select(User).where(
+                User.oauth_provider == provider,
+                User.oauth_id == oauth_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def create_oauth_user(
+        self,
+        username: str,
+        email: str,
+        oauth_provider: str,
+        oauth_id: str
+    ) -> User:
+        """Create a new user from OAuth login."""
+        import secrets
+        
+        # Ensure unique username
+        base_username = username
+        counter = 1
+        while await self.exists_by_username(username):
+            username = f"{base_username}_{counter}"
+            counter += 1
+        
+        # Generate random password (user won't use it, they'll login via OAuth)
+        random_password = secrets.token_urlsafe(32)
+        
+        user = User(
+            username=username,
+            email=email,
+            token_version=0,
+            oauth_provider=oauth_provider,
+            oauth_id=oauth_id
+        )
+        user.set_password(random_password)
+        self.session.add(user)
+        await self.session.flush()
+        return user

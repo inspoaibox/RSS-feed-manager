@@ -12,16 +12,28 @@ from app.repositories.user_repository import UserRepository
 router = APIRouter()
 
 
+class OAuthConfig(BaseModel):
+    """OAuth provider configuration."""
+    enabled: bool = False
+    client_id: str = ""
+    client_secret: str = ""
+    authorize_url: str = ""
+    token_url: str = ""
+    userinfo_url: str = ""
+
+
 class SystemSettingsResponse(BaseModel):
     """Response schema for system settings."""
     allow_registration: bool
     site_name: str
+    oauth_linuxdo: OAuthConfig
 
 
 class SystemSettingsUpdate(BaseModel):
     """Update schema for system settings."""
     allow_registration: bool | None = None
     site_name: str | None = None
+    oauth_linuxdo: OAuthConfig | None = None
 
 
 class PublicSettingsResponse(BaseModel):
@@ -84,6 +96,19 @@ async def get_registration_status(db: AsyncSession = Depends(get_db)):
     )
 
 
+async def get_oauth_config(settings_repo: SystemSettingsRepository, provider: str) -> OAuthConfig:
+    """Get OAuth config for a provider."""
+    import json
+    config_str = await settings_repo.get(f'oauth_{provider}')
+    if config_str:
+        try:
+            data = json.loads(config_str)
+            return OAuthConfig(**data)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return OAuthConfig()
+
+
 @router.get("/settings", response_model=SystemSettingsResponse)
 async def get_system_settings(
     db: AsyncSession = Depends(get_db),
@@ -94,7 +119,8 @@ async def get_system_settings(
     
     return SystemSettingsResponse(
         allow_registration=await settings_repo.get_bool('allow_registration', True),
-        site_name=await settings_repo.get('site_name') or 'RSS 管理器'
+        site_name=await settings_repo.get('site_name') or 'RSS 管理器',
+        oauth_linuxdo=await get_oauth_config(settings_repo, 'linuxdo')
     )
 
 
@@ -105,6 +131,7 @@ async def update_system_settings(
     admin: User = Depends(require_admin)
 ):
     """Update system settings (admin only)."""
+    import json
     settings_repo = SystemSettingsRepository(db)
     
     if data.allow_registration is not None:
@@ -121,11 +148,19 @@ async def update_system_settings(
             '网站名称'
         )
     
+    if data.oauth_linuxdo is not None:
+        await settings_repo.set(
+            'oauth_linuxdo',
+            json.dumps(data.oauth_linuxdo.model_dump()),
+            'Linux.do OAuth 配置'
+        )
+    
     await db.commit()
     
     return SystemSettingsResponse(
         allow_registration=await settings_repo.get_bool('allow_registration', True),
-        site_name=await settings_repo.get('site_name') or 'RSS 管理器'
+        site_name=await settings_repo.get('site_name') or 'RSS 管理器',
+        oauth_linuxdo=await get_oauth_config(settings_repo, 'linuxdo')
     )
 
 
