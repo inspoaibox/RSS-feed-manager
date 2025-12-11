@@ -40,8 +40,11 @@ async def get_oauth_status(db: AsyncSession = Depends(get_db)):
     if config_str:
         try:
             config = json.loads(config_str)
-            linuxdo_enabled = config.get('enabled', False) and config.get('client_id')
-        except (json.JSONDecodeError, TypeError):
+            # Check both enabled flag and client_id exists
+            if isinstance(config, dict):
+                linuxdo_enabled = bool(config.get('enabled', False) and config.get('client_id'))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            # Invalid JSON or not a dict, ignore
             pass
     
     return PublicOAuthStatus(linuxdo_enabled=linuxdo_enabled)
