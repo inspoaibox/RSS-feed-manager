@@ -30,7 +30,7 @@ export default function LoginPage() {
   const { data: oauthStatus } = useQuery({
     queryKey: ['oauth-status'],
     queryFn: async () => {
-      const response = await api.get<{ linuxdo_enabled: boolean }>('/auth/status')
+      const response = await api.get<{ linuxdo_enabled: boolean; linuxdo_auth_url?: string }>('/auth/status')
       return response.data
     },
   })
@@ -202,7 +202,11 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => {
-                  window.location.href = '/api/v1/auth/linuxdo/login'
+                  if (oauthStatus?.linuxdo_auth_url) {
+                    window.location.href = oauthStatus.linuxdo_auth_url
+                  } else {
+                    window.location.href = '/api/v1/auth/linuxdo/login'
+                  }
                 }}
                 className="mt-4 w-full py-3 px-4 bg-[#f0b90b] hover:bg-[#d9a60a] text-black font-medium rounded-xl shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 transition-all duration-200 flex items-center justify-center gap-2"
               >

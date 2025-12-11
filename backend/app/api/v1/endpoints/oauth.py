@@ -28,6 +28,7 @@ class OAuthLoginResponse(BaseModel):
 class PublicOAuthStatus(BaseModel):
     """Public OAuth provider status."""
     linuxdo_enabled: bool
+    linuxdo_auth_url: str | None = None
 
 
 @router.get("/status", response_model=PublicOAuthStatus)
@@ -36,6 +37,7 @@ async def get_oauth_status(db: AsyncSession = Depends(get_db)):
     settings_repo = SystemSettingsRepository(db)
     
     linuxdo_enabled = False
+    linuxdo_auth_url = None
     config_str = await settings_repo.get('oauth_linuxdo')
     if config_str:
         try:
@@ -43,11 +45,25 @@ async def get_oauth_status(db: AsyncSession = Depends(get_db)):
             # Check both enabled flag and client_id exists
             if isinstance(config, dict):
                 linuxdo_enabled = bool(config.get('enabled', False) and config.get('client_id'))
+                
+                # Build auth URL directly for frontend to use
+                if linuxdo_enabled and config.get('authorize_url'):
+                    state = secrets.token_urlsafe(32)
+                    oauth_states[state] = {"provider": "linuxdo"}
+                    
+                    params = {
+                        "client_id": config["client_id"],
+                        "response_type": "code",
+                        "redirect_uri": f"{get_base_url()}/api/v1/auth/callback/linuxdo",
+                        "state": state,
+                        "scope": "read",
+                    }
+                    linuxdo_auth_url = f"{config['authorize_url']}?{urlencode(params)}"
         except (json.JSONDecodeError, TypeError, ValueError):
             # Invalid JSON or not a dict, ignore
             pass
     
-    return PublicOAuthStatus(linuxdo_enabled=linuxdo_enabled)
+    return PublicOAuthStatus(linuxdo_enabled=linuxdo_enabled, linuxdo_auth_url=linuxdo_auth_url)
 
 
 @router.get("/linuxdo/login")
@@ -64,25 +80,36 @@ async def linuxdo_login(db: AsyncSession = Depends(get_db)):
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="OAuth 配置无效")
     
+    if not isinstance(config, dict):
+        raise HTTPException(status_code=400, detail="OAuth 配置格式错误")
+    
     if not config.get('enabled'):
         raise HTTPException(status_code=400, detail="Linux.do OAuth 未启用")
+    
+    if not config.get('client_id'):
+        raise HTTPException(status_code=400, detail="OAuth Client ID 未配置")
+    
+    if not config.get('authorize_url'):
+        raise HTTPException(status_code=400, detail="OAuth Authorization URL 未配置")
     
     # Generate state for CSRF protection
     state = secrets.token_urlsafe(32)
     oauth_states[state] = {"provider": "linuxdo"}
     
     # Build authorization URL
+    base_url = get_base_url()
     params = {
         "client_id": config["client_id"],
         "response_type": "code",
-        "redirect_uri": f"{get_base_url()}/api/v1/auth/callback/linuxdo",
+        "redirect_uri": f"{base_url}/api/v1/auth/callback/linuxdo",
         "state": state,
         "scope": "read",
     }
     
     auth_url = f"{config['authorize_url']}?{urlencode(params)}"
+    print(f"OAuth redirect to: {auth_url}")
     
-    return RedirectResponse(url=auth_url)
+    return RedirectResponse(url=auth_url, status_code=302)
 
 
 @router.get("/callback/linuxdo")
