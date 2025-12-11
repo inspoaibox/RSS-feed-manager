@@ -218,8 +218,8 @@ async def linuxdo_callback(
     await db.commit()
     
     # Generate tokens
-    app_access_token = create_access_token(user.id)
-    refresh_token = create_refresh_token(user.id)
+    app_access_token = create_access_token({"sub": str(user.id), "token_version": user.token_version})
+    refresh_token = create_refresh_token({"sub": str(user.id), "token_version": user.token_version})
     
     # Redirect to login page with tokens (login page handles OAuth callback)
     redirect_url = f"/login?oauth_success=true&access_token={app_access_token}&refresh_token={refresh_token}"
