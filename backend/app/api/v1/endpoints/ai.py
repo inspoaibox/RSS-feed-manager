@@ -385,9 +385,14 @@ async def generate_embeddings(user_id: CurrentUserId, db: DbSession, limit: int 
 @router.get("/embeddings/task/{task_id}")
 async def get_embedding_task_status(task_id: str, user_id: CurrentUserId):
     """Get the status of an embedding generation task."""
-    from app.tasks.celery_app import celery_app
+    import os
+    from celery import Celery
     
-    result = celery_app.AsyncResult(task_id)
+    # Create fresh Celery app to get task status
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    celery = Celery(broker=redis_url, backend=redis_url)
+    
+    result = celery.AsyncResult(task_id)
     
     response = {
         "task_id": task_id,
@@ -395,7 +400,10 @@ async def get_embedding_task_status(task_id: str, user_id: CurrentUserId):
         "ready": result.ready(),
     }
     
-    if result.ready():
+    # Include progress info for PROGRESS state
+    if result.status == 'PROGRESS' and result.info:
+        response["result"] = result.info
+    elif result.ready():
         if result.successful():
             response["result"] = result.result
         elif result.failed():
