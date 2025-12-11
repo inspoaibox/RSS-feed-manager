@@ -5,7 +5,7 @@ from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -121,14 +121,14 @@ async def linuxdo_callback(
 ):
     """Handle Linux.do OAuth callback."""
     if error:
-        return RedirectResponse(url=f"/?error=oauth_error&message={error}")
+        return RedirectResponse(url=f"/login?error=oauth_error&message={error}")
     
     if not code or not state:
-        return RedirectResponse(url="/?error=oauth_error&message=missing_params")
+        return RedirectResponse(url="/login?error=oauth_error&message=missing_params")
     
     # Verify state
     if state not in oauth_states:
-        return RedirectResponse(url="/?error=oauth_error&message=invalid_state")
+        return RedirectResponse(url="/login?error=oauth_error&message=invalid_state")
     
     del oauth_states[state]
     
@@ -136,12 +136,12 @@ async def linuxdo_callback(
     config_str = await settings_repo.get('oauth_linuxdo')
     
     if not config_str:
-        return RedirectResponse(url="/?error=oauth_error&message=not_configured")
+        return RedirectResponse(url="/login?error=oauth_error&message=not_configured")
     
     try:
         config = json.loads(config_str)
     except json.JSONDecodeError:
-        return RedirectResponse(url="/?error=oauth_error&message=invalid_config")
+        return RedirectResponse(url="/login?error=oauth_error&message=invalid_config")
     
     # Exchange code for token
     async with httpx.AsyncClient() as client:
@@ -162,11 +162,11 @@ async def linuxdo_callback(
             token_data = token_response.json()
         except Exception as e:
             print(f"Token exchange error: {e}")
-            return RedirectResponse(url="/?error=oauth_error&message=token_exchange_failed")
+            return RedirectResponse(url="/login?error=oauth_error&message=token_exchange_failed")
         
         access_token = token_data.get("access_token")
         if not access_token:
-            return RedirectResponse(url="/?error=oauth_error&message=no_access_token")
+            return RedirectResponse(url="/login?error=oauth_error&message=no_access_token")
         
         # Get user info
         try:
@@ -182,7 +182,7 @@ async def linuxdo_callback(
             userinfo = userinfo_response.json()
         except Exception as e:
             print(f"Userinfo error: {e}")
-            return RedirectResponse(url="/?error=oauth_error&message=userinfo_failed")
+            return RedirectResponse(url="/login?error=oauth_error&message=userinfo_failed")
     
     # Extract user info (Discourse format)
     oauth_id = str(userinfo.get("id") or userinfo.get("sub"))
@@ -190,7 +190,7 @@ async def linuxdo_callback(
     email = userinfo.get("email") or f"{username}@linuxdo.oauth"
     
     if not oauth_id:
-        return RedirectResponse(url="/?error=oauth_error&message=no_user_id")
+        return RedirectResponse(url="/login?error=oauth_error&message=no_user_id")
     
     # Find or create user
     user_repo = UserRepository(db)
@@ -221,8 +221,8 @@ async def linuxdo_callback(
     app_access_token = create_access_token(user.id)
     refresh_token = create_refresh_token(user.id)
     
-    # Redirect to frontend with tokens
-    redirect_url = f"/?oauth_success=true&access_token={app_access_token}&refresh_token={refresh_token}"
+    # Redirect to login page with tokens (login page handles OAuth callback)
+    redirect_url = f"/login?oauth_success=true&access_token={app_access_token}&refresh_token={refresh_token}"
     return RedirectResponse(url=redirect_url)
 
 
