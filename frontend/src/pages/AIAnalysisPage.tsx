@@ -43,6 +43,11 @@ export default function AIAnalysisPage() {
       const status = await getEmbeddingTaskStatus(taskId)
       setTaskStatus(status)
       
+      // 任务进行中时也刷新 embedding 状态
+      if (status.status === 'PROGRESS') {
+        refetchEmbeddingStatus()
+      }
+      
       // 如果任务完成或失败，停止轮询
       if (status.ready || status.status === 'REVOKED') {
         setCurrentTaskId(null)
