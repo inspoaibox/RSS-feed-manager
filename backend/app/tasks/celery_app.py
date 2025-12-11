@@ -1,13 +1,16 @@
 """Celery application configuration."""
+import os
+
 from celery import Celery
 from celery.schedules import crontab
 
-from app.core.config import settings
+# Read REDIS_URL directly from environment to avoid caching issues
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
 celery_app = Celery(
     "rss_reader",
-    broker=settings.REDIS_URL,
-    backend=settings.REDIS_URL,
+    broker=REDIS_URL,
+    backend=REDIS_URL,
     include=[
         "app.tasks.feed_tasks",
     ]
