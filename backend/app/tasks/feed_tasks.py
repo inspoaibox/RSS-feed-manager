@@ -558,13 +558,15 @@ def generate_article_embedding(article_id: int) -> dict:
             loop.close()
 
 
-@shared_task(name="app.tasks.feed_tasks.generate_embeddings_batch")
-def generate_embeddings_batch(user_id: int, limit: int = 100) -> dict:
+@shared_task(name="app.tasks.feed_tasks.generate_embeddings_batch", bind=True)
+def generate_embeddings_batch(self, user_id: int, limit: int = 500) -> dict:
     """Generate embeddings for articles without embeddings for a user.
     
-    Uses batch API calls for efficiency - processes up to 20 articles per API call.
+    Uses batch API calls for efficiency - processes up to 50 articles per API call.
+    Supports task cancellation via Celery revoke.
     """
     from app.models.user import User
+    import time
     
     with SyncSessionLocal() as db:
         # Get articles without embeddings
@@ -602,7 +604,8 @@ def generate_embeddings_batch(user_id: int, limit: int = 100) -> dict:
         
         processed = 0
         errors = 0
-        batch_size = 20  # Process 20 articles per API call
+        batch_size = 50  # Process 50 articles per API call for better throughput
+        total_batches = (len(articles) + batch_size - 1) // batch_size
         
         try:
             from app.services.embedding_service import EmbeddingService
@@ -614,27 +617,66 @@ def generate_embeddings_batch(user_id: int, limit: int = 100) -> dict:
             )
             
             # Process in batches
-            for i in range(0, len(articles), batch_size):
+            for batch_num, i in enumerate(range(0, len(articles), batch_size)):
+                # Check if task was revoked/cancelled
+                if self.request.id:
+                    from app.tasks.celery_app import celery_app
+                    # Check revoked tasks
+                    revoked = celery_app.control.inspect().revoked() or {}
+                    for worker_revoked in revoked.values():
+                        if self.request.id in worker_revoked:
+                            print(f"Task {self.request.id} was cancelled, stopping...")
+                            return {
+                                "success": False,
+                                "cancelled": True,
+                                "processed": processed,
+                                "errors": errors,
+                                "message": "任务已被取消"
+                            }
+                
                 batch_articles = articles[i:i + batch_size]
                 texts = [f"{a.title} {a.content or ''}" for a in batch_articles]
                 
                 # Generate embeddings in batch
-                embeddings = loop.run_until_complete(
-                    service.batch_generate_embeddings(texts)
-                )
-                
-                # Update articles with embeddings
-                for article, embedding in zip(batch_articles, embeddings):
-                    if embedding:
-                        article.embedding = embedding
-                        processed += 1
-                        print(f"Generated embedding for article {article.id}: {article.title[:50]}...")
-                    else:
-                        errors += 1
-                
-                # Commit after each batch to save progress
-                db.commit()
-                print(f"Batch {i // batch_size + 1} completed: {len(batch_articles)} articles")
+                try:
+                    embeddings = loop.run_until_complete(
+                        service.batch_generate_embeddings(texts)
+                    )
+                    
+                    # Update articles with embeddings
+                    for article, embedding in zip(batch_articles, embeddings):
+                        if embedding:
+                            article.embedding = embedding
+                            processed += 1
+                        else:
+                            errors += 1
+                    
+                    # Commit after each batch to save progress
+                    db.commit()
+                    
+                    # Update task state for progress tracking
+                    self.update_state(
+                        state='PROGRESS',
+                        meta={
+                            'current_batch': batch_num + 1,
+                            'total_batches': total_batches,
+                            'processed': processed,
+                            'errors': errors,
+                            'total': len(articles)
+                        }
+                    )
+                    
+                    print(f"Batch {batch_num + 1}/{total_batches} completed: processed {processed}, errors {errors}")
+                    
+                    # Small delay between batches to avoid rate limiting
+                    if batch_num < total_batches - 1:
+                        time.sleep(0.5)
+                        
+                except Exception as batch_error:
+                    print(f"Error in batch {batch_num + 1}: {batch_error}")
+                    errors += len(batch_articles)
+                    # Continue with next batch instead of failing completely
+                    continue
             
             return {
                 "success": True,
@@ -644,6 +686,6 @@ def generate_embeddings_batch(user_id: int, limit: int = 100) -> dict:
             }
         except Exception as e:
             print(f"Error in batch embedding generation: {e}")
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": str(e), "processed": processed, "errors": errors}
         finally:
             loop.close()

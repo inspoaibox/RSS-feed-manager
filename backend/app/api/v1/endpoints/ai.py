@@ -330,7 +330,7 @@ async def get_embedding_status(user_id: CurrentUserId, db: DbSession):
 
 
 @router.post("/embeddings/generate")
-async def generate_embeddings(user_id: CurrentUserId, db: DbSession, limit: int = 50):
+async def generate_embeddings(user_id: CurrentUserId, db: DbSession, limit: int = 500):
     """Trigger batch embedding generation for articles without embeddings."""
     from app.tasks.feed_tasks import generate_embeddings_batch
     
@@ -351,3 +351,75 @@ async def generate_embeddings(user_id: CurrentUserId, db: DbSession, limit: int 
         "message": f"已启动 Embedding 生成任务，最多处理 {limit} 篇文章",
         "task_id": task.id
     }
+
+
+@router.get("/embeddings/task/{task_id}")
+async def get_embedding_task_status(task_id: str, user_id: CurrentUserId):
+    """Get the status of an embedding generation task."""
+    from app.tasks.celery_app import celery_app
+    
+    result = celery_app.AsyncResult(task_id)
+    
+    response = {
+        "task_id": task_id,
+        "status": result.status,
+        "ready": result.ready(),
+    }
+    
+    if result.ready():
+        if result.successful():
+            response["result"] = result.result
+        elif result.failed():
+            response["error"] = str(result.result)
+    
+    return response
+
+
+@router.post("/embeddings/task/{task_id}/cancel")
+async def cancel_embedding_task(task_id: str, user_id: CurrentUserId):
+    """Cancel/revoke an embedding generation task."""
+    from app.tasks.celery_app import celery_app
+    
+    # Revoke the task (terminate if running)
+    celery_app.control.revoke(task_id, terminate=True, signal='SIGTERM')
+    
+    return {
+        "task_id": task_id,
+        "message": "任务已取消"
+    }
+
+
+@router.get("/embeddings/tasks")
+async def get_active_embedding_tasks(user_id: CurrentUserId):
+    """Get all active embedding tasks for the user."""
+    from app.tasks.celery_app import celery_app
+    
+    # Get active tasks from Celery
+    inspect = celery_app.control.inspect()
+    active = inspect.active() or {}
+    reserved = inspect.reserved() or {}
+    
+    tasks = []
+    
+    # Collect active tasks
+    for worker, worker_tasks in active.items():
+        for task in worker_tasks:
+            if task.get('name') == 'app.tasks.feed_tasks.generate_embeddings_batch':
+                tasks.append({
+                    "task_id": task.get('id'),
+                    "status": "RUNNING",
+                    "worker": worker,
+                    "started": task.get('time_start')
+                })
+    
+    # Collect reserved (queued) tasks
+    for worker, worker_tasks in reserved.items():
+        for task in worker_tasks:
+            if task.get('name') == 'app.tasks.feed_tasks.generate_embeddings_batch':
+                tasks.append({
+                    "task_id": task.get('id'),
+                    "status": "PENDING",
+                    "worker": worker
+                })
+    
+    return {"tasks": tasks}

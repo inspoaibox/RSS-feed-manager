@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Search, Sparkles, Clock, X, ExternalLink, Loader2, Database, RefreshCw } from 'lucide-react'
+import { Search, Sparkles, Clock, X, ExternalLink, Loader2, Database, StopCircle, Play } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import {
   analyzeContent,
@@ -8,13 +8,21 @@ import {
   deleteQueryHistory,
   getEmbeddingStatus,
   generateEmbeddings,
+  getEmbeddingTaskStatus,
+  cancelEmbeddingTask,
   type AnalyzeResponse,
   type ArticleResult,
+  type TaskStatus,
 } from '@/services/api'
 
 export default function AIAnalysisPage() {
   const [query, setQuery] = useState('')
   const [result, setResult] = useState<AnalyzeResponse | null>(null)
+  const [currentTaskId, setCurrentTaskId] = useState<string | null>(() => {
+    // 从 localStorage 恢复任务 ID
+    return localStorage.getItem('embeddingTaskId')
+  })
+  const [taskStatus, setTaskStatus] = useState<TaskStatus | null>(null)
   const queryClient = useQueryClient()
 
   // 获取查询历史
@@ -24,10 +32,47 @@ export default function AIAnalysisPage() {
   })
 
   // 获取 embedding 状态
-  const { data: embeddingStatus } = useQuery({
+  const { data: embeddingStatus, refetch: refetchEmbeddingStatus } = useQuery({
     queryKey: ['embeddingStatus'],
     queryFn: getEmbeddingStatus,
   })
+
+  // 轮询任务状态
+  const pollTaskStatus = useCallback(async (taskId: string) => {
+    try {
+      const status = await getEmbeddingTaskStatus(taskId)
+      setTaskStatus(status)
+      
+      // 如果任务完成或失败，停止轮询
+      if (status.ready || status.status === 'REVOKED') {
+        setCurrentTaskId(null)
+        localStorage.removeItem('embeddingTaskId')
+        refetchEmbeddingStatus()
+      }
+      
+      return status
+    } catch (error) {
+      console.error('Failed to get task status:', error)
+      setCurrentTaskId(null)
+      localStorage.removeItem('embeddingTaskId')
+      return null
+    }
+  }, [refetchEmbeddingStatus])
+
+  // 轮询效果
+  useEffect(() => {
+    if (!currentTaskId) return
+    
+    // 立即获取一次状态
+    pollTaskStatus(currentTaskId)
+    
+    // 每 3 秒轮询一次
+    const interval = setInterval(() => {
+      pollTaskStatus(currentTaskId)
+    }, 3000)
+    
+    return () => clearInterval(interval)
+  }, [currentTaskId, pollTaskStatus])
 
   // 分析 mutation
   const analyzeMutation = useMutation({
@@ -48,16 +93,26 @@ export default function AIAnalysisPage() {
 
   // 生成 embedding mutation
   const generateMutation = useMutation({
-    mutationFn: () => generateEmbeddings(200),  // 每次处理200篇
-    onSuccess: () => {
-      // 定期刷新状态，跟踪进度
-      const refreshInterval = setInterval(() => {
-        queryClient.invalidateQueries({ queryKey: ['embeddingStatus'] })
-      }, 5000)
-      // 60秒后停止刷新
-      setTimeout(() => clearInterval(refreshInterval), 60000)
+    mutationFn: () => generateEmbeddings(500),  // 每次处理500篇
+    onSuccess: (data) => {
+      setCurrentTaskId(data.task_id)
+      localStorage.setItem('embeddingTaskId', data.task_id)
+      setTaskStatus(null)
     },
   })
+
+  // 取消任务 mutation
+  const cancelMutation = useMutation({
+    mutationFn: cancelEmbeddingTask,
+    onSuccess: () => {
+      setCurrentTaskId(null)
+      localStorage.removeItem('embeddingTaskId')
+      setTaskStatus(null)
+      refetchEmbeddingStatus()
+    },
+  })
+
+  const isTaskRunning = currentTaskId && taskStatus && !taskStatus.ready && taskStatus.status !== 'REVOKED'
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -96,24 +151,76 @@ export default function AIAnalysisPage() {
                 </div>
               </div>
             </div>
-            {embeddingStatus.without_embedding > 0 && (
-              <button
-                onClick={() => generateMutation.mutate()}
-                disabled={generateMutation.isPending}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
-              >
-                {generateMutation.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-4 h-4" />
-                )}
-                批量生成 (200篇)
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {/* 任务运行中显示停止按钮 */}
+              {isTaskRunning && (
+                <button
+                  onClick={() => currentTaskId && cancelMutation.mutate(currentTaskId)}
+                  disabled={cancelMutation.isPending}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+                >
+                  {cancelMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <StopCircle className="w-4 h-4" />
+                  )}
+                  停止任务
+                </button>
+              )}
+              {/* 没有任务运行时显示开始按钮 */}
+              {!isTaskRunning && embeddingStatus.without_embedding > 0 && (
+                <button
+                  onClick={() => generateMutation.mutate()}
+                  disabled={generateMutation.isPending}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                >
+                  {generateMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4" />
+                  )}
+                  生成索引 (500篇)
+                </button>
+              )}
+            </div>
           </div>
-          {generateMutation.isSuccess && (
+          
+          {/* 任务状态显示 */}
+          {isTaskRunning && taskStatus && (
+            <div className="mt-3 p-2 bg-green-100 dark:bg-green-800/30 rounded-lg">
+              <div className="flex items-center gap-2 text-sm text-green-700 dark:text-green-300">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>
+                  任务进行中: {taskStatus.status === 'PROGRESS' && taskStatus.result ? (
+                    `批次 ${(taskStatus.result as any).current_batch || '?'}/${(taskStatus.result as any).total_batches || '?'}, 
+                     已处理 ${(taskStatus.result as any).processed || 0} 篇`
+                  ) : (
+                    '正在启动...'
+                  )}
+                </span>
+              </div>
+            </div>
+          )}
+          
+          {/* 任务完成提示 */}
+          {taskStatus?.ready && taskStatus.result?.success && (
             <div className="mt-2 text-xs text-green-600 dark:text-green-400">
-              ✓ 任务已启动，正在后台批量生成索引（每批20篇）...
+              ✓ 任务完成！已处理 {taskStatus.result.processed} 篇文章
+              {taskStatus.result.errors ? `，${taskStatus.result.errors} 篇失败` : ''}
+            </div>
+          )}
+          
+          {/* 任务失败提示 */}
+          {taskStatus?.ready && !taskStatus.result?.success && taskStatus.result?.error && (
+            <div className="mt-2 text-xs text-red-600 dark:text-red-400">
+              ✗ 任务失败: {taskStatus.result.error}
+            </div>
+          )}
+          
+          {/* 任务取消提示 */}
+          {taskStatus?.status === 'REVOKED' && (
+            <div className="mt-2 text-xs text-yellow-600 dark:text-yellow-400">
+              任务已取消
             </div>
           )}
         </div>

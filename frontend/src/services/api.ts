@@ -170,8 +170,55 @@ export const getEmbeddingStatus = async (): Promise<EmbeddingStatus> => {
   return response.data
 }
 
-export const generateEmbeddings = async (limit: number = 50): Promise<{ message: string; task_id: string }> => {
+export const generateEmbeddings = async (limit: number = 500): Promise<{ message: string; task_id: string }> => {
   const response = await api.post(`/ai/embeddings/generate?limit=${limit}`)
+  return response.data
+}
+
+// Task status and management
+export interface TaskStatus {
+  task_id: string
+  status: 'PENDING' | 'STARTED' | 'PROGRESS' | 'SUCCESS' | 'FAILURE' | 'REVOKED'
+  ready: boolean
+  result?: {
+    success: boolean
+    processed?: number
+    errors?: number
+    total?: number
+    cancelled?: boolean
+    message?: string
+    error?: string
+  }
+  error?: string
+}
+
+export interface TaskProgress {
+  current_batch: number
+  total_batches: number
+  processed: number
+  errors: number
+  total: number
+}
+
+export const getEmbeddingTaskStatus = async (taskId: string): Promise<TaskStatus> => {
+  const response = await api.get(`/ai/embeddings/task/${taskId}`)
+  return response.data
+}
+
+export const cancelEmbeddingTask = async (taskId: string): Promise<{ task_id: string; message: string }> => {
+  const response = await api.post(`/ai/embeddings/task/${taskId}/cancel`)
+  return response.data
+}
+
+export interface ActiveTask {
+  task_id: string
+  status: string
+  worker?: string
+  started?: number
+}
+
+export const getActiveEmbeddingTasks = async (): Promise<{ tasks: ActiveTask[] }> => {
+  const response = await api.get('/ai/embeddings/tasks')
   return response.data
 }
 
