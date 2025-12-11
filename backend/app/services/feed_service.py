@@ -1,4 +1,5 @@
 """Feed service for business logic."""
+import json
 from typing import List
 
 from fastapi import HTTPException, status
@@ -8,9 +9,14 @@ from app.models.feed import Feed
 from app.repositories.article_repository import ArticleRepository
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.feed_repository import FeedRepository
+from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.schemas.feed import FeedCreate, FeedReorder, FeedResponse, FeedUpdate, OPMLImportResult
 from app.utils.feed_parser import FeedParserError, ParsedFeed, parse_feed
 from app.utils.opml import OPMLFeed, OPMLParseError, generate_opml, parse_opml
+
+
+# 默认的同步间隔选项（秒）
+DEFAULT_SYNC_INTERVALS = [300, 900, 1800, 3600, 7200, 14400, 43200, 86400]
 
 
 class FeedService:
@@ -21,6 +27,35 @@ class FeedService:
         self.repo = FeedRepository(session)
         self.category_repo = CategoryRepository(session)
         self.article_repo = ArticleRepository(session)
+        self.settings_repo = SystemSettingsRepository(session)
+
+    async def _get_allowed_intervals(self) -> list[int]:
+        """Get allowed sync intervals from system settings."""
+        intervals_str = await self.settings_repo.get('sync_intervals')
+        if intervals_str:
+            try:
+                data = json.loads(intervals_str)
+                return [item['value'] for item in data]
+            except (json.JSONDecodeError, TypeError, KeyError):
+                pass
+        return DEFAULT_SYNC_INTERVALS
+
+    async def _validate_fetch_interval(self, interval: int) -> int:
+        """Validate and adjust fetch interval to allowed values."""
+        allowed = await self._get_allowed_intervals()
+        if not allowed:
+            return interval
+        
+        if interval in allowed:
+            return interval
+        
+        # Find the closest allowed interval that is >= requested
+        for allowed_interval in sorted(allowed):
+            if allowed_interval >= interval:
+                return allowed_interval
+        
+        # If requested is larger than all allowed, use the largest allowed
+        return max(allowed)
 
     async def create(self, user_id: int, data: FeedCreate) -> FeedResponse:
         """Create a new feed by parsing the URL."""
@@ -49,6 +84,9 @@ class FeedService:
                 detail=str(e)
             )
         
+        # Validate fetch interval
+        validated_interval = await self._validate_fetch_interval(data.fetch_interval)
+        
         # Create feed
         feed = await self.repo.create(
             user_id=user_id,
@@ -58,7 +96,7 @@ class FeedService:
             site_url=parsed.site_url,
             icon_url=parsed.icon_url,
             category_id=data.category_id,
-            fetch_interval=data.fetch_interval,
+            fetch_interval=validated_interval,
             use_playwright=data.use_playwright,
             auto_translate=data.auto_translate,
             auto_summarize=data.auto_summarize,
@@ -122,6 +160,11 @@ class FeedService:
                     )
         
         update_data = data.model_dump(exclude_unset=True)
+        
+        # Validate fetch interval if provided
+        if 'fetch_interval' in update_data:
+            update_data['fetch_interval'] = await self._validate_fetch_interval(update_data['fetch_interval'])
+        
         feed = await self.repo.update(feed, **update_data)
         
         counts = await self.repo.get_article_counts(user_id, [feed_id])

@@ -5,6 +5,7 @@ import api from '@/services/api'
 import type { Category, Feed, AIProvider, AIModel, CustomRule } from '@/types'
 import { useThemeStore, type ThemeColor } from '@/stores/themeStore'
 import { useAuthStore } from '@/stores/authStore'
+import { useSyncIntervals } from '@/hooks/useSyncIntervals'
 
 type Tab = 'feeds' | 'categories' | 'ai' | 'rules' | 'backup' | 'appearance' | 'system'
 
@@ -58,10 +59,11 @@ export default function SettingsPage() {
 
 function FeedsTab() {
   const queryClient = useQueryClient()
+  const { syncIntervals, defaultSyncInterval } = useSyncIntervals()
   const [showAddForm, setShowAddForm] = useState(false)
   const [newFeedUrl, setNewFeedUrl] = useState('')
   const [newFeedCategory, setNewFeedCategory] = useState<number | null>(null)
-  const [newFeedInterval, setNewFeedInterval] = useState(3600)
+  const [newFeedInterval, setNewFeedInterval] = useState<number | null>(null)
   const [newFeedPlaywright, setNewFeedPlaywright] = useState(false)
   const [newFeedAutoTranslate, setNewFeedAutoTranslate] = useState(false)
   const [newFeedAutoSummarize, setNewFeedAutoSummarize] = useState(false)
@@ -104,7 +106,7 @@ function FeedsTab() {
       const response = await api.post('/feeds', { 
         url: newFeedUrl, 
         category_id: newFeedCategory,
-        fetch_interval: newFeedInterval,
+        fetch_interval: newFeedInterval ?? defaultSyncInterval,
         use_playwright: newFeedPlaywright,
         auto_translate: newFeedAutoTranslate,
         auto_summarize: newFeedAutoSummarize,
@@ -438,22 +440,13 @@ function FeedsTab() {
               ))}
             </select>
             <select
-              value={newFeedInterval}
+              value={newFeedInterval ?? defaultSyncInterval}
               onChange={(e) => setNewFeedInterval(parseInt(e.target.value))}
               className="flex-1 px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
             >
-              <option value={60}>1 分钟</option>
-              <option value={120}>2 分钟</option>
-              <option value={180}>3 分钟</option>
-              <option value={240}>4 分钟</option>
-              <option value={300}>5 分钟</option>
-              <option value={900}>15 分钟</option>
-              <option value={1800}>30 分钟</option>
-              <option value={3600}>1 小时</option>
-              <option value={7200}>2 小时</option>
-              <option value={14400}>4 小时</option>
-              <option value={43200}>12 小时</option>
-              <option value={86400}>24 小时</option>
+              {syncIntervals.map((interval) => (
+                <option key={interval.value} value={interval.value}>{interval.label}</option>
+              ))}
             </select>
           </div>
           <label className="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded">
@@ -545,18 +538,9 @@ function FeedsTab() {
                     onChange={(e) => setEditData({ ...editData, fetch_interval: parseInt(e.target.value) })}
                     className="flex-1 px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
                   >
-                    <option value={60}>1 分钟</option>
-                    <option value={120}>2 分钟</option>
-                    <option value={180}>3 分钟</option>
-                    <option value={240}>4 分钟</option>
-                    <option value={300}>5 分钟</option>
-                    <option value={900}>15 分钟</option>
-                    <option value={1800}>30 分钟</option>
-                    <option value={3600}>1 小时</option>
-                    <option value={7200}>2 小时</option>
-                    <option value={14400}>4 小时</option>
-                    <option value={43200}>12 小时</option>
-                    <option value={86400}>24 小时</option>
+                    {syncIntervals.map((interval) => (
+                      <option key={interval.value} value={interval.value}>{interval.label}</option>
+                    ))}
                   </select>
                   <label className="flex items-center gap-2 px-3 py-2 border dark:border-gray-600 rounded dark:text-gray-200">
                     <input
@@ -1280,12 +1264,13 @@ function AITab() {
 
 function RulesTab() {
   const queryClient = useQueryClient()
+  const { syncIntervals, defaultSyncInterval } = useSyncIntervals()
   const [showAddRule, setShowAddRule] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [showPromptEditor, setShowPromptEditor] = useState(false)
   const [customPrompt, setCustomPrompt] = useState('')
-  const emptyRule = {
+  const getEmptyRule = () => ({
     name: '',
     target_url: '',
     rule_type: 'general' as 'general' | 'telegram',
@@ -1296,11 +1281,11 @@ function RulesTab() {
     content_selector: '',
     date_selector: '',
     category_id: null as number | null,
-    fetch_interval: 3600,
+    fetch_interval: defaultSyncInterval,
     use_playwright: false,
     is_active: true,
-  }
-  const [formData, setFormData] = useState(emptyRule)
+  })
+  const [formData, setFormData] = useState(getEmptyRule())
 
   // Fetch default prompt
   const { data: defaultPromptData } = useQuery({
@@ -1342,7 +1327,7 @@ function RulesTab() {
       queryClient.invalidateQueries({ queryKey: ['custom-rules'] })
       queryClient.invalidateQueries({ queryKey: ['feeds'] })
       setShowAddRule(false)
-      setFormData(emptyRule)
+      setFormData(getEmptyRule())
       setMessage({ type: 'success', text: '规则添加成功，点击刷新按钮立即抓取' })
       setTimeout(() => setMessage(null), 5000)
     },
@@ -1367,7 +1352,7 @@ function RulesTab() {
       queryClient.invalidateQueries({ queryKey: ['custom-rules'] })
       queryClient.invalidateQueries({ queryKey: ['feeds'] })
       setEditingId(null)
-      setFormData(emptyRule)
+      setFormData(getEmptyRule())
       setMessage({ type: 'success', text: '规则已更新' })
       setTimeout(() => setMessage(null), 3000)
     },
@@ -1490,7 +1475,7 @@ function RulesTab() {
   const cancelEdit = () => {
     setEditingId(null)
     setShowAddRule(false)
-    setFormData(emptyRule)
+    setFormData(getEmptyRule())
   }
 
   const handleRuleTypeChange = (type: 'general' | 'telegram') => {
@@ -1648,14 +1633,9 @@ function RulesTab() {
           onChange={(e) => setFormData({ ...formData, fetch_interval: parseInt(e.target.value) })}
           className="flex-1 px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
         >
-          <option value={300}>5 分钟</option>
-          <option value={900}>15 分钟</option>
-          <option value={1800}>30 分钟</option>
-          <option value={3600}>1 小时</option>
-          <option value={7200}>2 小时</option>
-          <option value={14400}>4 小时</option>
-          <option value={43200}>12 小时</option>
-          <option value={86400}>24 小时</option>
+          {syncIntervals.map((interval) => (
+            <option key={interval.value} value={interval.value}>{interval.label}</option>
+          ))}
         </select>
       </div>
       <div className="flex gap-4">
@@ -1806,7 +1786,7 @@ function RulesTab() {
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold dark:text-white">自定义抓取规则</h2>
         <button
-          onClick={() => { setShowAddRule(true); setEditingId(null); setFormData(emptyRule) }}
+          onClick={() => { setShowAddRule(true); setEditingId(null); setFormData(getEmptyRule()) }}
           className="flex items-center gap-1 px-3 py-2 bg-primary-600 text-white rounded hover:bg-primary-700"
         >
           <Plus className="w-4 h-4" /> 添加规则
@@ -2509,16 +2489,41 @@ interface OAuthConfig {
   userinfo_url: string
 }
 
+interface SyncIntervalOption {
+  value: number
+  label: string
+}
+
 interface SystemSettings {
   allow_registration: boolean
   site_name: string
   oauth_linuxdo: OAuthConfig
+  sync_intervals: SyncIntervalOption[]
+  default_sync_interval: number
 }
+
+// 所有可选的同步间隔
+const ALL_SYNC_INTERVALS: SyncIntervalOption[] = [
+  { value: 60, label: '1 分钟' },
+  { value: 120, label: '2 分钟' },
+  { value: 180, label: '3 分钟' },
+  { value: 240, label: '4 分钟' },
+  { value: 300, label: '5 分钟' },
+  { value: 900, label: '15 分钟' },
+  { value: 1800, label: '30 分钟' },
+  { value: 3600, label: '1 小时' },
+  { value: 7200, label: '2 小时' },
+  { value: 14400, label: '4 小时' },
+  { value: 43200, label: '12 小时' },
+  { value: 86400, label: '24 小时' },
+]
 
 function SystemTab() {
   const queryClient = useQueryClient()
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [siteName, setSiteName] = useState('')
+  const [syncIntervals, setSyncIntervals] = useState<SyncIntervalOption[]>([])
+  const [defaultSyncInterval, setDefaultSyncInterval] = useState(3600)
   const [oauthLinuxdo, setOauthLinuxdo] = useState<OAuthConfig>({
     enabled: false,
     client_id: '',
@@ -2535,6 +2540,12 @@ function SystemTab() {
       setSiteName(response.data.site_name)
       if (response.data.oauth_linuxdo) {
         setOauthLinuxdo(response.data.oauth_linuxdo)
+      }
+      if (response.data.sync_intervals) {
+        setSyncIntervals(response.data.sync_intervals)
+      }
+      if (response.data.default_sync_interval) {
+        setDefaultSyncInterval(response.data.default_sync_interval)
       }
       return response.data
     },
@@ -2556,7 +2567,13 @@ function SystemTab() {
   })
 
   const updateSettingsMutation = useMutation({
-    mutationFn: async (data: { allow_registration?: boolean; site_name?: string; oauth_linuxdo?: OAuthConfig }) => {
+    mutationFn: async (data: { 
+      allow_registration?: boolean
+      site_name?: string
+      oauth_linuxdo?: OAuthConfig
+      sync_intervals?: SyncIntervalOption[]
+      default_sync_interval?: number
+    }) => {
       const response = await api.put('/system/settings', data)
       return response.data
     },
@@ -2633,6 +2650,57 @@ function SystemTab() {
             <p className="text-sm text-gray-500 dark:text-gray-400">关闭后，只有管理员可以添加新用户</p>
           </div>
         </label>
+      </div>
+
+      {/* 同步间隔设置 */}
+      <div className="p-4 border dark:border-gray-700 rounded-lg">
+        <h3 className="font-medium mb-4 dark:text-white flex items-center gap-2">
+          <RefreshCw className="w-5 h-5" />
+          同步间隔设置
+        </h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+          控制用户可选择的订阅源同步间隔选项。取消勾选的选项将不会显示给用户。
+        </p>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+            {ALL_SYNC_INTERVALS.map((interval) => (
+              <label key={interval.value} className="flex items-center gap-2 p-2 border dark:border-gray-600 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700">
+                <input
+                  type="checkbox"
+                  checked={syncIntervals.some(i => i.value === interval.value)}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSyncIntervals([...syncIntervals, interval].sort((a, b) => a.value - b.value))
+                    } else {
+                      setSyncIntervals(syncIntervals.filter(i => i.value !== interval.value))
+                    }
+                  }}
+                  className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                />
+                <span className="text-sm dark:text-gray-200">{interval.label}</span>
+              </label>
+            ))}
+          </div>
+          <div className="flex items-center gap-4">
+            <label className="text-sm dark:text-gray-300">默认间隔：</label>
+            <select
+              value={defaultSyncInterval}
+              onChange={(e) => setDefaultSyncInterval(parseInt(e.target.value))}
+              className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+            >
+              {syncIntervals.map((interval) => (
+                <option key={interval.value} value={interval.value}>{interval.label}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={() => updateSettingsMutation.mutate({ sync_intervals: syncIntervals, default_sync_interval: defaultSyncInterval })}
+            disabled={updateSettingsMutation.isPending || syncIntervals.length === 0}
+            className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
+          >
+            {updateSettingsMutation.isPending ? '保存中...' : '保存同步设置'}
+          </button>
+        </div>
       </div>
 
       {/* OAuth 设置 - Linux.do */}

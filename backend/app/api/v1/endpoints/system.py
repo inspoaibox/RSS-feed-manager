@@ -22,11 +22,32 @@ class OAuthConfig(BaseModel):
     userinfo_url: str = ""
 
 
+# 默认的同步间隔选项（秒）
+DEFAULT_SYNC_INTERVALS = [
+    {"value": 300, "label": "5 分钟"},
+    {"value": 900, "label": "15 分钟"},
+    {"value": 1800, "label": "30 分钟"},
+    {"value": 3600, "label": "1 小时"},
+    {"value": 7200, "label": "2 小时"},
+    {"value": 14400, "label": "4 小时"},
+    {"value": 43200, "label": "12 小时"},
+    {"value": 86400, "label": "24 小时"},
+]
+
+
+class SyncIntervalOption(BaseModel):
+    """Sync interval option."""
+    value: int
+    label: str
+
+
 class SystemSettingsResponse(BaseModel):
     """Response schema for system settings."""
     allow_registration: bool
     site_name: str
     oauth_linuxdo: OAuthConfig
+    sync_intervals: list[SyncIntervalOption]
+    default_sync_interval: int
 
 
 class SystemSettingsUpdate(BaseModel):
@@ -34,11 +55,15 @@ class SystemSettingsUpdate(BaseModel):
     allow_registration: bool | None = None
     site_name: str | None = None
     oauth_linuxdo: OAuthConfig | None = None
+    sync_intervals: list[SyncIntervalOption] | None = None
+    default_sync_interval: int | None = None
 
 
 class PublicSettingsResponse(BaseModel):
     """Response schema for public settings (no auth required)."""
     site_name: str
+    sync_intervals: list[SyncIntervalOption]
+    default_sync_interval: int
 
 
 class UserListResponse(BaseModel):
@@ -76,7 +101,15 @@ async def get_public_settings(db: AsyncSession = Depends(get_db)):
     """Get public settings (no auth required)."""
     settings_repo = SystemSettingsRepository(db)
     site_name = await settings_repo.get('site_name') or 'RSS 管理器'
-    return PublicSettingsResponse(site_name=site_name)
+    
+    default_interval_str = await settings_repo.get('default_sync_interval')
+    default_interval = int(default_interval_str) if default_interval_str else 3600
+    
+    return PublicSettingsResponse(
+        site_name=site_name,
+        sync_intervals=await get_sync_intervals(settings_repo),
+        default_sync_interval=default_interval
+    )
 
 
 @router.get("/registration-status", response_model=RegistrationStatusResponse)
@@ -109,6 +142,19 @@ async def get_oauth_config(settings_repo: SystemSettingsRepository, provider: st
     return OAuthConfig()
 
 
+async def get_sync_intervals(settings_repo: SystemSettingsRepository) -> list[SyncIntervalOption]:
+    """Get sync interval options."""
+    import json
+    intervals_str = await settings_repo.get('sync_intervals')
+    if intervals_str:
+        try:
+            data = json.loads(intervals_str)
+            return [SyncIntervalOption(**item) for item in data]
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return [SyncIntervalOption(**item) for item in DEFAULT_SYNC_INTERVALS]
+
+
 @router.get("/settings", response_model=SystemSettingsResponse)
 async def get_system_settings(
     db: AsyncSession = Depends(get_db),
@@ -117,10 +163,15 @@ async def get_system_settings(
     """Get system settings (admin only)."""
     settings_repo = SystemSettingsRepository(db)
     
+    default_interval_str = await settings_repo.get('default_sync_interval')
+    default_interval = int(default_interval_str) if default_interval_str else 3600
+    
     return SystemSettingsResponse(
         allow_registration=await settings_repo.get_bool('allow_registration', True),
         site_name=await settings_repo.get('site_name') or 'RSS 管理器',
-        oauth_linuxdo=await get_oauth_config(settings_repo, 'linuxdo')
+        oauth_linuxdo=await get_oauth_config(settings_repo, 'linuxdo'),
+        sync_intervals=await get_sync_intervals(settings_repo),
+        default_sync_interval=default_interval
     )
 
 
@@ -155,12 +206,31 @@ async def update_system_settings(
             'Linux.do OAuth 配置'
         )
     
+    if data.sync_intervals is not None:
+        await settings_repo.set(
+            'sync_intervals',
+            json.dumps([item.model_dump() for item in data.sync_intervals]),
+            '可用的同步间隔选项'
+        )
+    
+    if data.default_sync_interval is not None:
+        await settings_repo.set(
+            'default_sync_interval',
+            str(data.default_sync_interval),
+            '默认同步间隔'
+        )
+    
     await db.commit()
+    
+    default_interval_str = await settings_repo.get('default_sync_interval')
+    default_interval = int(default_interval_str) if default_interval_str else 3600
     
     return SystemSettingsResponse(
         allow_registration=await settings_repo.get_bool('allow_registration', True),
         site_name=await settings_repo.get('site_name') or 'RSS 管理器',
-        oauth_linuxdo=await get_oauth_config(settings_repo, 'linuxdo')
+        oauth_linuxdo=await get_oauth_config(settings_repo, 'linuxdo'),
+        sync_intervals=await get_sync_intervals(settings_repo),
+        default_sync_interval=default_interval
     )
 
 

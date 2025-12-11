@@ -1,4 +1,5 @@
 """Custom rule service."""
+import json
 from datetime import datetime
 
 import httpx
@@ -8,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.custom_rule import CustomRule
 from app.models.feed import Feed
 from app.repositories.custom_rule_repository import CustomRuleRepository
+from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.schemas.custom_rule import (
     AIGenerateRuleResponse,
     CustomRuleCreate,
@@ -17,15 +19,51 @@ from app.schemas.custom_rule import (
 )
 
 
+# 默认的同步间隔选项（秒）
+DEFAULT_SYNC_INTERVALS = [300, 900, 1800, 3600, 7200, 14400, 43200, 86400]
+
+
 class CustomRuleService:
     """Service for custom rule operations."""
 
     def __init__(self, db: AsyncSession):
         self.db = db
         self.repository = CustomRuleRepository(db)
+        self.settings_repo = SystemSettingsRepository(db)
+
+    async def _get_allowed_intervals(self) -> list[int]:
+        """Get allowed sync intervals from system settings."""
+        intervals_str = await self.settings_repo.get('sync_intervals')
+        if intervals_str:
+            try:
+                data = json.loads(intervals_str)
+                return [item['value'] for item in data]
+            except (json.JSONDecodeError, TypeError, KeyError):
+                pass
+        return DEFAULT_SYNC_INTERVALS
+
+    async def _validate_fetch_interval(self, interval: int) -> int:
+        """Validate and adjust fetch interval to allowed values."""
+        allowed = await self._get_allowed_intervals()
+        if not allowed:
+            return interval
+        
+        if interval in allowed:
+            return interval
+        
+        # Find the closest allowed interval that is >= requested
+        for allowed_interval in sorted(allowed):
+            if allowed_interval >= interval:
+                return allowed_interval
+        
+        # If requested is larger than all allowed, use the largest allowed
+        return max(allowed)
 
     async def create_rule(self, user_id: int, data: CustomRuleCreate) -> CustomRule:
         """Create a new custom rule with associated feed."""
+        # Validate fetch interval
+        validated_interval = await self._validate_fetch_interval(data.fetch_interval)
+        
         # Create a feed for this custom rule
         feed = Feed(
             user_id=user_id,
@@ -33,7 +71,7 @@ class CustomRuleService:
             url=data.target_url,
             title=data.name,
             description=f"自定义抓取规则: {data.name}",
-            fetch_interval=data.fetch_interval,
+            fetch_interval=validated_interval,
             auto_translate=data.auto_translate,
             auto_summarize=data.auto_summarize,
             target_language=data.target_language,
@@ -64,6 +102,11 @@ class CustomRuleService:
             return None
         
         update_data = data.model_dump(exclude_unset=True)
+        
+        # Validate fetch interval if provided
+        if 'fetch_interval' in update_data:
+            update_data['fetch_interval'] = await self._validate_fetch_interval(update_data['fetch_interval'])
+        
         for key, value in update_data.items():
             setattr(rule, key, value)
         
