@@ -2674,7 +2674,8 @@ function SystemTab() {
             type="checkbox"
             checked={settings?.allow_registration ?? true}
             onChange={(e) => updateSettingsMutation.mutate({ allow_registration: e.target.checked })}
-            className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            disabled={updateSettingsMutation.isPending}
+            className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:opacity-50"
           />
           <div>
             <p className="font-medium dark:text-white">允许新用户注册</p>
@@ -2745,8 +2746,16 @@ function SystemTab() {
             <input
               type="checkbox"
               checked={oauthLinuxdo.enabled}
-              onChange={(e) => setOauthLinuxdo({ ...oauthLinuxdo, enabled: e.target.checked })}
-              className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+              onChange={(e) => {
+                const newConfig = { ...oauthLinuxdo, enabled: e.target.checked }
+                setOauthLinuxdo(newConfig)
+                // Auto-save when disabling OAuth
+                if (!e.target.checked) {
+                  updateSettingsMutation.mutate({ oauth_linuxdo: newConfig })
+                }
+              }}
+              disabled={updateSettingsMutation.isPending}
+              className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:opacity-50"
             />
             <div>
               <p className="font-medium dark:text-white">启用 Linux.do 登录</p>
