@@ -2828,15 +2828,15 @@ function SystemTab() {
       <div className="p-4 border dark:border-gray-700 rounded-lg">
         <h3 className="font-medium mb-4 dark:text-white">用户管理</h3>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm table-fixed">
             <thead>
               <tr className="border-b dark:border-gray-700">
-                <th className="text-left py-2 px-3 dark:text-gray-300">ID</th>
-                <th className="text-left py-2 px-3 dark:text-gray-300">用户名</th>
-                <th className="text-left py-2 px-3 dark:text-gray-300">邮箱</th>
-                <th className="text-left py-2 px-3 dark:text-gray-300">角色</th>
-                <th className="text-left py-2 px-3 dark:text-gray-300">状态</th>
-                <th className="text-left py-2 px-3 dark:text-gray-300">注册时间</th>
+                <th className="text-left py-2 px-3 dark:text-gray-300 w-12">ID</th>
+                <th className="text-left py-2 px-3 dark:text-gray-300 w-24">用户名</th>
+                <th className="text-left py-2 px-3 dark:text-gray-300 w-48">邮箱</th>
+                <th className="text-left py-2 px-3 dark:text-gray-300 w-20">角色</th>
+                <th className="text-left py-2 px-3 dark:text-gray-300 w-16">状态</th>
+                <th className="text-left py-2 px-3 dark:text-gray-300 w-40">注册时间</th>
                 <th className="text-left py-2 px-3 dark:text-gray-300">操作</th>
               </tr>
             </thead>
@@ -2844,8 +2844,8 @@ function SystemTab() {
               {users?.map((user) => (
                 <tr key={user.id} className="border-b dark:border-gray-700">
                   <td className="py-2 px-3 dark:text-gray-300">{user.id}</td>
-                  <td className="py-2 px-3 dark:text-white font-medium">{user.username}</td>
-                  <td className="py-2 px-3 dark:text-gray-300">{user.email}</td>
+                  <td className="py-2 px-3 dark:text-white font-medium truncate" title={user.username}>{user.username}</td>
+                  <td className="py-2 px-3 dark:text-gray-300 truncate" title={user.email}>{user.email}</td>
                   <td className="py-2 px-3">
                     {user.is_admin ? (
                       <span className="px-2 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded text-xs">管理员</span>
