@@ -207,6 +207,16 @@ async def linuxdo_callback(
             user.oauth_provider = "linuxdo"
             user.oauth_id = oauth_id
         else:
+            # Check if registration is allowed before creating new user
+            allow_registration = await settings_repo.get('allow_registration')
+            has_users = await user_repo.has_any_users()
+            
+            # Only allow new OAuth registration if:
+            # 1. Registration is enabled, OR
+            # 2. No users exist (first user setup)
+            if allow_registration != 'true' and has_users:
+                return RedirectResponse(url="/login?error=oauth_error&message=registration_disabled")
+            
             # Create new user
             user = await user_repo.create_oauth_user(
                 username=username,

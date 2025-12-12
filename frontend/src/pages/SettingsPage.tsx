@@ -101,6 +101,16 @@ function FeedsTab() {
     },
   })
 
+  // 获取 AI 模型列表，用于检查是否有默认模型
+  const { data: aiModels = [] } = useQuery({
+    queryKey: ['ai-models'],
+    queryFn: async () => {
+      const response = await api.get<AIModel[]>('/ai/models')
+      return response.data
+    },
+  })
+  const hasDefaultModel = aiModels.some(m => m.is_default)
+
   const addFeedMutation = useMutation({
     mutationFn: async () => {
       const response = await api.post('/feeds', { 
@@ -459,11 +469,17 @@ function FeedsTab() {
             <span className="text-xs text-yellow-600 dark:text-yellow-400">适用于 Cloudflare 保护的网站</span>
           </label>
           <div className="flex gap-2 flex-wrap">
-            <label className="flex items-center gap-2 p-2 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded">
+            <label className={`flex items-center gap-2 p-2 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded ${!hasDefaultModel ? 'opacity-50' : ''}`}>
               <input
                 type="checkbox"
                 checked={newFeedAutoTranslate}
-                onChange={(e) => setNewFeedAutoTranslate(e.target.checked)}
+                onChange={(e) => {
+                  if (e.target.checked && !hasDefaultModel) {
+                    setMessage({ type: 'error', text: '请先在 AI 设置中设置默认模型' })
+                    return
+                  }
+                  setNewFeedAutoTranslate(e.target.checked)
+                }}
               />
               <span className="text-sm dark:text-blue-200">启用 AI 翻译</span>
             </label>
@@ -480,11 +496,17 @@ function FeedsTab() {
                 <option value="ko">한국어</option>
               </select>
             )}
-            <label className="flex items-center gap-2 p-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded">
+            <label className={`flex items-center gap-2 p-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded ${!hasDefaultModel ? 'opacity-50' : ''}`}>
               <input
                 type="checkbox"
                 checked={newFeedAutoSummarize}
-                onChange={(e) => setNewFeedAutoSummarize(e.target.checked)}
+                onChange={(e) => {
+                  if (e.target.checked && !hasDefaultModel) {
+                    setMessage({ type: 'error', text: '请先在 AI 设置中设置默认模型' })
+                    return
+                  }
+                  setNewFeedAutoSummarize(e.target.checked)
+                }}
               />
               <span className="text-sm dark:text-green-200">启用 AI 整理</span>
             </label>
@@ -560,11 +582,17 @@ function FeedsTab() {
                   浏览器模式 (Playwright)
                 </label>
                 <div className="flex gap-2 flex-wrap">
-                  <label className="flex items-center gap-2 p-2 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded text-sm dark:text-blue-200">
+                  <label className={`flex items-center gap-2 p-2 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded text-sm dark:text-blue-200 ${!hasDefaultModel ? 'opacity-50' : ''}`}>
                     <input
                       type="checkbox"
                       checked={editData.auto_translate}
-                      onChange={(e) => setEditData({ ...editData, auto_translate: e.target.checked })}
+                      onChange={(e) => {
+                        if (e.target.checked && !hasDefaultModel) {
+                          setMessage({ type: 'error', text: '请先在 AI 设置中设置默认模型' })
+                          return
+                        }
+                        setEditData({ ...editData, auto_translate: e.target.checked })
+                      }}
                     />
                     AI 翻译
                   </label>
@@ -581,11 +609,17 @@ function FeedsTab() {
                       <option value="ko">한국어</option>
                     </select>
                   )}
-                  <label className="flex items-center gap-2 p-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded text-sm dark:text-green-200">
+                  <label className={`flex items-center gap-2 p-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded text-sm dark:text-green-200 ${!hasDefaultModel ? 'opacity-50' : ''}`}>
                     <input
                       type="checkbox"
                       checked={editData.auto_summarize}
-                      onChange={(e) => setEditData({ ...editData, auto_summarize: e.target.checked })}
+                      onChange={(e) => {
+                        if (e.target.checked && !hasDefaultModel) {
+                          setMessage({ type: 'error', text: '请先在 AI 设置中设置默认模型' })
+                          return
+                        }
+                        setEditData({ ...editData, auto_summarize: e.target.checked })
+                      }}
                     />
                     AI 整理
                   </label>

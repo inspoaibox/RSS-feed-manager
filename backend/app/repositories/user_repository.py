@@ -60,6 +60,11 @@ class UserRepository:
         result = await self.session.execute(select(func.count(User.id)))
         return result.scalar() or 0
 
+    async def has_any_users(self) -> bool:
+        """Check if any users exist."""
+        result = await self.session.execute(select(User.id).limit(1))
+        return result.scalar_one_or_none() is not None
+
     async def get_all_users(self) -> list[User]:
         """Get all users (admin only)."""
         result = await self.session.execute(select(User).order_by(User.id))

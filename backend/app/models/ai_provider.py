@@ -1,7 +1,7 @@
 """AI Provider and Model models for AI integration."""
 from typing import TYPE_CHECKING, List
 
-from sqlalchemy import Boolean, ForeignKey, String
+from sqlalchemy import Boolean, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import BaseModel
@@ -42,6 +42,10 @@ class AIModel(BaseModel):
     """AI Model model for managing available models per provider."""
 
     __tablename__ = "ai_models"
+    __table_args__ = (
+        # Unique constraint to prevent duplicate models per provider
+        UniqueConstraint('provider_id', 'model_id', name='uq_ai_models_provider_model'),
+    )
 
     provider_id: Mapped[int] = mapped_column(
         ForeignKey("ai_providers.id", ondelete="CASCADE"), nullable=False, index=True

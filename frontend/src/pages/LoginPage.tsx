@@ -56,7 +56,22 @@ export default function LoginPage() {
       // 清除 URL 参数
       window.history.replaceState({}, '', window.location.pathname)
     } else if (oauthError) {
-      setError(`OAuth 登录失败: ${params.get('message') || oauthError}`)
+      const message = params.get('message')
+      // 转换错误消息为中文
+      const errorMessages: Record<string, string> = {
+        'registration_disabled': '注册已关闭，仅允许已注册用户通过 OAuth 登录',
+        'oauth_error': 'OAuth 认证失败',
+        'missing_params': '缺少必要参数',
+        'invalid_state': '无效的状态参数，请重试',
+        'not_configured': 'OAuth 未配置',
+        'invalid_config': 'OAuth 配置无效',
+        'token_exchange_failed': '获取令牌失败',
+        'no_access_token': '未获取到访问令牌',
+        'userinfo_failed': '获取用户信息失败',
+        'no_user_id': '未获取到用户ID',
+      }
+      const displayMessage = message ? (errorMessages[message] || message) : oauthError
+      setError(`OAuth 登录失败: ${displayMessage}`)
       window.history.replaceState({}, '', window.location.pathname)
     }
   }, [navigate, setAuth])

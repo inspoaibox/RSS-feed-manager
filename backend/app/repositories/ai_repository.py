@@ -197,5 +197,14 @@ class AIModelRepository:
             existing_model_ids.add(model_id)  # Prevent duplicates within same batch
         
         if created:
-            await self.session.flush()
+            try:
+                await self.session.flush()
+            except Exception as e:
+                # Handle unique constraint violation - rollback and skip
+                await self.session.rollback()
+                # Re-fetch to get current state
+                result = await self.session.execute(existing_query)
+                existing_model_ids = {row[0] for row in result.fetchall()}
+                # Return empty list since we couldn't create any new models
+                return []
         return created

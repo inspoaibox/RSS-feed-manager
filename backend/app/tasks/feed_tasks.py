@@ -96,12 +96,18 @@ def _process_article_with_ai(db: Session, article: Article, feed: Feed) -> None:
     if not feed.auto_translate and not feed.auto_summarize:
         return
     
-    # Get default model for the feed's user
+    # Get default model for the feed's user (must filter by user_id)
     default_model = db.execute(
-        select(AIModel).where(AIModel.is_default == True)
+        select(AIModel)
+        .join(AIProvider, AIModel.provider_id == AIProvider.id)
+        .where(
+            AIProvider.user_id == feed.user_id,
+            AIModel.is_default == True
+        )
     ).scalar_one_or_none()
     
     if not default_model:
+        print(f"No default AI model set for user {feed.user_id}, skipping AI processing")
         return
     
     provider = db.execute(
@@ -516,13 +522,18 @@ def translate_feed_articles(feed_id: int) -> dict:
         if not feed.auto_translate or not feed.target_language:
             return {"success": False, "error": "Feed does not have translation enabled"}
         
-        # Get default model
+        # Get default model for this user (must filter by user_id)
         default_model = db.execute(
-            select(AIModel).where(AIModel.is_default == True)
+            select(AIModel)
+            .join(AIProvider, AIModel.provider_id == AIProvider.id)
+            .where(
+                AIProvider.user_id == feed.user_id,
+                AIModel.is_default == True
+            )
         ).scalar_one_or_none()
         
         if not default_model:
-            return {"success": False, "error": "No default AI model configured"}
+            return {"success": False, "error": "请先在 AI 设置中设置默认模型"}
         
         provider = db.execute(
             select(AIProvider).where(AIProvider.id == default_model.provider_id)
