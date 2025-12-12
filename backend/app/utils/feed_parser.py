@@ -154,16 +154,22 @@ def parse_feed_content(content: str, feed_url: str) -> ParsedFeed:
 
 def _parse_entry(entry: dict) -> ParsedArticle | None:
     """Parse a single feed entry."""
-    # Get GUID (unique identifier)
+    # Get GUID (unique identifier) - truncate to 2048 chars
     guid = entry.get("id") or entry.get("link") or entry.get("title")
     if not guid:
         return None
+    if len(guid) > 2048:
+        guid = guid[:2048]
     
-    # Get title
+    # Get title - truncate to 500 chars
     title = entry.get("title", "Untitled")
+    if len(title) > 500:
+        title = title[:497] + "..."
     
-    # Get link
+    # Get link - truncate to 2048 chars
     link = entry.get("link", "")
+    if link and len(link) > 2048:
+        link = link[:2048]
     
     # Get content (prefer full content over summary)
     content = None
