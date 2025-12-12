@@ -228,6 +228,260 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
         return 0
 
 
+def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
+    """Execute a custom rule and save articles (sync version for Celery)."""
+    from urllib.parse import urljoin
+    from hashlib import md5
+    import httpx
+    from bs4 import BeautifulSoup
+    
+    # Ensure rule has associated feed
+    feed_id = rule.feed_id
+    if not feed_id:
+        # Create feed for legacy rule without feed_id
+        feed = Feed(
+            user_id=rule.user_id,
+            category_id=rule.category_id,
+            url=rule.target_url,
+            title=rule.name,
+            description=f"自定义抓取规则: {rule.name}",
+            fetch_interval=rule.fetch_interval,
+            auto_translate=rule.auto_translate,
+            auto_summarize=rule.auto_summarize,
+            target_language=rule.target_language,
+            is_active=rule.is_active,
+        )
+        db.add(feed)
+        db.flush()
+        rule.feed_id = feed.id
+        feed_id = feed.id
+        db.commit()
+    
+    try:
+        # Parse cookies if provided
+        cookies_dict = {}
+        if hasattr(rule, 'cookies') and rule.cookies:
+            for item in rule.cookies.split(';'):
+                if '=' in item:
+                    key, value = item.strip().split('=', 1)
+                    cookies_dict[key.strip()] = value.strip()
+        
+        # Fetch page content
+        print(f"[CustomRule] use_playwright={rule.use_playwright} for rule {rule.id}")
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            if rule.use_playwright:
+                async def _fetch_with_playwright():
+                    from playwright.async_api import async_playwright
+                    print(f"[CustomRule] Starting Playwright for {rule.target_url}")
+                    async with async_playwright() as p:
+                        browser = await p.chromium.launch(headless=True)
+                        context = await browser.new_context()
+                        if cookies_dict:
+                            cookie_list = [{"name": k, "value": v, "domain": rule.target_url.split('/')[2], "path": "/"} for k, v in cookies_dict.items()]
+                            await context.add_cookies(cookie_list)
+                        page = await context.new_page()
+                        await page.goto(rule.target_url, wait_until="networkidle", timeout=30000)
+                        content = await page.content()
+                        await browser.close()
+                    return content
+                html_content = loop.run_until_complete(_fetch_with_playwright())
+                print(f"[CustomRule] Playwright loaded {len(html_content)} bytes")
+            else:
+                async def _fetch_with_httpx():
+                    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                    async with httpx.AsyncClient(timeout=30.0, cookies=cookies_dict if cookies_dict else None) as client:
+                        response = await client.get(rule.target_url, headers=headers)
+                        response.raise_for_status()
+                    return response.text
+                html_content = loop.run_until_complete(_fetch_with_httpx())
+                print(f"[CustomRule] HTTP loaded {len(html_content)} bytes")
+        finally:
+            loop.close()
+        
+        soup = BeautifulSoup(html_content, "html.parser")
+        
+        # Use specialized parser for telegram/twitter
+        rule_type = getattr(rule, 'rule_type', 'general') or 'general'
+        print(f"[CustomRule] rule_type={rule_type}")
+        
+        if rule_type == 'telegram':
+            items = soup.select('.tgme_widget_message_wrap')
+        elif rule_type == 'twitter':
+            items = soup.select('.timeline-item')
+        else:
+            items = soup.select(rule.list_selector)
+        
+        print(f"[CustomRule] Found {len(items)} items")
+        
+        new_articles = []
+        skipped_no_title_link = 0
+        skipped_existing = 0
+        
+        for idx, item in enumerate(items):
+            title = None
+            link = None
+            content = None
+            published_at = None
+            
+            if rule_type == 'telegram':
+                text_elem = item.select_one('.tgme_widget_message_text')
+                if text_elem:
+                    content = str(text_elem)
+                    title = text_elem.get_text(strip=True)[:100]
+                    if len(text_elem.get_text(strip=True)) > 100:
+                        title += '...'
+                
+                link_elem = item.select_one('.tgme_widget_message_date')
+                if link_elem:
+                    link = link_elem.get('href')
+                
+                time_elem = item.select_one('time[datetime]')
+                if time_elem:
+                    try:
+                        from dateutil import parser as date_parser
+                        published_at = date_parser.parse(time_elem.get('datetime'))
+                    except:
+                        pass
+                
+                if not title:
+                    fwd = item.select_one('.tgme_widget_message_forwarded_from')
+                    if fwd:
+                        title = f"[转发] {fwd.get_text(strip=True)}"
+                    else:
+                        skipped_no_title_link += 1
+                        continue
+            
+            elif rule_type == 'twitter':
+                text_elem = item.select_one('.tweet-content')
+                if text_elem:
+                    content = str(text_elem)
+                    title = text_elem.get_text(strip=True)[:100]
+                    if len(text_elem.get_text(strip=True)) > 100:
+                        title += '...'
+                
+                link_elem = item.select_one('.tweet-link')
+                if link_elem:
+                    link = link_elem.get('href')
+                    if link and not link.startswith('http'):
+                        link = urljoin(rule.target_url, link)
+                
+                time_elem = item.select_one('.tweet-date a')
+                if time_elem:
+                    try:
+                        from dateutil import parser as date_parser
+                        title_attr = time_elem.get('title')
+                        if title_attr:
+                            published_at = date_parser.parse(title_attr)
+                    except:
+                        pass
+                
+                if not title:
+                    skipped_no_title_link += 1
+                    continue
+            
+            else:
+                # General rule parsing
+                title_elem = item.select_one(rule.title_selector)
+                
+                if not rule.link_selector or rule.link_selector.lower() in ('self', '.', 'this'):
+                    link_elem = item if item.name == 'a' else item.find('a')
+                else:
+                    link_elem = item.select_one(rule.link_selector)
+                
+                if link_elem:
+                    link = link_elem.get("href")
+                    if not link and link_elem.name != 'a':
+                        inner_a = link_elem.find('a')
+                        if inner_a:
+                            link = inner_a.get('href')
+                
+                if not title_elem:
+                    skipped_no_title_link += 1
+                    continue
+                
+                title = title_elem.get_text(strip=True)
+                
+                if rule.content_selector:
+                    content_elem = item.select_one(rule.content_selector)
+                    content = content_elem.get_text(strip=True) if content_elem else None
+            
+            if not title:
+                skipped_no_title_link += 1
+                continue
+            
+            # Make link absolute
+            if link and not link.startswith("http"):
+                link = urljoin(rule.target_url, link)
+            
+            # Generate guid
+            if link:
+                guid = md5(link.encode()).hexdigest()
+            else:
+                guid = md5(title.encode()).hexdigest()
+            
+            if idx == 0:
+                print(f"[CustomRule] First item: title={title[:50]}..., link={link}, guid={guid[:8]}")
+            
+            # Check if article exists
+            existing = db.execute(
+                select(Article).where(
+                    Article.feed_id == feed_id,
+                    Article.guid == guid
+                )
+            ).scalar_one_or_none()
+            
+            if existing:
+                skipped_existing += 1
+                continue
+            
+            # Create article
+            article = Article(
+                feed_id=feed_id,
+                guid=guid,
+                link=link,
+                title=title,
+                content=content,
+                published_at=published_at or datetime.utcnow(),
+            )
+            db.add(article)
+            new_articles.append({"title": title, "link": link, "content": content})
+        
+        print(f"[CustomRule] Skipped {skipped_no_title_link} (no title/link), {skipped_existing} (existing), added {len(new_articles)} new")
+        
+        # Update rule and feed status
+        now = datetime.utcnow()
+        rule.last_fetched_at = now
+        rule.last_error = None
+        rule.error_count = 0
+        
+        feed = db.execute(
+            select(Feed).where(Feed.id == feed_id)
+        ).scalar_one_or_none()
+        if feed:
+            feed.last_fetched_at = now
+            feed.last_error = None
+            feed.error_count = 0
+        
+        db.commit()
+        return new_articles
+        
+    except Exception as e:
+        rule.last_error = str(e)[:500]
+        rule.error_count += 1
+        if feed_id:
+            feed = db.execute(
+                select(Feed).where(Feed.id == feed_id)
+            ).scalar_one_or_none()
+            if feed:
+                feed.last_error = str(e)[:500]
+                feed.error_count += 1
+        db.commit()
+        raise
+
+
 @shared_task(name="app.tasks.feed_tasks.refresh_feed")
 def refresh_feed(feed_id: int) -> dict:
     """Refresh a single feed."""
@@ -370,32 +624,20 @@ def refresh_single_feed(self, feed_id: int) -> dict:
 @shared_task(name="app.tasks.feed_tasks.execute_custom_rule")
 def execute_custom_rule(rule_id: int) -> dict:
     """Execute a single custom rule."""
-    # Custom rules need async, run in event loop
-    async def _run():
-        from app.core.database import async_session_maker
-        from app.services.custom_rule_service import CustomRuleService
+    # Use sync session to avoid asyncpg concurrent operation issues
+    with get_sync_session() as db:
+        rule = db.execute(
+            select(CustomRule).where(CustomRule.id == rule_id)
+        ).scalar_one_or_none()
         
-        async with async_session_maker() as db:
-            result = await db.execute(
-                select(CustomRule).where(CustomRule.id == rule_id)
-            )
-            rule = result.scalar_one_or_none()
-            if not rule:
-                return {"success": False, "error": "Rule not found"}
-            
-            service = CustomRuleService(db)
-            try:
-                articles = await service.execute_rule(rule)
-                return {"success": True, "articles_found": len(articles)}
-            except Exception as e:
-                return {"success": False, "error": str(e)}
-    
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(_run())
-    finally:
-        loop.close()
+        if not rule:
+            return {"success": False, "error": "Rule not found"}
+        
+        try:
+            articles = _execute_custom_rule_sync(db, rule)
+            return {"success": True, "articles_found": len(articles)}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
 
 @shared_task(name="app.tasks.feed_tasks.execute_all_custom_rules", bind=True)
@@ -464,44 +706,36 @@ def execute_single_custom_rule(self, rule_id: int) -> dict:
         return {"success": True, "rule_id": rule_id, "skipped": True, "reason": "already processing"}
     
     try:
-        async def _run():
-            from app.core.database import async_session_maker
-            from app.services.custom_rule_service import CustomRuleService
+        # Use sync session to avoid asyncpg concurrent operation issues
+        with get_sync_session() as db:
+            rule = db.execute(
+                select(CustomRule).where(CustomRule.id == rule_id)
+            ).scalar_one_or_none()
             
-            async with async_session_maker() as db:
-                result = await db.execute(
-                    select(CustomRule).where(CustomRule.id == rule_id)
-                )
-                rule = result.scalar_one_or_none()
-                if not rule:
-                    return {"success": False, "rule_id": rule_id, "error": "Rule not found"}
-                
-                if not rule.is_active:
-                    return {"success": True, "rule_id": rule_id, "skipped": True, "reason": "inactive"}
-                
-                service = CustomRuleService(db)
-                try:
-                    articles = await service.execute_rule(rule)
-                    print(f"Executed custom rule {rule.id} ({rule.name}): {len(articles)} articles")
-                    return {
-                        "success": True,
-                        "rule_id": rule_id,
-                        "articles_found": len(articles)
-                    }
-                except Exception as e:
-                    print(f"Error executing custom rule {rule.id}: {e}")
-                    return {
-                        "success": False,
-                        "rule_id": rule_id,
-                        "error": str(e)
-                    }
-        
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(_run())
-        finally:
-            loop.close()
+            if not rule:
+                return {"success": False, "rule_id": rule_id, "error": "Rule not found"}
+            
+            if not rule.is_active:
+                return {"success": True, "rule_id": rule_id, "skipped": True, "reason": "inactive"}
+            
+            try:
+                articles = _execute_custom_rule_sync(db, rule)
+                print(f"Executed custom rule {rule.id} ({rule.name}): {len(articles)} articles")
+                return {
+                    "success": True,
+                    "rule_id": rule_id,
+                    "articles_found": len(articles)
+                }
+            except Exception as e:
+                db.rollback()
+                print(f"Error executing custom rule {rule.id}: {e}")
+                import traceback
+                traceback.print_exc()
+                return {
+                    "success": False,
+                    "rule_id": rule_id,
+                    "error": str(e)
+                }
     finally:
         try:
             lock.release()
