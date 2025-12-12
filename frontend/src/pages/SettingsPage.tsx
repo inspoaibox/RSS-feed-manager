@@ -364,10 +364,10 @@ function FeedsTab() {
           onClick={handleExport}
           className="flex items-center gap-1 px-3 py-2 border dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200"
         >
-          <FileUp className="w-4 h-4" /> 导出 OPML
+          <Upload className="w-4 h-4" /> 导出 OPML
         </button>
         <label className="flex items-center gap-1 px-3 py-2 border dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 cursor-pointer">
-          <FileDown className="w-4 h-4" /> 导入 OPML
+          <Download className="w-4 h-4" /> 导入 OPML
           <input type="file" accept=".opml,.xml" onChange={handleImport} className="hidden" />
         </label>
       </div>
