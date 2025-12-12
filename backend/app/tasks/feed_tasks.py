@@ -261,17 +261,17 @@ def refresh_all_feeds() -> dict:
 
 @shared_task(name="app.tasks.feed_tasks.refresh_due_feeds", bind=True)
 def refresh_due_feeds(self) -> dict:
-    """Refresh feeds that are due based on their fetch_interval."""
+    """Dispatch feed refresh tasks for feeds that are due."""
     import redis
     import os
     
-    # Use Redis lock to prevent concurrent execution
+    # Use Redis lock to prevent concurrent dispatch
     redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
     redis_client = redis.from_url(redis_url)
-    lock = redis_client.lock("refresh_due_feeds_lock", timeout=300)  # 5 min timeout
+    lock = redis_client.lock("refresh_due_feeds_dispatch_lock", timeout=60)
     
     if not lock.acquire(blocking=False):
-        return {"success": True, "message": "Another refresh task is running", "skipped": True}
+        return {"success": True, "message": "Another dispatch is running", "skipped": True}
     
     try:
         with get_sync_session() as db:
@@ -282,9 +282,8 @@ def refresh_due_feeds(self) -> dict:
                 select(Feed).where(Feed.is_active == True)
             ).scalars().all()
             
-            total_new = 0
-            processed = 0
-            errors = 0
+            dispatched = 0
+            skipped = 0
             
             for feed in feeds:
                 # Check if feed is due for refresh
@@ -292,25 +291,68 @@ def refresh_due_feeds(self) -> dict:
                     last_fetched = feed.last_fetched_at.replace(tzinfo=None) if feed.last_fetched_at.tzinfo else feed.last_fetched_at
                     next_fetch = last_fetched + timedelta(seconds=feed.fetch_interval)
                     if now < next_fetch:
-                        continue  # Not due yet
+                        skipped += 1
+                        continue
                 
-                try:
-                    new_count = _refresh_feed_sync(db, feed)
-                    total_new += new_count
-                    processed += 1
-                    print(f"Refreshed feed {feed.id} ({feed.title}): {new_count} new articles")
-                except Exception as e:
-                    db.rollback()
-                    errors += 1
-                    print(f"Error refreshing feed {feed.id}: {e}")
+                # Dispatch individual feed refresh task
+                refresh_single_feed.delay(feed.id)
+                dispatched += 1
             
             return {
                 "success": True,
                 "feeds_checked": len(feeds),
-                "feeds_refreshed": processed,
-                "new_articles": total_new,
-                "errors": errors
+                "feeds_dispatched": dispatched,
+                "feeds_skipped": skipped
             }
+    finally:
+        try:
+            lock.release()
+        except Exception:
+            pass
+
+
+@shared_task(name="app.tasks.feed_tasks.refresh_single_feed", bind=True)
+def refresh_single_feed(self, feed_id: int) -> dict:
+    """Refresh a single feed - designed for parallel execution."""
+    import redis
+    import os
+    
+    # Per-feed lock to prevent duplicate processing
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    redis_client = redis.from_url(redis_url)
+    lock = redis_client.lock(f"refresh_feed_{feed_id}_lock", timeout=120)
+    
+    if not lock.acquire(blocking=False):
+        return {"success": True, "feed_id": feed_id, "skipped": True, "reason": "already processing"}
+    
+    try:
+        with get_sync_session() as db:
+            feed = db.execute(
+                select(Feed).where(Feed.id == feed_id)
+            ).scalar_one_or_none()
+            
+            if not feed:
+                return {"success": False, "feed_id": feed_id, "error": "Feed not found"}
+            
+            if not feed.is_active:
+                return {"success": True, "feed_id": feed_id, "skipped": True, "reason": "inactive"}
+            
+            try:
+                new_count = _refresh_feed_sync(db, feed)
+                print(f"Refreshed feed {feed.id} ({feed.title}): {new_count} new articles")
+                return {
+                    "success": True,
+                    "feed_id": feed_id,
+                    "new_articles": new_count
+                }
+            except Exception as e:
+                db.rollback()
+                print(f"Error refreshing feed {feed.id}: {e}")
+                return {
+                    "success": False,
+                    "feed_id": feed_id,
+                    "error": str(e)
+                }
     finally:
         try:
             lock.release()
@@ -352,88 +394,106 @@ def execute_custom_rule(rule_id: int) -> dict:
 
 @shared_task(name="app.tasks.feed_tasks.execute_all_custom_rules", bind=True)
 def execute_all_custom_rules(self) -> dict:
-    """Execute all active custom rules that are due."""
+    """Dispatch custom rule execution tasks for rules that are due."""
     import redis
     import os
     
-    # Use Redis lock to prevent concurrent execution
+    # Use Redis lock to prevent concurrent dispatch
     redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
     redis_client = redis.from_url(redis_url)
-    lock = redis_client.lock("execute_all_custom_rules_lock", timeout=300)
+    lock = redis_client.lock("execute_all_custom_rules_dispatch_lock", timeout=60)
     
     if not lock.acquire(blocking=False):
-        return {"success": True, "message": "Another custom rules task is running", "skipped": True}
+        return {"success": True, "message": "Another dispatch is running", "skipped": True}
     
     try:
-        async def _run_all():
-            from app.core.database import async_session_maker
-            from app.services.custom_rule_service import CustomRuleService
-            
+        with get_sync_session() as db:
             now = datetime.utcnow()
             
-            # First, get all rules with a separate session
-            async with async_session_maker() as db:
-                result = await db.execute(
-                    select(CustomRule).where(CustomRule.is_active == True)
-                )
-                rules = result.scalars().all()
-                # Extract rule data we need before closing session
-                rule_data = [
-                    {
-                        "id": r.id,
-                        "name": r.name,
-                        "last_fetched_at": r.last_fetched_at,
-                        "fetch_interval": r.fetch_interval
-                    }
-                    for r in rules
-                ]
+            rules = db.execute(
+                select(CustomRule).where(CustomRule.is_active == True)
+            ).scalars().all()
             
-            processed = 0
-            total_articles = 0
-            errors = 0
+            dispatched = 0
             skipped = 0
             
-            for rd in rule_data:
+            for rule in rules:
                 # Check if rule is due for fetch
-                if rd["last_fetched_at"]:
-                    last_fetched = rd["last_fetched_at"].replace(tzinfo=None) if rd["last_fetched_at"].tzinfo else rd["last_fetched_at"]
-                    next_fetch = last_fetched + timedelta(seconds=rd["fetch_interval"])
+                if rule.last_fetched_at:
+                    last_fetched = rule.last_fetched_at.replace(tzinfo=None) if rule.last_fetched_at.tzinfo else rule.last_fetched_at
+                    next_fetch = last_fetched + timedelta(seconds=rule.fetch_interval)
                     if now < next_fetch:
                         skipped += 1
                         continue
                 
-                # Use separate session for each rule execution
-                try:
-                    async with async_session_maker() as db:
-                        result = await db.execute(
-                            select(CustomRule).where(CustomRule.id == rd["id"])
-                        )
-                        rule = result.scalar_one_or_none()
-                        if not rule:
-                            continue
-                        
-                        service = CustomRuleService(db)
-                        articles = await service.execute_rule(rule)
-                        total_articles += len(articles)
-                        processed += 1
-                        print(f"Executed custom rule {rd['id']} ({rd['name']}): {len(articles)} articles")
-                except Exception as e:
-                    errors += 1
-                    print(f"Exception executing custom rule {rd['id']}: {e}")
+                # Dispatch individual rule execution task
+                execute_single_custom_rule.delay(rule.id)
+                dispatched += 1
             
             return {
                 "success": True,
-                "rules_checked": len(rule_data),
-                "rules_processed": processed,
-                "rules_skipped": skipped,
-                "articles_found": total_articles,
-                "errors": errors
+                "rules_checked": len(rules),
+                "rules_dispatched": dispatched,
+                "rules_skipped": skipped
             }
+    finally:
+        try:
+            lock.release()
+        except Exception:
+            pass
+
+
+@shared_task(name="app.tasks.feed_tasks.execute_single_custom_rule", bind=True)
+def execute_single_custom_rule(self, rule_id: int) -> dict:
+    """Execute a single custom rule - designed for parallel execution."""
+    import redis
+    import os
+    
+    # Per-rule lock to prevent duplicate processing
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    redis_client = redis.from_url(redis_url)
+    lock = redis_client.lock(f"execute_rule_{rule_id}_lock", timeout=300)
+    
+    if not lock.acquire(blocking=False):
+        return {"success": True, "rule_id": rule_id, "skipped": True, "reason": "already processing"}
+    
+    try:
+        async def _run():
+            from app.core.database import async_session_maker
+            from app.services.custom_rule_service import CustomRuleService
+            
+            async with async_session_maker() as db:
+                result = await db.execute(
+                    select(CustomRule).where(CustomRule.id == rule_id)
+                )
+                rule = result.scalar_one_or_none()
+                if not rule:
+                    return {"success": False, "rule_id": rule_id, "error": "Rule not found"}
+                
+                if not rule.is_active:
+                    return {"success": True, "rule_id": rule_id, "skipped": True, "reason": "inactive"}
+                
+                service = CustomRuleService(db)
+                try:
+                    articles = await service.execute_rule(rule)
+                    print(f"Executed custom rule {rule.id} ({rule.name}): {len(articles)} articles")
+                    return {
+                        "success": True,
+                        "rule_id": rule_id,
+                        "articles_found": len(articles)
+                    }
+                except Exception as e:
+                    print(f"Error executing custom rule {rule.id}: {e}")
+                    return {
+                        "success": False,
+                        "rule_id": rule_id,
+                        "error": str(e)
+                    }
         
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            return loop.run_until_complete(_run_all())
+            return loop.run_until_complete(_run())
         finally:
             loop.close()
     finally:
