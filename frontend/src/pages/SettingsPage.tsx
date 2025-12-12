@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, FolderOpen, Languages, ChevronUp, ChevronDown, Search, Shield } from 'lucide-react'
+import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, FolderOpen, Languages, ChevronUp, ChevronDown, Search, Shield, FileUp, FileDown } from 'lucide-react'
 import api from '@/services/api'
 import type { Category, Feed, AIProvider, AIModel, CustomRule } from '@/types'
 import { useThemeStore, type ThemeColor } from '@/stores/themeStore'
@@ -364,10 +364,10 @@ function FeedsTab() {
           onClick={handleExport}
           className="flex items-center gap-1 px-3 py-2 border dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200"
         >
-          <Download className="w-4 h-4" /> 导出 OPML
+          <FileUp className="w-4 h-4" /> 导出 OPML
         </button>
         <label className="flex items-center gap-1 px-3 py-2 border dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 cursor-pointer">
-          <Upload className="w-4 h-4" /> 导入 OPML
+          <FileDown className="w-4 h-4" /> 导入 OPML
           <input type="file" accept=".opml,.xml" onChange={handleImport} className="hidden" />
         </label>
       </div>
