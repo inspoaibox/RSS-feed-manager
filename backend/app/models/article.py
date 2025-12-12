@@ -37,7 +37,7 @@ class Article(BaseModel):
     translation: Mapped[str | None] = mapped_column(Text, nullable=True)  # AI translation
     
     # Metadata
-    author: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    author: Mapped[str | None] = mapped_column(String(500), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     
     # Cached images (JSON array of local paths)

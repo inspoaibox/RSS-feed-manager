@@ -289,6 +289,7 @@ def refresh_due_feeds() -> dict:
                 processed += 1
                 print(f"Refreshed feed {feed.id} ({feed.title}): {new_count} new articles")
             except Exception as e:
+                db.rollback()  # Rollback failed transaction to continue with other feeds
                 errors += 1
                 print(f"Error refreshing feed {feed.id}: {e}")
         
@@ -336,51 +337,59 @@ def execute_custom_rule(rule_id: int) -> dict:
 @shared_task(name="app.tasks.feed_tasks.execute_all_custom_rules")
 def execute_all_custom_rules() -> dict:
     """Execute all active custom rules that are due."""
-    with get_sync_session() as db:
-        now = datetime.utcnow()
-        rules = db.execute(
-            select(CustomRule).where(CustomRule.is_active == True)
-        ).scalars().all()
+    async def _run_all():
+        from app.core.database import async_session_maker
+        from app.services.custom_rule_service import CustomRuleService
         
-        processed = 0
-        total_articles = 0
-        errors = 0
-        skipped = 0
-        
-        for rule in rules:
-            # Check if rule is due for fetch
-            if rule.last_fetched_at:
-                # Remove timezone info for comparison (PostgreSQL returns tz-aware)
-                last_fetched = rule.last_fetched_at.replace(tzinfo=None) if rule.last_fetched_at.tzinfo else rule.last_fetched_at
-                next_fetch = last_fetched + timedelta(seconds=rule.fetch_interval)
-                # Ensure next_fetch is also naive
-                if hasattr(next_fetch, 'tzinfo') and next_fetch.tzinfo:
-                    next_fetch = next_fetch.replace(tzinfo=None)
-                if now < next_fetch:
-                    skipped += 1
-                    continue  # Not due yet
+        async with async_session_maker() as db:
+            now = datetime.utcnow()
+            result = await db.execute(
+                select(CustomRule).where(CustomRule.is_active == True)
+            )
+            rules = result.scalars().all()
             
-            try:
-                result = execute_custom_rule(rule.id)
-                if result.get("success"):
-                    total_articles += result.get("articles_found", 0)
+            processed = 0
+            total_articles = 0
+            errors = 0
+            skipped = 0
+            
+            for rule in rules:
+                # Check if rule is due for fetch
+                if rule.last_fetched_at:
+                    last_fetched = rule.last_fetched_at.replace(tzinfo=None) if rule.last_fetched_at.tzinfo else rule.last_fetched_at
+                    next_fetch = last_fetched + timedelta(seconds=rule.fetch_interval)
+                    if hasattr(next_fetch, 'tzinfo') and next_fetch.tzinfo:
+                        next_fetch = next_fetch.replace(tzinfo=None)
+                    if now < next_fetch:
+                        skipped += 1
+                        continue
+                
+                try:
+                    service = CustomRuleService(db)
+                    articles = await service.execute_rule(rule)
+                    total_articles += len(articles)
                     processed += 1
-                    print(f"Executed custom rule {rule.id} ({rule.name}): {result.get('articles_found', 0)} articles")
-                else:
+                    print(f"Executed custom rule {rule.id} ({rule.name}): {len(articles)} articles")
+                except Exception as e:
+                    await db.rollback()
                     errors += 1
-                    print(f"Error executing custom rule {rule.id}: {result.get('error')}")
-            except Exception as e:
-                errors += 1
-                print(f"Exception executing custom rule {rule.id}: {e}")
-        
-        return {
-            "success": True,
-            "rules_checked": len(rules),
-            "rules_processed": processed,
-            "rules_skipped": skipped,
-            "articles_found": total_articles,
-            "errors": errors
-        }
+                    print(f"Exception executing custom rule {rule.id}: {e}")
+            
+            return {
+                "success": True,
+                "rules_checked": len(rules),
+                "rules_processed": processed,
+                "rules_skipped": skipped,
+                "articles_found": total_articles,
+                "errors": errors
+            }
+    
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(_run_all())
+    finally:
+        loop.close()
 
 
 @shared_task(name="app.tasks.feed_tasks.translate_feed_articles")

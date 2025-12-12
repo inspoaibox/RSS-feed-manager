@@ -174,10 +174,12 @@ def _parse_entry(entry: dict) -> ParsedArticle | None:
     elif "description" in entry:
         content = entry.description
     
-    # Get author
+    # Get author (truncate to 500 chars to avoid DB errors)
     author = entry.get("author")
     if not author and "authors" in entry and entry.authors:
         author = entry.authors[0].get("name")
+    if author and len(author) > 500:
+        author = author[:500]
     
     # Get published date
     # feedparser returns time in UTC as a time.struct_time
