@@ -256,6 +256,82 @@ async def get_all_users(
     ]
 
 
+class UserUpdateRequest(BaseModel):
+    """Request schema for updating user."""
+    is_active: bool | None = None
+    is_admin: bool | None = None
+
+
+@router.put("/users/{user_id}", response_model=UserListResponse)
+async def update_user(
+    user_id: int,
+    data: UserUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    """Update a user (admin only)."""
+    if user_id == admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="不能修改自己的账户状态"
+        )
+    
+    user_repo = UserRepository(db)
+    user = await user_repo.get_by_id(user_id)
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="用户不存在"
+        )
+    
+    if data.is_active is not None:
+        user.is_active = data.is_active
+        # Invalidate tokens when deactivating
+        if not data.is_active:
+            user.token_version += 1
+    
+    if data.is_admin is not None:
+        user.is_admin = data.is_admin
+    
+    await db.commit()
+    
+    return UserListResponse(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        is_active=user.is_active,
+        is_admin=user.is_admin,
+        created_at=user.created_at.isoformat() if user.created_at else None
+    )
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    """Delete a user and all their data (admin only)."""
+    if user_id == admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="不能删除自己的账户"
+        )
+    
+    user_repo = UserRepository(db)
+    user = await user_repo.get_by_id(user_id)
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="用户不存在"
+        )
+    
+    # Delete user (cascade will delete all related data)
+    await db.delete(user)
+    await db.commit()
+
 
 @router.get("/manifest.json")
 async def get_manifest(db: AsyncSession = Depends(get_db)):

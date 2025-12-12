@@ -2590,6 +2590,37 @@ function SystemTab() {
     },
   })
 
+  const updateUserMutation = useMutation({
+    mutationFn: async ({ userId, data }: { userId: number; data: { is_active?: boolean; is_admin?: boolean } }) => {
+      const response = await api.put(`/system/users/${userId}`, data)
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['system-users'] })
+      setMessage({ type: 'success', text: '用户已更新' })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: any) => {
+      const detail = err.response?.data?.detail
+      setMessage({ type: 'error', text: detail || '更新失败' })
+    },
+  })
+
+  const deleteUserMutation = useMutation({
+    mutationFn: async (userId: number) => {
+      await api.delete(`/system/users/${userId}`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['system-users'] })
+      setMessage({ type: 'success', text: '用户已删除' })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: any) => {
+      const detail = err.response?.data?.detail
+      setMessage({ type: 'error', text: detail || '删除失败' })
+    },
+  })
+
   if (isLoading) {
     return <div className="text-center py-8 text-gray-500 dark:text-gray-400">加载中...</div>
   }
@@ -2795,7 +2826,7 @@ function SystemTab() {
 
       {/* 用户列表 */}
       <div className="p-4 border dark:border-gray-700 rounded-lg">
-        <h3 className="font-medium mb-4 dark:text-white">用户列表</h3>
+        <h3 className="font-medium mb-4 dark:text-white">用户管理</h3>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -2806,6 +2837,7 @@ function SystemTab() {
                 <th className="text-left py-2 px-3 dark:text-gray-300">角色</th>
                 <th className="text-left py-2 px-3 dark:text-gray-300">状态</th>
                 <th className="text-left py-2 px-3 dark:text-gray-300">注册时间</th>
+                <th className="text-left py-2 px-3 dark:text-gray-300">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -2825,11 +2857,62 @@ function SystemTab() {
                     {user.is_active ? (
                       <span className="text-green-600 dark:text-green-400">正常</span>
                     ) : (
-                      <span className="text-red-600 dark:text-red-400">禁用</span>
+                      <span className="text-red-600 dark:text-red-400">已禁用</span>
                     )}
                   </td>
                   <td className="py-2 px-3 text-gray-500 dark:text-gray-400">
                     {user.created_at ? new Date(user.created_at).toLocaleString('zh-CN') : '-'}
+                  </td>
+                  <td className="py-2 px-3">
+                    <div className="flex gap-1 flex-wrap">
+                      {/* 切换管理员 */}
+                      <button
+                        onClick={() => {
+                          if (confirm(`确定要${user.is_admin ? '取消' : '设为'}管理员吗？`)) {
+                            updateUserMutation.mutate({ userId: user.id, data: { is_admin: !user.is_admin } })
+                          }
+                        }}
+                        disabled={updateUserMutation.isPending}
+                        className={`px-2 py-1 text-xs rounded ${
+                          user.is_admin 
+                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600' 
+                            : 'bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-900'
+                        }`}
+                        title={user.is_admin ? '取消管理员' : '设为管理员'}
+                      >
+                        {user.is_admin ? '取消管理' : '设为管理'}
+                      </button>
+                      {/* 切换状态 */}
+                      <button
+                        onClick={() => {
+                          if (confirm(`确定要${user.is_active ? '禁用' : '启用'}该用户吗？${user.is_active ? '禁用后用户将无法登录。' : ''}`)) {
+                            updateUserMutation.mutate({ userId: user.id, data: { is_active: !user.is_active } })
+                          }
+                        }}
+                        disabled={updateUserMutation.isPending}
+                        className={`px-2 py-1 text-xs rounded ${
+                          user.is_active 
+                            ? 'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-700 dark:text-yellow-300 hover:bg-yellow-200 dark:hover:bg-yellow-900' 
+                            : 'bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900'
+                        }`}
+                        title={user.is_active ? '禁用用户' : '启用用户'}
+                      >
+                        {user.is_active ? '禁用' : '启用'}
+                      </button>
+                      {/* 删除用户 */}
+                      <button
+                        onClick={() => {
+                          if (confirm(`确定要删除用户 "${user.username}" 吗？\n\n⚠️ 此操作不可恢复！将删除该用户的所有数据，包括订阅源、文章、规则等。`)) {
+                            deleteUserMutation.mutate(user.id)
+                          }
+                        }}
+                        disabled={deleteUserMutation.isPending}
+                        className="px-2 py-1 text-xs rounded bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900"
+                        title="删除用户"
+                      >
+                        删除
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

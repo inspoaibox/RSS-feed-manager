@@ -174,15 +174,28 @@ class AIModelRepository:
         await self.session.flush()
 
     async def bulk_create(self, provider_id: int, models: List[dict]) -> List[AIModel]:
-        """Bulk create models for a provider."""
+        """Bulk create models for a provider, skipping duplicates."""
+        # Get existing model_ids for this provider
+        existing_query = select(AIModel.model_id).where(AIModel.provider_id == provider_id)
+        result = await self.session.execute(existing_query)
+        existing_model_ids = {row[0] for row in result.fetchall()}
+        
         created = []
         for m in models:
+            model_id = m["model_id"]
+            # Skip if model already exists
+            if model_id in existing_model_ids:
+                continue
+            
             model = AIModel(
                 provider_id=provider_id,
-                model_id=m["model_id"],
-                name=m.get("name", m["model_id"])
+                model_id=model_id,
+                name=m.get("name", model_id)
             )
             self.session.add(model)
             created.append(model)
-        await self.session.flush()
+            existing_model_ids.add(model_id)  # Prevent duplicates within same batch
+        
+        if created:
+            await self.session.flush()
         return created
