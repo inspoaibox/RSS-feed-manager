@@ -29,7 +29,7 @@ def upgrade() -> None:
         sa.Column('subscriber_count', sa.Integer(), server_default='0', nullable=False),
         sa.Column('created_by', sa.Integer(), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), onupdate=sa.func.now(), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint('id'),
         sa.ForeignKeyConstraint(['created_by'], ['users.id'], ondelete='SET NULL'),
         sa.UniqueConstraint('url')
