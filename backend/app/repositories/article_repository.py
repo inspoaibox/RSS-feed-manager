@@ -110,29 +110,27 @@ class ArticleRepository:
         
         # Date filter - expects ISO format datetime strings from frontend
         if date_from:
-            from datetime import datetime
+            from datetime import datetime, timezone, timedelta
             from dateutil import parser as date_parser
             try:
-                # Try ISO format first (with timezone), fallback to date-only
                 date_start = date_parser.isoparse(date_from)
-                if date_start.tzinfo:
-                    date_start = date_start.utctimetuple()
-                    date_start = datetime(*date_start[:6])
+                # Ensure timezone-aware UTC datetime
+                if date_start.tzinfo is None:
+                    date_start = date_start.replace(tzinfo=timezone.utc)
                 base_query = base_query.where(Article.published_at >= date_start)
             except (ValueError, Exception):
                 pass
         
         if date_to:
-            from datetime import datetime, timedelta
+            from datetime import datetime, timezone, timedelta
             from dateutil import parser as date_parser
             try:
                 date_end = date_parser.isoparse(date_to)
-                if date_end.tzinfo:
-                    # Convert to UTC and add 1 day for end of day
-                    date_end = date_end.utctimetuple()
-                    date_end = datetime(*date_end[:6]) + timedelta(days=1)
-                else:
-                    date_end = date_end + timedelta(days=1)
+                # Ensure timezone-aware UTC datetime
+                if date_end.tzinfo is None:
+                    date_end = date_end.replace(tzinfo=timezone.utc)
+                # Add 1 second to include the end time (23:59:59 -> 24:00:00)
+                date_end = date_end + timedelta(seconds=1)
                 base_query = base_query.where(Article.published_at < date_end)
             except (ValueError, Exception):
                 pass
