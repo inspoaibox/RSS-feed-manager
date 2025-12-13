@@ -79,6 +79,9 @@ class AuthService:
                 detail="User account is disabled"
             )
         
+        # Update last login time
+        await self.user_repo.update_last_login(user)
+        
         tokens = self._generate_tokens(user)
         
         return AuthResponse(

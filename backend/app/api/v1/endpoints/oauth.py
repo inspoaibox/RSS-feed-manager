@@ -225,6 +225,9 @@ async def linuxdo_callback(
                 oauth_id=oauth_id
             )
     
+    # Update last login time
+    await user_repo.update_last_login(user)
+    
     await db.commit()
     
     # Generate tokens

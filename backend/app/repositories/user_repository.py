@@ -111,3 +111,9 @@ class UserRepository:
         self.session.add(user)
         await self.session.flush()
         return user
+
+    async def update_last_login(self, user: User) -> None:
+        """Update user's last login time."""
+        from datetime import datetime, timezone
+        user.last_login_at = datetime.now(timezone.utc)
+        await self.session.flush()

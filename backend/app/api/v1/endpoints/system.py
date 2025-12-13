@@ -76,6 +76,7 @@ class UserListResponse(BaseModel):
     is_active: bool
     is_admin: bool
     created_at: str | None
+    last_login_at: str | None
 
     class Config:
         from_attributes = True
@@ -261,7 +262,8 @@ async def get_all_users(
             email=u.email,
             is_active=u.is_active,
             is_admin=u.is_admin,
-            created_at=u.created_at.isoformat() if u.created_at else None
+            created_at=u.created_at.isoformat() if u.created_at else None,
+            last_login_at=u.last_login_at.isoformat() if u.last_login_at else None
         )
         for u in users
     ]
@@ -313,7 +315,8 @@ async def update_user(
         email=user.email,
         is_active=user.is_active,
         is_admin=user.is_admin,
-        created_at=user.created_at.isoformat() if user.created_at else None
+        created_at=user.created_at.isoformat() if user.created_at else None,
+        last_login_at=user.last_login_at.isoformat() if user.last_login_at else None
     )
 
 

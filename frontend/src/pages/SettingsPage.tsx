@@ -2929,6 +2929,7 @@ function SystemTab() {
         is_active: boolean
         is_admin: boolean
         created_at: string | null
+        last_login_at: string | null
       }>>('/system/users')
       return response.data
     },
@@ -2990,34 +2991,64 @@ function SystemTab() {
     },
   })
 
+  const [activeSubTab, setActiveSubTab] = useState<'general' | 'sync' | 'oauth' | 'recommendations' | 'users'>('general')
+
   if (isLoading) {
     return <div className="text-center py-8 text-gray-500 dark:text-gray-400">加载中...</div>
   }
 
+  const subTabs = [
+    { id: 'general', label: '基本设置' },
+    { id: 'sync', label: '同步设置' },
+    { id: 'oauth', label: '第三方登录' },
+    { id: 'recommendations', label: '订阅推荐' },
+    { id: 'users', label: '用户管理' },
+  ]
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {message && (
         <div className={`p-3 rounded ${message.type === 'success' ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400'}`}>
           {message.text}
         </div>
       )}
 
-      {/* 网站设置 */}
-      <div className="p-4 border dark:border-gray-700 rounded-lg">
-        <h3 className="font-medium mb-4 dark:text-white flex items-center gap-2">
-          <Shield className="w-5 h-5" />
-          网站设置
-        </h3>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium dark:text-gray-300 mb-2">网站名称</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={siteName}
-                onChange={(e) => setSiteName(e.target.value)}
-                placeholder="RSS 管理器"
-                className="flex-1 px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+      {/* Sub Tabs */}
+      <div className="flex gap-2 flex-wrap">
+        {subTabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveSubTab(tab.id as typeof activeSubTab)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeSubTab === tab.id
+                ? 'bg-primary-600 text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 基本设置 */}
+      {activeSubTab === 'general' && (
+        <div className="space-y-6">
+          {/* 网站设置 */}
+          <div className="p-4 border dark:border-gray-700 rounded-lg">
+            <h3 className="font-medium mb-4 dark:text-white flex items-center gap-2">
+              <Shield className="w-5 h-5" />
+              网站设置
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium dark:text-gray-300 mb-2">网站名称</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={siteName}
+                    onChange={(e) => setSiteName(e.target.value)}
+                    placeholder="RSS 管理器"
+                    className="flex-1 px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
               />
               <button
                 onClick={() => updateSettingsMutation.mutate({ site_name: siteName })}
@@ -3032,28 +3063,31 @@ function SystemTab() {
         </div>
       </div>
 
-      {/* 注册设置 */}
-      <div className="p-4 border dark:border-gray-700 rounded-lg">
-        <h3 className="font-medium mb-4 dark:text-white flex items-center gap-2">
-          <Shield className="w-5 h-5" />
-          注册设置
-        </h3>
-        <label className="flex items-center gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={settings?.allow_registration ?? true}
-            onChange={(e) => updateSettingsMutation.mutate({ allow_registration: e.target.checked })}
-            disabled={updateSettingsMutation.isPending}
-            className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:opacity-50"
-          />
-          <div>
-            <p className="font-medium dark:text-white">允许新用户注册</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">关闭后，只有管理员可以添加新用户</p>
+          {/* 注册设置 */}
+          <div className="p-4 border dark:border-gray-700 rounded-lg">
+            <h3 className="font-medium mb-4 dark:text-white flex items-center gap-2">
+              <Shield className="w-5 h-5" />
+              注册设置
+            </h3>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={settings?.allow_registration ?? true}
+                onChange={(e) => updateSettingsMutation.mutate({ allow_registration: e.target.checked })}
+                disabled={updateSettingsMutation.isPending}
+                className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:opacity-50"
+              />
+              <div>
+                <p className="font-medium dark:text-white">允许新用户注册</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">关闭后，只有管理员可以添加新用户</p>
+              </div>
+            </label>
           </div>
-        </label>
-      </div>
+        </div>
+      )}
 
       {/* 同步间隔设置 */}
+      {activeSubTab === 'sync' && (
       <div className="p-4 border dark:border-gray-700 rounded-lg">
         <h3 className="font-medium mb-4 dark:text-white flex items-center gap-2">
           <RefreshCw className="w-5 h-5" />
@@ -3103,8 +3137,10 @@ function SystemTab() {
           </button>
         </div>
       </div>
+      )}
 
       {/* OAuth 设置 - Linux.do */}
+      {activeSubTab === 'oauth' && (
       <div className="p-4 border dark:border-gray-700 rounded-lg">
         <h3 className="font-medium mb-4 dark:text-white flex items-center gap-2">
           <Shield className="w-5 h-5" />
@@ -3201,15 +3237,19 @@ function SystemTab() {
           )}
         </div>
       </div>
+      )}
 
       {/* 订阅推荐设置 */}
-      <RecommendationsManagement 
-        enabled={settings?.enable_feed_recommendations ?? false}
-        onToggle={(enabled) => updateSettingsMutation.mutate({ enable_feed_recommendations: enabled })}
-        isPending={updateSettingsMutation.isPending}
-      />
+      {activeSubTab === 'recommendations' && (
+        <RecommendationsManagement 
+          enabled={settings?.enable_feed_recommendations ?? false}
+          onToggle={(enabled) => updateSettingsMutation.mutate({ enable_feed_recommendations: enabled })}
+          isPending={updateSettingsMutation.isPending}
+        />
+      )}
 
       {/* 用户列表 */}
+      {activeSubTab === 'users' && (
       <div className="p-4 border dark:border-gray-700 rounded-lg">
         <h3 className="font-medium mb-4 dark:text-white">用户管理</h3>
         <div className="overflow-x-auto">
@@ -3222,6 +3262,7 @@ function SystemTab() {
                 <th className="text-left py-2 px-3 dark:text-gray-300 w-20">角色</th>
                 <th className="text-left py-2 px-3 dark:text-gray-300 w-16">状态</th>
                 <th className="text-left py-2 px-3 dark:text-gray-300 w-40">注册时间</th>
+                <th className="text-left py-2 px-3 dark:text-gray-300 w-40">最后登录</th>
                 <th className="text-left py-2 px-3 dark:text-gray-300">操作</th>
               </tr>
             </thead>
@@ -3247,6 +3288,9 @@ function SystemTab() {
                   </td>
                   <td className="py-2 px-3 text-gray-500 dark:text-gray-400">
                     {user.created_at ? new Date(user.created_at).toLocaleString('zh-CN') : '-'}
+                  </td>
+                  <td className="py-2 px-3 text-gray-500 dark:text-gray-400">
+                    {user.last_login_at ? new Date(user.last_login_at).toLocaleString('zh-CN') : '-'}
                   </td>
                   <td className="py-2 px-3">
                     <div className="flex gap-1 flex-wrap">
@@ -3305,6 +3349,7 @@ function SystemTab() {
           </table>
         </div>
       </div>
+      )}
     </div>
   )
 }

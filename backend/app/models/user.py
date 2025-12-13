@@ -1,7 +1,8 @@
 """User model for authentication and user management."""
+from datetime import datetime
 from typing import TYPE_CHECKING, List
 
-from sqlalchemy import String
+from sqlalchemy import DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import BaseModel
@@ -40,6 +41,9 @@ class User(BaseModel):
     # OAuth fields
     oauth_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
     oauth_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    
+    # Last login time
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     categories: Mapped[List["Category"]] = relationship(
