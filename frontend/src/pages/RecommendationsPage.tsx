@@ -58,6 +58,10 @@ export default function RecommendationsPage() {
       setSubscribeModal(null)
       setMessage({ type: 'success', text: data.message || '订阅成功' })
       setTimeout(() => setMessage(null), 3000)
+      // Delay refresh articles to allow Celery task to complete
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['articles'] })
+      }, 3000)
     },
     onError: (err: any) => {
       const detail = err.response?.data?.detail
