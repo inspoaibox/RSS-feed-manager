@@ -6,7 +6,7 @@ import api from '@/services/api'
 import type { Article, PaginatedResponse } from '@/types'
 import clsx from 'clsx'
 
-// Helper to get date string in YYYY-MM-DD format (local timezone)
+// Helper to get date string in YYYY-MM-DD format for date input
 const formatDateForInput = (date: Date): string => {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -14,12 +14,22 @@ const formatDateForInput = (date: Date): string => {
   return `${year}-${month}-${day}`
 }
 
-// Get today's date
-const getToday = () => {
-  return formatDateForInput(new Date())
+// Get start of day in local timezone as ISO string
+const getStartOfDay = (dateStr: string): string => {
+  const date = new Date(dateStr + 'T00:00:00')
+  return date.toISOString()
 }
 
-// Get yesterday's date
+// Get end of day in local timezone as ISO string  
+const getEndOfDay = (dateStr: string): string => {
+  const date = new Date(dateStr + 'T23:59:59')
+  return date.toISOString()
+}
+
+// Get today's date string
+const getToday = () => formatDateForInput(new Date())
+
+// Get yesterday's date string
 const getYesterday = () => {
   const yesterday = new Date()
   yesterday.setDate(yesterday.getDate() - 1)
@@ -71,16 +81,29 @@ export default function HomePage() {
   const categoryId = searchParams.get('category')
   const isFavorite = searchParams.get('favorite') === 'true'
 
-  // Calculate date range based on filter
+  // Calculate date range based on filter - returns ISO timestamps
   const getDateRange = () => {
+    let dateStr = ''
+    let endDateStr = ''
+    
     if (dateFilter === 'today') {
-      return { start: getToday(), end: getToday() }
+      dateStr = getToday()
+      endDateStr = dateStr
     } else if (dateFilter === 'yesterday') {
-      return { start: getYesterday(), end: getYesterday() }
+      dateStr = getYesterday()
+      endDateStr = dateStr
     } else if (dateFilter === 'custom' && customDateStart) {
-      return { start: customDateStart, end: customDateEnd || customDateStart }
+      dateStr = customDateStart
+      endDateStr = customDateEnd || customDateStart
     }
-    return { start: '', end: '' }
+    
+    if (!dateStr) return { start: '', end: '' }
+    
+    // Convert to ISO timestamps with timezone
+    return {
+      start: getStartOfDay(dateStr),
+      end: getEndOfDay(endDateStr)
+    }
   }
 
   const { data, isLoading } = useQuery({

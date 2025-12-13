@@ -108,22 +108,33 @@ class ArticleRepository:
                     or_(UserArticle.is_favorite == False, UserArticle.is_favorite == None)
                 )
         
-        # Date filter
+        # Date filter - expects ISO format datetime strings from frontend
         if date_from:
             from datetime import datetime
+            from dateutil import parser as date_parser
             try:
-                date_start = datetime.strptime(date_from, "%Y-%m-%d")
+                # Try ISO format first (with timezone), fallback to date-only
+                date_start = date_parser.isoparse(date_from)
+                if date_start.tzinfo:
+                    date_start = date_start.utctimetuple()
+                    date_start = datetime(*date_start[:6])
                 base_query = base_query.where(Article.published_at >= date_start)
-            except ValueError:
+            except (ValueError, Exception):
                 pass
         
         if date_to:
             from datetime import datetime, timedelta
+            from dateutil import parser as date_parser
             try:
-                # Include the entire end date (until 23:59:59)
-                date_end = datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1)
+                date_end = date_parser.isoparse(date_to)
+                if date_end.tzinfo:
+                    # Convert to UTC and add 1 day for end of day
+                    date_end = date_end.utctimetuple()
+                    date_end = datetime(*date_end[:6]) + timedelta(days=1)
+                else:
+                    date_end = date_end + timedelta(days=1)
                 base_query = base_query.where(Article.published_at < date_end)
-            except ValueError:
+            except (ValueError, Exception):
                 pass
         
         # Count total
