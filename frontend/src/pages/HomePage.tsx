@@ -6,23 +6,23 @@ import api from '@/services/api'
 import type { Article, PaginatedResponse } from '@/types'
 import clsx from 'clsx'
 
-// Helper to get date string in YYYY-MM-DD format
+// Helper to get date string in YYYY-MM-DD format (local timezone)
 const formatDateForInput = (date: Date): string => {
-  return date.toISOString().split('T')[0]
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
-// Get today's date range
+// Get today's date
 const getToday = () => {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  return formatDateForInput(today)
+  return formatDateForInput(new Date())
 }
 
 // Get yesterday's date
 const getYesterday = () => {
   const yesterday = new Date()
   yesterday.setDate(yesterday.getDate() - 1)
-  yesterday.setHours(0, 0, 0, 0)
   return formatDateForInput(yesterday)
 }
 
@@ -291,60 +291,62 @@ export default function HomePage() {
           </form>
           
           {/* Actions Bar */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                if (feedId) {
-                  refreshFeedMutation.mutate(parseInt(feedId))
-                } else if (categoryId) {
-                  refreshAllMutation.mutate(parseInt(categoryId))
-                } else if (!isFavorite) {
-                  refreshAllMutation.mutate(null)
-                }
-              }}
-              disabled={refreshFeedMutation.isPending || refreshAllMutation.isPending || isFavorite}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50 dark:text-gray-300"
-              title={feedId ? "同步订阅源" : categoryId ? "同步该分类所有订阅" : "同步所有订阅"}
-            >
-              <RefreshCw className={clsx("w-4 h-4", (refreshFeedMutation.isPending || refreshAllMutation.isPending) && "animate-spin")} />
-            </button>
-            <button
-              onClick={() => markAllReadMutation.mutate()}
-              disabled={markAllReadMutation.isPending}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-gray-300"
-              title="全部标记已读"
-            >
-              <Check className="w-4 h-4" />
-            </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => {
+                  if (feedId) {
+                    refreshFeedMutation.mutate(parseInt(feedId))
+                  } else if (categoryId) {
+                    refreshAllMutation.mutate(parseInt(categoryId))
+                  } else if (!isFavorite) {
+                    refreshAllMutation.mutate(null)
+                  }
+                }}
+                disabled={refreshFeedMutation.isPending || refreshAllMutation.isPending || isFavorite}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50 dark:text-gray-300"
+                title={feedId ? "同步订阅源" : categoryId ? "同步该分类所有订阅" : "同步所有订阅"}
+              >
+                <RefreshCw className={clsx("w-4 h-4", (refreshFeedMutation.isPending || refreshAllMutation.isPending) && "animate-spin")} />
+              </button>
+              <button
+                onClick={() => markAllReadMutation.mutate()}
+                disabled={markAllReadMutation.isPending}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-gray-300"
+                title="全部标记已读"
+              >
+                <Check className="w-4 h-4" />
+              </button>
+            </div>
             
             {/* Sort Controls */}
             {!isSearching && (
               <>
-                <div className="h-4 w-px bg-gray-300 dark:bg-gray-600 mx-1" />
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-                  className="text-xs border dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700 dark:text-gray-200"
-                >
-                  <option value="published_at">发布时间</option>
-                  <option value="created_at">抓取时间</option>
-                  <option value="title">标题</option>
-                </select>
-                <button
-                  onClick={toggleSortOrder}
-                  className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-gray-300"
-                  title={sortOrder === 'desc' ? '降序' : '升序'}
-                >
-                  {sortOrder === 'desc' ? <SortDesc className="w-4 h-4" /> : <SortAsc className="w-4 h-4" />}
-                </button>
+                <div className="flex items-center gap-1">
+                  <select
+                    value={sortBy}
+                    onChange={(e) => { setSortBy(e.target.value as typeof sortBy); setCurrentPage(1) }}
+                    className="text-xs border dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700 dark:text-gray-200"
+                  >
+                    <option value="published_at">发布时间</option>
+                    <option value="created_at">抓取时间</option>
+                    <option value="title">标题</option>
+                  </select>
+                  <button
+                    onClick={toggleSortOrder}
+                    className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-gray-300"
+                    title={sortOrder === 'desc' ? '降序' : '升序'}
+                  >
+                    {sortOrder === 'desc' ? <SortDesc className="w-4 h-4" /> : <SortAsc className="w-4 h-4" />}
+                  </button>
+                </div>
                 
                 {/* Date Filter */}
-                <div className="h-4 w-px bg-gray-300 dark:bg-gray-600 mx-1" />
                 <div className="flex items-center gap-1 relative">
                   <button
-                    onClick={() => { setDateFilter('today'); setCurrentPage(1) }}
+                    onClick={() => { setDateFilter(dateFilter === 'today' ? 'all' : 'today'); setCurrentPage(1) }}
                     className={clsx(
-                      'px-2 py-1 text-xs rounded transition-colors',
+                      'px-2 py-1 text-xs rounded transition-colors whitespace-nowrap',
                       dateFilter === 'today' 
                         ? 'bg-primary-600 text-white' 
                         : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -353,9 +355,9 @@ export default function HomePage() {
                     今天
                   </button>
                   <button
-                    onClick={() => { setDateFilter('yesterday'); setCurrentPage(1) }}
+                    onClick={() => { setDateFilter(dateFilter === 'yesterday' ? 'all' : 'yesterday'); setCurrentPage(1) }}
                     className={clsx(
-                      'px-2 py-1 text-xs rounded transition-colors',
+                      'px-2 py-1 text-xs rounded transition-colors whitespace-nowrap',
                       dateFilter === 'yesterday' 
                         ? 'bg-primary-600 text-white' 
                         : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -375,19 +377,10 @@ export default function HomePage() {
                   >
                     <Calendar className="w-4 h-4" />
                   </button>
-                  {dateFilter !== 'all' && (
-                    <button
-                      onClick={() => { setDateFilter('all'); setCustomDateStart(''); setCustomDateEnd(''); setCurrentPage(1) }}
-                      className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                      title="清除日期筛选"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
                   
                   {/* Date Picker Dropdown */}
                   {showDatePicker && (
-                    <div className="absolute top-full left-0 mt-1 p-3 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg shadow-lg z-10 min-w-[200px]">
+                    <div className="absolute top-full right-0 mt-1 p-3 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg shadow-lg z-10 min-w-[200px]">
                       <div className="space-y-2">
                         <div>
                           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">开始日期</label>

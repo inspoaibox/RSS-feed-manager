@@ -176,8 +176,9 @@ class AIModelRepository:
     async def bulk_create(self, provider_id: int, models: List[dict]) -> List[AIModel]:
         """Bulk create models for a provider, skipping duplicates."""
         # Get existing model_ids for this provider
-        existing_query = select(AIModel.model_id).where(AIModel.provider_id == provider_id)
-        result = await self.session.execute(existing_query)
+        result = await self.session.execute(
+            select(AIModel.model_id).where(AIModel.provider_id == provider_id)
+        )
         existing_model_ids = {row[0] for row in result.fetchall()}
         
         created = []
@@ -197,14 +198,5 @@ class AIModelRepository:
             existing_model_ids.add(model_id)  # Prevent duplicates within same batch
         
         if created:
-            try:
-                await self.session.flush()
-            except Exception as e:
-                # Handle unique constraint violation - rollback and skip
-                await self.session.rollback()
-                # Re-fetch to get current state
-                result = await self.session.execute(existing_query)
-                existing_model_ids = {row[0] for row in result.fetchall()}
-                # Return empty list since we couldn't create any new models
-                return []
+            await self.session.flush()
         return created

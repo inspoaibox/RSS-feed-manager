@@ -171,6 +171,10 @@ class AIService:
         if not provider:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model not found")
         
+        # If deleting the default model, clear the default flag
+        if model.is_default:
+            await self.model_repo.clear_defaults_for_user(user_id)
+        
         await self.model_repo.delete(model)
 
     async def set_default_model(self, user_id: int, model_id: int) -> AIModelResponse:
