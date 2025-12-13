@@ -170,6 +170,20 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
             <span>AI 分析</span>
           </button>
 
+          {/* Recommendations */}
+          <button
+            onClick={() => navigate('/recommendations')}
+            className={clsx(
+              'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200',
+              location.pathname === '/recommendations'
+                ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 font-medium'
+                : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+            )}
+          >
+            <Star className="w-5 h-5" />
+            <span>订阅推荐</span>
+          </button>
+
           {/* Categories */}
           {categories.length > 0 && (
             <div className="pt-4">

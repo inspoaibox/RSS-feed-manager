@@ -7,6 +7,7 @@ from app.models.ai_provider import AIProvider, AIModel
 from app.models.custom_rule import CustomRule
 from app.models.system_settings import SystemSettings
 from app.models.analysis_query import AnalysisQuery
+from app.models.recommended_feed import RecommendedFeed
 
 __all__ = [
     "User",
@@ -19,4 +20,5 @@ __all__ = [
     "CustomRule",
     "SystemSettings",
     "AnalysisQuery",
+    "RecommendedFeed",
 ]

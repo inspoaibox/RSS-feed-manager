@@ -125,3 +125,16 @@ export interface PaginatedResponse<T> {
   page_size: number
   total_pages: number
 }
+
+// Recommended Feed types
+export interface RecommendedFeed {
+  id: number
+  url: string
+  title: string
+  description: string | null
+  icon_url: string | null
+  categories: string
+  is_active: boolean
+  subscriber_count: number
+  is_subscribed: boolean
+}

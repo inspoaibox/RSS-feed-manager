@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, FolderOpen, Languages, ChevronUp, ChevronDown, Search, Shield } from 'lucide-react'
+import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, FolderOpen, Languages, ChevronUp, ChevronDown, Search, Shield, Star } from 'lucide-react'
 import api from '@/services/api'
 import type { Category, Feed, AIProvider, AIModel, CustomRule } from '@/types'
 import { useThemeStore, type ThemeColor } from '@/stores/themeStore'
@@ -2528,12 +2528,280 @@ interface SyncIntervalOption {
   label: string
 }
 
+interface RecommendedFeedAdmin {
+  id: number
+  url: string
+  title: string
+  description: string | null
+  icon_url: string | null
+  categories: string
+  is_active: boolean
+  subscriber_count: number
+}
+
+function RecommendationsManagement({ 
+  enabled, 
+  onToggle, 
+  isPending 
+}: { 
+  enabled: boolean
+  onToggle: (enabled: boolean) => void
+  isPending: boolean
+}) {
+  const queryClient = useQueryClient()
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [formData, setFormData] = useState({
+    url: '',
+    title: '',
+    description: '',
+    icon_url: '',
+    categories: '',
+  })
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  const { data: recommendations = [], isLoading } = useQuery({
+    queryKey: ['admin-recommendations'],
+    queryFn: async () => {
+      const response = await api.get<RecommendedFeedAdmin[]>('/recommendations/admin/all')
+      return response.data
+    },
+  })
+
+  const createMutation = useMutation({
+    mutationFn: async (data: typeof formData) => {
+      const response = await api.post('/recommendations/admin', data)
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-recommendations'] })
+      setShowAddForm(false)
+      setFormData({ url: '', title: '', description: '', icon_url: '', categories: '' })
+      setMessage({ type: 'success', text: '推荐源已添加' })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: any) => {
+      setMessage({ type: 'error', text: err.response?.data?.detail || '添加失败' })
+    },
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: Partial<typeof formData & { is_active: boolean }> }) => {
+      const response = await api.put(`/recommendations/admin/${id}`, data)
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-recommendations'] })
+      setEditingId(null)
+      setMessage({ type: 'success', text: '推荐源已更新' })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: any) => {
+      setMessage({ type: 'error', text: err.response?.data?.detail || '更新失败' })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`/recommendations/admin/${id}`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-recommendations'] })
+      setMessage({ type: 'success', text: '推荐源已删除' })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: any) => {
+      setMessage({ type: 'error', text: err.response?.data?.detail || '删除失败' })
+    },
+  })
+
+  const startEdit = (rec: RecommendedFeedAdmin) => {
+    setEditingId(rec.id)
+    setFormData({
+      url: rec.url,
+      title: rec.title,
+      description: rec.description || '',
+      icon_url: rec.icon_url || '',
+      categories: rec.categories,
+    })
+  }
+
+  return (
+    <div className="p-4 border dark:border-gray-700 rounded-lg">
+      <h3 className="font-medium mb-4 dark:text-white flex items-center gap-2">
+        <Star className="w-5 h-5" />
+        订阅推荐
+      </h3>
+      
+      {message && (
+        <div className={`mb-4 p-3 rounded ${message.type === 'success' ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400'}`}>
+          {message.text}
+        </div>
+      )}
+
+      {/* 开关 */}
+      <label className="flex items-center gap-3 cursor-pointer mb-4">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => onToggle(e.target.checked)}
+          disabled={isPending}
+          className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:opacity-50"
+        />
+        <div>
+          <p className="font-medium dark:text-white">启用订阅推荐功能</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">开启后，用户可以在"订阅推荐"页面浏览并一键订阅推荐源</p>
+        </div>
+      </label>
+
+      {enabled && (
+        <>
+          {/* 添加按钮 */}
+          <div className="mb-4">
+            <button
+              onClick={() => {
+                setShowAddForm(true)
+                setFormData({ url: '', title: '', description: '', icon_url: '', categories: '' })
+              }}
+              className="flex items-center gap-1 px-3 py-2 bg-primary-600 text-white rounded hover:bg-primary-700"
+            >
+              <Plus className="w-4 h-4" /> 添加推荐源
+            </button>
+          </div>
+
+          {/* 添加/编辑表单 */}
+          {(showAddForm || editingId !== null) && (
+            <div className="mb-4 p-4 border dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-700 space-y-3">
+              <input
+                type="text"
+                placeholder="RSS 订阅地址"
+                value={formData.url}
+                onChange={(e) => setFormData({ ...formData, url: e.target.value })}
+                className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+              />
+              <input
+                type="text"
+                placeholder="标题"
+                value={formData.title}
+                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+              />
+              <input
+                type="text"
+                placeholder="描述（可选）"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+              />
+              <input
+                type="text"
+                placeholder="图标 URL（可选）"
+                value={formData.icon_url}
+                onChange={(e) => setFormData({ ...formData, icon_url: e.target.value })}
+                className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+              />
+              <input
+                type="text"
+                placeholder="分类标签（逗号分隔，如：技术,新闻,AI）"
+                value={formData.categories}
+                onChange={(e) => setFormData({ ...formData, categories: e.target.value })}
+                className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    if (editingId !== null) {
+                      updateMutation.mutate({ id: editingId, data: formData })
+                    } else {
+                      createMutation.mutate(formData)
+                    }
+                  }}
+                  disabled={!formData.url || !formData.title || createMutation.isPending || updateMutation.isPending}
+                  className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
+                >
+                  {createMutation.isPending || updateMutation.isPending ? '保存中...' : (editingId !== null ? '更新' : '添加')}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowAddForm(false)
+                    setEditingId(null)
+                    setFormData({ url: '', title: '', description: '', icon_url: '', categories: '' })
+                  }}
+                  className="px-4 py-2 border dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600 dark:text-gray-200"
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 推荐源列表 */}
+          {isLoading ? (
+            <div className="text-center py-4 text-gray-500 dark:text-gray-400">加载中...</div>
+          ) : recommendations.length === 0 ? (
+            <div className="text-center py-4 text-gray-500 dark:text-gray-400">暂无推荐源</div>
+          ) : (
+            <div className="border dark:border-gray-700 rounded divide-y dark:divide-gray-700">
+              {recommendations.map((rec) => (
+                <div key={rec.id} className="p-3 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium dark:text-white truncate">{rec.title}</span>
+                      {!rec.is_active && (
+                        <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded">已禁用</span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{rec.url}</p>
+                    <div className="flex items-center gap-2 mt-1 text-xs text-gray-400 dark:text-gray-500">
+                      {rec.categories && <span>{rec.categories}</span>}
+                      <span>·</span>
+                      <span>{rec.subscriber_count} 人订阅</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => startEdit(rec)}
+                      className="p-2 text-gray-500 hover:text-primary-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                      title="编辑"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => updateMutation.mutate({ id: rec.id, data: { is_active: !rec.is_active } })}
+                      className={`p-2 rounded ${rec.is_active ? 'text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-900/30' : 'text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30'}`}
+                      title={rec.is_active ? '禁用' : '启用'}
+                    >
+                      {rec.is_active ? <X className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm(`确定要删除推荐源 "${rec.title}" 吗？`)) {
+                          deleteMutation.mutate(rec.id)
+                        }
+                      }}
+                      className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded"
+                      title="删除"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 interface SystemSettings {
   allow_registration: boolean
   site_name: string
   oauth_linuxdo: OAuthConfig
   sync_intervals: SyncIntervalOption[]
   default_sync_interval: number
+  enable_feed_recommendations: boolean
 }
 
 // 所有可选的同步间隔
@@ -2607,6 +2875,7 @@ function SystemTab() {
       oauth_linuxdo?: OAuthConfig
       sync_intervals?: SyncIntervalOption[]
       default_sync_interval?: number
+      enable_feed_recommendations?: boolean
     }) => {
       const response = await api.put('/system/settings', data)
       return response.data
@@ -2866,6 +3135,13 @@ function SystemTab() {
           )}
         </div>
       </div>
+
+      {/* 订阅推荐设置 */}
+      <RecommendationsManagement 
+        enabled={settings?.enable_feed_recommendations ?? false}
+        onToggle={(enabled) => updateSettingsMutation.mutate({ enable_feed_recommendations: enabled })}
+        isPending={updateSettingsMutation.isPending}
+      />
 
       {/* 用户列表 */}
       <div className="p-4 border dark:border-gray-700 rounded-lg">

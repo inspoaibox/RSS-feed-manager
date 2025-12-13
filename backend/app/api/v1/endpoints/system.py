@@ -48,6 +48,7 @@ class SystemSettingsResponse(BaseModel):
     oauth_linuxdo: OAuthConfig
     sync_intervals: list[SyncIntervalOption]
     default_sync_interval: int
+    enable_feed_recommendations: bool
 
 
 class SystemSettingsUpdate(BaseModel):
@@ -57,6 +58,7 @@ class SystemSettingsUpdate(BaseModel):
     oauth_linuxdo: OAuthConfig | None = None
     sync_intervals: list[SyncIntervalOption] | None = None
     default_sync_interval: int | None = None
+    enable_feed_recommendations: bool | None = None
 
 
 class PublicSettingsResponse(BaseModel):
@@ -171,7 +173,8 @@ async def get_system_settings(
         site_name=await settings_repo.get('site_name') or 'RSS 管理器',
         oauth_linuxdo=await get_oauth_config(settings_repo, 'linuxdo'),
         sync_intervals=await get_sync_intervals(settings_repo),
-        default_sync_interval=default_interval
+        default_sync_interval=default_interval,
+        enable_feed_recommendations=await settings_repo.get_bool('enable_feed_recommendations', False)
     )
 
 
@@ -220,6 +223,13 @@ async def update_system_settings(
             '默认同步间隔'
         )
     
+    if data.enable_feed_recommendations is not None:
+        await settings_repo.set(
+            'enable_feed_recommendations',
+            'true' if data.enable_feed_recommendations else 'false',
+            '是否开启订阅推荐功能'
+        )
+    
     await db.commit()
     
     default_interval_str = await settings_repo.get('default_sync_interval')
@@ -230,7 +240,8 @@ async def update_system_settings(
         site_name=await settings_repo.get('site_name') or 'RSS 管理器',
         oauth_linuxdo=await get_oauth_config(settings_repo, 'linuxdo'),
         sync_intervals=await get_sync_intervals(settings_repo),
-        default_sync_interval=default_interval
+        default_sync_interval=default_interval,
+        enable_feed_recommendations=await settings_repo.get_bool('enable_feed_recommendations', False)
     )
 
 
