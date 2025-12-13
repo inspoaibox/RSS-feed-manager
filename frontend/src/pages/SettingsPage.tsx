@@ -2535,6 +2535,7 @@ interface RecommendedFeedAdmin {
   description: string | null
   icon_url: string | null
   categories: string
+  use_playwright: boolean
   is_active: boolean
   subscriber_count: number
 }
@@ -2557,7 +2558,9 @@ function RecommendationsManagement({
     description: '',
     icon_url: '',
     categories: '',
+    use_playwright: false,
   })
+  const [validating, setValidating] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const { data: recommendations = [], isLoading } = useQuery({
@@ -2568,6 +2571,31 @@ function RecommendationsManagement({
     },
   })
 
+  const validateFeed = async () => {
+    if (!formData.url) return
+    setValidating(true)
+    setMessage(null)
+    try {
+      const response = await api.post<{ success: boolean; title: string; description: string; icon_url: string; article_count: number }>(
+        '/recommendations/admin/validate',
+        null,
+        { params: { url: formData.url, use_playwright: formData.use_playwright } }
+      )
+      setFormData({
+        ...formData,
+        title: formData.title || response.data.title || '',
+        description: formData.description || response.data.description || '',
+        icon_url: formData.icon_url || response.data.icon_url || '',
+      })
+      setMessage({ type: 'success', text: `验证成功！发现 ${response.data.article_count} 篇文章` })
+      setTimeout(() => setMessage(null), 3000)
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.response?.data?.detail || '验证失败' })
+    } finally {
+      setValidating(false)
+    }
+  }
+
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
       const response = await api.post('/recommendations/admin', data)
@@ -2576,7 +2604,7 @@ function RecommendationsManagement({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-recommendations'] })
       setShowAddForm(false)
-      setFormData({ url: '', title: '', description: '', icon_url: '', categories: '' })
+      setFormData({ url: '', title: '', description: '', icon_url: '', categories: '', use_playwright: false })
       setMessage({ type: 'success', text: '推荐源已添加' })
       setTimeout(() => setMessage(null), 3000)
     },
@@ -2623,6 +2651,7 @@ function RecommendationsManagement({
       description: rec.description || '',
       icon_url: rec.icon_url || '',
       categories: rec.categories,
+      use_playwright: rec.use_playwright,
     })
   }
 
@@ -2661,7 +2690,7 @@ function RecommendationsManagement({
             <button
               onClick={() => {
                 setShowAddForm(true)
-                setFormData({ url: '', title: '', description: '', icon_url: '', categories: '' })
+                setFormData({ url: '', title: '', description: '', icon_url: '', categories: '', use_playwright: false })
               }}
               className="flex items-center gap-1 px-3 py-2 bg-primary-600 text-white rounded hover:bg-primary-700"
             >
@@ -2672,30 +2701,48 @@ function RecommendationsManagement({
           {/* 添加/编辑表单 */}
           {(showAddForm || editingId !== null) && (
             <div className="mb-4 p-4 border dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-700 space-y-3">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="RSS 订阅地址"
+                  value={formData.url}
+                  onChange={(e) => setFormData({ ...formData, url: e.target.value })}
+                  className="flex-1 px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                />
+                <button
+                  onClick={validateFeed}
+                  disabled={!formData.url || validating}
+                  className="px-3 py-2 border dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600 dark:text-gray-200 disabled:opacity-50"
+                >
+                  {validating ? '验证中...' : '验证'}
+                </button>
+              </div>
+              <label className="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded">
+                <input
+                  type="checkbox"
+                  checked={formData.use_playwright}
+                  onChange={(e) => setFormData({ ...formData, use_playwright: e.target.checked })}
+                />
+                <span className="text-sm dark:text-yellow-200">使用浏览器模式 (Playwright)</span>
+                <span className="text-xs text-yellow-600 dark:text-yellow-400">适用于 Cloudflare 保护的网站</span>
+              </label>
               <input
                 type="text"
-                placeholder="RSS 订阅地址"
-                value={formData.url}
-                onChange={(e) => setFormData({ ...formData, url: e.target.value })}
-                className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
-              />
-              <input
-                type="text"
-                placeholder="标题"
+                placeholder="标题（验证后自动填充）"
                 value={formData.title}
                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                 className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
               />
               <input
                 type="text"
-                placeholder="描述（可选）"
+                placeholder="描述（可选，验证后自动填充）"
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
               />
               <input
                 type="text"
-                placeholder="图标 URL（可选）"
+                placeholder="图标 URL（可选，验证后自动填充）"
                 value={formData.icon_url}
                 onChange={(e) => setFormData({ ...formData, icon_url: e.target.value })}
                 className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
@@ -2716,7 +2763,7 @@ function RecommendationsManagement({
                       createMutation.mutate(formData)
                     }
                   }}
-                  disabled={!formData.url || !formData.title || createMutation.isPending || updateMutation.isPending}
+                  disabled={!formData.url || createMutation.isPending || updateMutation.isPending}
                   className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
                 >
                   {createMutation.isPending || updateMutation.isPending ? '保存中...' : (editingId !== null ? '更新' : '添加')}
@@ -2725,7 +2772,7 @@ function RecommendationsManagement({
                   onClick={() => {
                     setShowAddForm(false)
                     setEditingId(null)
-                    setFormData({ url: '', title: '', description: '', icon_url: '', categories: '' })
+                    setFormData({ url: '', title: '', description: '', icon_url: '', categories: '', use_playwright: false })
                   }}
                   className="px-4 py-2 border dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600 dark:text-gray-200"
                 >
@@ -2745,8 +2792,11 @@ function RecommendationsManagement({
               {recommendations.map((rec) => (
                 <div key={rec.id} className="p-3 flex items-center gap-3">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium dark:text-white truncate">{rec.title}</span>
+                      {rec.use_playwright && (
+                        <span className="px-2 py-0.5 text-xs bg-yellow-100 dark:bg-yellow-900/50 text-yellow-700 dark:text-yellow-300 rounded">浏览器</span>
+                      )}
                       {!rec.is_active && (
                         <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded">已禁用</span>
                       )}

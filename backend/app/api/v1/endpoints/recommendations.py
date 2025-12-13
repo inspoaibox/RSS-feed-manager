@@ -21,6 +21,7 @@ class RecommendedFeedCreate(BaseModel):
     description: Optional[str] = None
     icon_url: Optional[str] = None
     categories: str = ""  # comma-separated
+    use_playwright: bool = False
 
 
 class RecommendedFeedUpdate(BaseModel):
@@ -29,6 +30,7 @@ class RecommendedFeedUpdate(BaseModel):
     description: Optional[str] = None
     icon_url: Optional[str] = None
     categories: Optional[str] = None
+    use_playwright: Optional[bool] = None
     is_active: Optional[bool] = None
 
 
@@ -39,6 +41,7 @@ class RecommendedFeedResponse(BaseModel):
     description: Optional[str]
     icon_url: Optional[str]
     categories: str
+    use_playwright: bool
     is_active: bool
     subscriber_count: int
     is_subscribed: bool = False  # Whether current user has subscribed
@@ -142,6 +145,7 @@ async def list_recommendations(
             description=feed.description,
             icon_url=feed.icon_url,
             categories=feed.categories,
+            use_playwright=feed.use_playwright,
             is_active=feed.is_active,
             subscriber_count=feed.subscriber_count,
             is_subscribed=feed.url in subscribed_urls
@@ -195,6 +199,7 @@ async def subscribe_to_recommendation(
         title=rec.title,
         description=rec.description,
         icon_url=rec.icon_url,
+        use_playwright=rec.use_playwright,
         is_active=True
     )
     db.add(feed)
@@ -228,12 +233,38 @@ async def admin_list_all_recommendations(
             description=f.description,
             icon_url=f.icon_url,
             categories=f.categories,
+            use_playwright=f.use_playwright,
             is_active=f.is_active,
             subscriber_count=f.subscriber_count,
             is_subscribed=False
         )
         for f in feeds
     ]
+
+
+@router.post("/admin/validate")
+async def admin_validate_feed(
+    url: str,
+    use_playwright: bool = False,
+    admin: User = Depends(require_admin)
+):
+    """Validate a feed URL and return parsed info (admin only)."""
+    from app.utils.feed_parser import parse_feed
+    
+    try:
+        parsed = await parse_feed(url, use_playwright=use_playwright)
+        if not parsed:
+            raise HTTPException(status_code=400, detail="无法解析该 RSS 源，请检查 URL 或尝试开启浏览器模式")
+        
+        return {
+            "success": True,
+            "title": parsed.title,
+            "description": parsed.description,
+            "icon_url": parsed.icon_url,
+            "article_count": len(parsed.articles)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"验证失败: {str(e)}")
 
 
 @router.post("/admin", response_model=RecommendedFeedResponse)
@@ -243,6 +274,8 @@ async def admin_create_recommendation(
     admin: User = Depends(require_admin)
 ):
     """Create a new recommended feed (admin only)."""
+    from app.utils.feed_parser import parse_feed
+    
     # Check for duplicate URL
     existing = await db.execute(
         select(RecommendedFeed).where(RecommendedFeed.url == data.url)
@@ -250,12 +283,28 @@ async def admin_create_recommendation(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="该 URL 已存在")
     
+    # Validate feed
+    try:
+        parsed = await parse_feed(data.url, use_playwright=data.use_playwright)
+        if not parsed:
+            raise HTTPException(status_code=400, detail="无法解析该 RSS 源，请检查 URL 或尝试开启浏览器模式")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"RSS 验证失败: {str(e)}")
+    
+    # Use parsed info if not provided
+    title = data.title or parsed.title or "未知标题"
+    description = data.description or parsed.description
+    icon_url = data.icon_url or parsed.icon_url
+    
     rec = RecommendedFeed(
         url=data.url,
-        title=data.title,
-        description=data.description,
-        icon_url=data.icon_url,
+        title=title,
+        description=description,
+        icon_url=icon_url,
         categories=data.categories,
+        use_playwright=data.use_playwright,
         created_by=admin.id
     )
     db.add(rec)
@@ -269,6 +318,7 @@ async def admin_create_recommendation(
         description=rec.description,
         icon_url=rec.icon_url,
         categories=rec.categories,
+        use_playwright=rec.use_playwright,
         is_active=rec.is_active,
         subscriber_count=rec.subscriber_count,
         is_subscribed=False
@@ -313,6 +363,7 @@ async def admin_update_recommendation(
         description=rec.description,
         icon_url=rec.icon_url,
         categories=rec.categories,
+        use_playwright=rec.use_playwright,
         is_active=rec.is_active,
         subscriber_count=rec.subscriber_count,
         is_subscribed=False

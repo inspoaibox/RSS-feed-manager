@@ -145,14 +145,33 @@ export default function RecommendationsPage() {
             >
               <div className="flex items-start gap-3">
                 {rec.icon_url ? (
-                  <img src={rec.icon_url} alt="" className="w-10 h-10 rounded" />
+                  <img src={rec.icon_url} alt="" className="w-10 h-10 rounded flex-shrink-0" />
                 ) : (
-                  <div className="w-10 h-10 rounded bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center flex-shrink-0">
                     <Rss className="w-5 h-5 text-primary-600 dark:text-primary-400" />
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-medium dark:text-white truncate">{rec.title}</h3>
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="font-medium dark:text-white truncate">{rec.title}</h3>
+                    {rec.is_subscribed ? (
+                      <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 flex-shrink-0">
+                        <Check className="w-3.5 h-3.5" />
+                        已订阅
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setSubscribeModal(rec)
+                          setSelectedCategory(null)
+                        }}
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs bg-primary-600 text-white rounded hover:bg-primary-700 transition-colors flex-shrink-0"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        订阅
+                      </button>
+                    )}
+                  </div>
                   {rec.description && (
                     <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2 mt-1">
                       {rec.description}
@@ -170,25 +189,6 @@ export default function RecommendationsPage() {
                     )}
                   </div>
                 </div>
-              </div>
-              <div className="mt-3 flex justify-end">
-                {rec.is_subscribed ? (
-                  <span className="flex items-center gap-1 text-sm text-green-600 dark:text-green-400">
-                    <Check className="w-4 h-4" />
-                    已订阅
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => {
-                      setSubscribeModal(rec)
-                      setSelectedCategory(null)
-                    }}
-                    className="flex items-center gap-1 px-3 py-1.5 text-sm bg-primary-600 text-white rounded hover:bg-primary-700 transition-colors"
-                  >
-                    <Plus className="w-4 h-4" />
-                    订阅
-                  </button>
-                )}
               </div>
             </div>
           ))}

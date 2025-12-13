@@ -25,6 +25,9 @@ class RecommendedFeed(BaseModel):
     # Categories (comma-separated tags like "技术,新闻,AI")
     categories: Mapped[str] = mapped_column(String(500), default="")
     
+    # Fetch settings
+    use_playwright: Mapped[bool] = mapped_column(Boolean, default=False)
+    
     # Status
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     subscriber_count: Mapped[int] = mapped_column(Integer, default=0)
