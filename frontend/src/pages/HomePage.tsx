@@ -1,10 +1,30 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Check, Star, ExternalLink, Search, SortAsc, SortDesc, X, Languages, FileText, Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { RefreshCw, Check, Star, ExternalLink, Search, SortAsc, SortDesc, X, Languages, FileText, Loader2, ChevronLeft, ChevronRight, Calendar } from 'lucide-react'
 import api from '@/services/api'
 import type { Article, PaginatedResponse } from '@/types'
 import clsx from 'clsx'
+
+// Helper to get date string in YYYY-MM-DD format
+const formatDateForInput = (date: Date): string => {
+  return date.toISOString().split('T')[0]
+}
+
+// Get today's date range
+const getToday = () => {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return formatDateForInput(today)
+}
+
+// Get yesterday's date
+const getYesterday = () => {
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  yesterday.setHours(0, 0, 0, 0)
+  return formatDateForInput(yesterday)
+}
 
 // Helper function to strip HTML tags and get plain text
 const stripHtml = (html: string | null | undefined): string => {
@@ -42,13 +62,29 @@ export default function HomePage() {
   const [showTranslation, setShowTranslation] = useState(true)
   const [currentPage, setCurrentPage] = useState(1)
   const [searchPage, setSearchPage] = useState(1)
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'custom'>('all')
+  const [customDateStart, setCustomDateStart] = useState('')
+  const [customDateEnd, setCustomDateEnd] = useState('')
+  const [showDatePicker, setShowDatePicker] = useState(false)
 
   const feedId = searchParams.get('feed')
   const categoryId = searchParams.get('category')
   const isFavorite = searchParams.get('favorite') === 'true'
 
+  // Calculate date range based on filter
+  const getDateRange = () => {
+    if (dateFilter === 'today') {
+      return { start: getToday(), end: getToday() }
+    } else if (dateFilter === 'yesterday') {
+      return { start: getYesterday(), end: getYesterday() }
+    } else if (dateFilter === 'custom' && customDateStart) {
+      return { start: customDateStart, end: customDateEnd || customDateStart }
+    }
+    return { start: '', end: '' }
+  }
+
   const { data, isLoading } = useQuery({
-    queryKey: ['articles', feedId, categoryId, isFavorite, sortBy, sortOrder, currentPage],
+    queryKey: ['articles', feedId, categoryId, isFavorite, sortBy, sortOrder, currentPage, dateFilter, customDateStart, customDateEnd],
     queryFn: async () => {
       const params = new URLSearchParams()
       if (feedId) params.append('feed_id', feedId)
@@ -58,6 +94,11 @@ export default function HomePage() {
       params.append('sort_order', sortOrder)
       params.append('page', currentPage.toString())
       params.append('page_size', PAGE_SIZE.toString())
+      
+      // Add date filter
+      const dateRange = getDateRange()
+      if (dateRange.start) params.append('date_from', dateRange.start)
+      if (dateRange.end) params.append('date_to', dateRange.end)
       
       const response = await api.get<PaginatedResponse<Article>>(`/articles?${params}`)
       return response.data
@@ -296,6 +337,101 @@ export default function HomePage() {
                 >
                   {sortOrder === 'desc' ? <SortDesc className="w-4 h-4" /> : <SortAsc className="w-4 h-4" />}
                 </button>
+                
+                {/* Date Filter */}
+                <div className="h-4 w-px bg-gray-300 dark:bg-gray-600 mx-1" />
+                <div className="flex items-center gap-1 relative">
+                  <button
+                    onClick={() => { setDateFilter('today'); setCurrentPage(1) }}
+                    className={clsx(
+                      'px-2 py-1 text-xs rounded transition-colors',
+                      dateFilter === 'today' 
+                        ? 'bg-primary-600 text-white' 
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    )}
+                  >
+                    今天
+                  </button>
+                  <button
+                    onClick={() => { setDateFilter('yesterday'); setCurrentPage(1) }}
+                    className={clsx(
+                      'px-2 py-1 text-xs rounded transition-colors',
+                      dateFilter === 'yesterday' 
+                        ? 'bg-primary-600 text-white' 
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    )}
+                  >
+                    昨天
+                  </button>
+                  <button
+                    onClick={() => setShowDatePicker(!showDatePicker)}
+                    className={clsx(
+                      'p-1.5 rounded transition-colors',
+                      dateFilter === 'custom' 
+                        ? 'bg-primary-600 text-white' 
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-700 dark:text-gray-300'
+                    )}
+                    title="自定义日期"
+                  >
+                    <Calendar className="w-4 h-4" />
+                  </button>
+                  {dateFilter !== 'all' && (
+                    <button
+                      onClick={() => { setDateFilter('all'); setCustomDateStart(''); setCustomDateEnd(''); setCurrentPage(1) }}
+                      className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                      title="清除日期筛选"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  
+                  {/* Date Picker Dropdown */}
+                  {showDatePicker && (
+                    <div className="absolute top-full left-0 mt-1 p-3 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg shadow-lg z-10 min-w-[200px]">
+                      <div className="space-y-2">
+                        <div>
+                          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">开始日期</label>
+                          <input
+                            type="date"
+                            value={customDateStart}
+                            onChange={(e) => setCustomDateStart(e.target.value)}
+                            className="w-full px-2 py-1 text-sm border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">结束日期</label>
+                          <input
+                            type="date"
+                            value={customDateEnd}
+                            onChange={(e) => setCustomDateEnd(e.target.value)}
+                            className="w-full px-2 py-1 text-sm border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
+                          />
+                        </div>
+                        <div className="flex gap-2 pt-1">
+                          <button
+                            onClick={() => {
+                              if (customDateStart) {
+                                setDateFilter('custom')
+                                setCurrentPage(1)
+                              }
+                              setShowDatePicker(false)
+                            }}
+                            disabled={!customDateStart}
+                            className="flex-1 px-2 py-1 text-xs bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
+                          >
+                            确定
+                          </button>
+                          <button
+                            onClick={() => setShowDatePicker(false)}
+                            className="px-2 py-1 text-xs border dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:text-gray-300"
+                          >
+                            取消
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </>
             )}
             

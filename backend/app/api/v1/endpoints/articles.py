@@ -25,6 +25,8 @@ async def get_articles(
     is_favorite: bool | None = Query(None),
     sort_by: str = Query("published_at", pattern="^(published_at|created_at|title)$"),
     sort_order: str = Query("desc", pattern="^(asc|desc)$"),
+    date_from: str | None = Query(None, description="Filter by date from (YYYY-MM-DD)"),
+    date_to: str | None = Query(None, description="Filter by date to (YYYY-MM-DD)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100)
 ):
@@ -37,6 +39,8 @@ async def get_articles(
         is_favorite=is_favorite,
         sort_by=sort_by,
         sort_order=sort_order,
+        date_from=date_from,
+        date_to=date_to,
         page=page,
         page_size=page_size
     )

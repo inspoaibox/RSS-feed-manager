@@ -65,6 +65,8 @@ class ArticleRepository:
         is_favorite: bool | None = None,
         sort_by: str = "published_at",
         sort_order: str = "desc",
+        date_from: str | None = None,
+        date_to: str | None = None,
         page: int = 1,
         page_size: int = 20
     ) -> Tuple[List[dict], int]:
@@ -105,6 +107,24 @@ class ArticleRepository:
                 base_query = base_query.where(
                     or_(UserArticle.is_favorite == False, UserArticle.is_favorite == None)
                 )
+        
+        # Date filter
+        if date_from:
+            from datetime import datetime
+            try:
+                date_start = datetime.strptime(date_from, "%Y-%m-%d")
+                base_query = base_query.where(Article.published_at >= date_start)
+            except ValueError:
+                pass
+        
+        if date_to:
+            from datetime import datetime, timedelta
+            try:
+                # Include the entire end date (until 23:59:59)
+                date_end = datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1)
+                base_query = base_query.where(Article.published_at < date_end)
+            except ValueError:
+                pass
         
         # Count total
         count_query = select(func.count()).select_from(base_query.subquery())

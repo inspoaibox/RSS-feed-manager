@@ -42,6 +42,8 @@ class ArticleFilter(BaseModel):
     is_favorite: bool | None = None
     sort_by: str = Field(default="published_at", pattern="^(published_at|created_at|title)$")
     sort_order: str = Field(default="desc", pattern="^(asc|desc)$")
+    date_from: str | None = None  # YYYY-MM-DD format
+    date_to: str | None = None  # YYYY-MM-DD format
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=20, ge=1, le=100)
 

@@ -36,6 +36,8 @@ class ArticleService:
             is_favorite=filters.is_favorite,
             sort_by=filters.sort_by,
             sort_order=filters.sort_order,
+            date_from=filters.date_from,
+            date_to=filters.date_to,
             page=filters.page,
             page_size=filters.page_size
         )
