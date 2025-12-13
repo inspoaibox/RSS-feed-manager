@@ -208,8 +208,17 @@ async def subscribe_to_recommendation(
     rec.subscriber_count += 1
     
     await db.commit()
+    await db.refresh(feed)
     
-    return {"success": True, "message": f"已订阅 {rec.title}", "feed_id": feed.id}
+    # Trigger initial fetch via Celery task
+    try:
+        from app.tasks.feed_tasks import refresh_single_feed
+        refresh_single_feed.delay(feed.id)
+    except Exception:
+        # If Celery is not available, ignore - user can manually refresh
+        pass
+    
+    return {"success": True, "message": f"已订阅 {rec.title}，正在抓取文章...", "feed_id": feed.id}
 
 
 # Admin endpoints
