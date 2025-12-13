@@ -24,6 +24,28 @@ export default function SettingsPage() {
     ...(isAdmin ? [{ id: 'system', label: '系统设置', icon: Shield }] : []),
   ]
 
+  // Render tab content - only render active tab to reduce initial load
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 'feeds':
+        return <FeedsTab />
+      case 'categories':
+        return <CategoriesTab />
+      case 'ai':
+        return <AITab />
+      case 'rules':
+        return <RulesTab />
+      case 'backup':
+        return <BackupTab />
+      case 'appearance':
+        return <AppearanceTab />
+      case 'system':
+        return isAdmin ? <SystemTab /> : null
+      default:
+        return null
+    }
+  }
+
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-6 dark:text-white">设置</h1>
@@ -46,13 +68,7 @@ export default function SettingsPage() {
         ))}
       </div>
 
-      {activeTab === 'feeds' && <FeedsTab />}
-      {activeTab === 'categories' && <CategoriesTab />}
-      {activeTab === 'ai' && <AITab />}
-      {activeTab === 'rules' && <RulesTab />}
-      {activeTab === 'backup' && <BackupTab />}
-      {activeTab === 'appearance' && <AppearanceTab />}
-      {activeTab === 'system' && isAdmin && <SystemTab />}
+      {renderTabContent()}
     </div>
   )
 }
