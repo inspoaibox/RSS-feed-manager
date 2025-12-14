@@ -28,8 +28,8 @@ def upgrade() -> None:
     op.add_column('users', sa.Column('google_translate_api_key', sa.String(255), nullable=True))
     
     # Migrate existing data: if auto_translate is True, set translate_method to 'ai'
-    op.execute("UPDATE feeds SET translate_method = 'ai' WHERE auto_translate = 1 OR auto_translate = true")
-    op.execute("UPDATE custom_rules SET translate_method = 'ai' WHERE auto_translate = 1 OR auto_translate = true")
+    op.execute("UPDATE feeds SET translate_method = 'ai' WHERE auto_translate = true")
+    op.execute("UPDATE custom_rules SET translate_method = 'ai' WHERE auto_translate = true")
 
 
 def downgrade() -> None:
