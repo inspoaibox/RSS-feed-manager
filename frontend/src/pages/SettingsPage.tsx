@@ -984,7 +984,7 @@ function AITab() {
   const { data: settings } = useQuery({
     queryKey: ['ai-settings'],
     queryFn: async () => {
-      const response = await api.get<{ translate_prompt: string; summarize_prompt: string; embedding_provider_id: number | null; embedding_model: string | null }>('/ai/settings')
+      const response = await api.get<{ translate_prompt: string; summarize_prompt: string; embedding_provider_id: number | null; embedding_model: string | null; google_translate_api_key: string | null }>('/ai/settings')
       return response.data
     },
   })
@@ -993,6 +993,7 @@ function AITab() {
     provider_id: number | null
     model: string
   }>({ provider_id: null, model: '' })
+  const [googleApiKey, setGoogleApiKey] = useState('')
 
   // Initialize prompts and embedding config when settings load
   if (settings && !prompts.translate && !prompts.summarize) {
@@ -1010,6 +1011,13 @@ function AITab() {
         model: settings.embedding_model || '',
       })
     }
+  }
+  
+  // Initialize Google API key when settings load
+  const [googleApiKeyInitialized, setGoogleApiKeyInitialized] = useState(false)
+  if (settings && !googleApiKeyInitialized) {
+    setGoogleApiKey(settings.google_translate_api_key || '')
+    setGoogleApiKeyInitialized(true)
   }
 
   const addProviderMutation = useMutation({
@@ -1099,6 +1107,22 @@ function AITab() {
     },
   })
 
+  const saveGoogleApiKeyMutation = useMutation({
+    mutationFn: async () => {
+      await api.put('/ai/settings', {
+        google_translate_api_key: googleApiKey || null,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ai-settings'] })
+      setMessage({ type: 'success', text: 'Google API Key 已保存' })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: any) => {
+      setMessage({ type: 'error', text: err.response?.data?.detail || '保存失败' })
+    },
+  })
+
   const defaultModel = models.find(m => m.is_default)
 
   return (
@@ -1176,6 +1200,38 @@ function AITab() {
             className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
           >
             保存 Embedding 配置
+          </button>
+        </div>
+      </div>
+
+      {/* Google Translate API Key */}
+      <div className="p-4 border dark:border-gray-700 rounded bg-yellow-50 dark:bg-yellow-900/30">
+        <h2 className="text-lg font-semibold mb-3 dark:text-white flex items-center gap-2">
+          <Languages className="w-5 h-5" /> Google 翻译设置
+        </h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+          免费的 Google 翻译接口存在请求频率限制，建议配置自己的 Google Cloud Translation API Key 以获得更稳定的翻译服务。
+        </p>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Google Translate API Key</label>
+            <input
+              type="password"
+              value={googleApiKey}
+              onChange={(e) => setGoogleApiKey(e.target.value)}
+              placeholder="留空则使用免费接口（有限制）"
+              className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+            />
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              获取 API Key: <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="text-primary-500 hover:underline">Google Cloud Console</a>
+            </p>
+          </div>
+          <button
+            onClick={() => saveGoogleApiKeyMutation.mutate()}
+            disabled={saveGoogleApiKeyMutation.isPending}
+            className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700 disabled:opacity-50"
+          >
+            保存 Google API Key
           </button>
         </div>
       </div>

@@ -293,6 +293,7 @@ class AIService:
             "summarize_prompt": user.summarize_prompt or default_summarize if user else default_summarize,
             "embedding_provider_id": user.embedding_provider_id if user else None,
             "embedding_model": user.embedding_model if user else None,
+            "google_translate_api_key": user.google_translate_api_key if user else None,
         }
 
     async def update_settings(self, user_id: int, data: dict) -> dict:
@@ -314,6 +315,8 @@ class AIService:
             user.embedding_provider_id = data["embedding_provider_id"]
         if "embedding_model" in data:
             user.embedding_model = data["embedding_model"]
+        if "google_translate_api_key" in data:
+            user.google_translate_api_key = data["google_translate_api_key"]
         
         await self.session.commit()
         
