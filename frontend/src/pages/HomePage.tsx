@@ -578,7 +578,7 @@ export default function HomePage() {
                 onClick={() => translateMutation.mutate(selectedArticle.id)}
                 disabled={translateMutation.isPending}
                 className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-purple-600 dark:text-purple-400 disabled:opacity-50"
-                title="AI 翻译"
+                title="翻译"
               >
                 {translateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Languages className="w-4 h-4" />}
               </button>

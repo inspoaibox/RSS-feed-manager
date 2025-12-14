@@ -218,7 +218,7 @@ class ArticleService:
         return text.strip()
 
     async def translate_article(self, user_id: int, article_id: int, target_language: str) -> dict:
-        """Translate article title and content using AI."""
+        """Translate article title and content using AI or Google Translate based on feed settings."""
         import json
         
         article = await self._verify_article_access(user_id, article_id)
@@ -235,61 +235,90 @@ class ArticleService:
         # Keep HTML content for translation (let AI preserve formatting)
         content_text = content
         
-        # Get default AI model
-        from app.repositories.ai_repository import AIModelRepository, AIProviderRepository
-        model_repo = AIModelRepository(self.session)
-        provider_repo = AIProviderRepository(self.session)
-        default_model = await model_repo.get_default_model(user_id)
-        
-        if not default_model:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No default AI model configured"
-            )
-        
-        provider = await provider_repo.get_by_id(default_model.provider_id, user_id)
-        if not provider:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="AI provider not found"
-            )
-        
-        # Get user's custom prompt
-        from app.models.user import User
+        # Get feed's translate_method
+        from app.models.feed import Feed
         from sqlalchemy import select
-        result = await self.session.execute(select(User).where(User.id == user_id))
-        user = result.scalar_one_or_none()
-        custom_prompt = user.translate_prompt if user and user.translate_prompt else None
+        feed_result = await self.session.execute(select(Feed).where(Feed.id == article.feed_id))
+        feed = feed_result.scalar_one_or_none()
+        translate_method = getattr(feed, 'translate_method', 'none') if feed else 'none'
         
-        from app.services.ai_client import create_ai_client, AIClientError
-        try:
-            client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
-            
-            # Translate title and content separately
-            translated_title = ""
-            translated_content = ""
-            
-            if title:
-                translated_title = await client.translate(title, target_language, custom_prompt)
-            
-            if content_text:
-                translated_content = await client.translate(content_text, target_language, custom_prompt)
-            
-            # Store as JSON
-            translation_data = json.dumps({
-                "title": translated_title,
-                "content": translated_content
-            }, ensure_ascii=False)
-            
-            article.translation = translation_data
-            await self.session.commit()
-            
-            return {"translation": translation_data, "title": translated_title, "content": translated_content}
-        except AIClientError as e:
+        # Check if translation is enabled
+        if translate_method == 'none':
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"AI translation failed: {str(e)}"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="请先在订阅源设置中启用 Google 翻译或 AI 翻译"
             )
+        
+        # Get user info
+        from app.models.user import User
+        user_result = await self.session.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+        
+        translated_title = ""
+        translated_content = ""
+        
+        if translate_method == 'google':
+            # Use Google Translate
+            from app.services.google_translate_service import GoogleTranslateService, GoogleTranslateError
+            google_api_key = user.google_translate_api_key if user else None
+            google_service = GoogleTranslateService(api_key=google_api_key)
+            
+            try:
+                if title:
+                    translated_title = await google_service.translate(title, target_language)
+                if content_text:
+                    translated_content = await google_service.translate(content_text, target_language)
+            except GoogleTranslateError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Google translation failed: {str(e)}"
+                )
+        else:
+            # Use AI translation (default)
+            from app.repositories.ai_repository import AIModelRepository, AIProviderRepository
+            model_repo = AIModelRepository(self.session)
+            provider_repo = AIProviderRepository(self.session)
+            default_model = await model_repo.get_default_model(user_id)
+            
+            if not default_model:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No default AI model configured"
+                )
+            
+            provider = await provider_repo.get_by_id(default_model.provider_id, user_id)
+            if not provider:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="AI provider not found"
+                )
+            
+            custom_prompt = user.translate_prompt if user and user.translate_prompt else None
+            
+            from app.services.ai_client import create_ai_client, AIClientError
+            try:
+                client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
+                
+                if title:
+                    translated_title = await client.translate(title, target_language, custom_prompt)
+                if content_text:
+                    translated_content = await client.translate(content_text, target_language, custom_prompt)
+            except AIClientError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"AI translation failed: {str(e)}"
+                )
+        
+        # Store as JSON
+        translation_data = json.dumps({
+            "title": translated_title,
+            "content": translated_content
+        }, ensure_ascii=False)
+        
+        article.translation = translation_data
+        await self.session.commit()
+        
+        return {"translation": translation_data, "title": translated_title, "content": translated_content, "method": translate_method}
 
     async def summarize_article(self, user_id: int, article_id: int) -> dict:
         """Summarize article using AI."""
