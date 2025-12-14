@@ -29,7 +29,8 @@ class FeedRepository:
         use_playwright: bool = False,
         auto_translate: bool = False,
         auto_summarize: bool = False,
-        target_language: str | None = None
+        target_language: str | None = None,
+        translate_method: str = 'none'
     ) -> Feed:
         """Create a new feed."""
         # Get max position
@@ -52,6 +53,7 @@ class FeedRepository:
             auto_translate=auto_translate,
             auto_summarize=auto_summarize,
             target_language=target_language,
+            translate_method=translate_method,
             position=max_position + 1
         )
         self.session.add(feed)

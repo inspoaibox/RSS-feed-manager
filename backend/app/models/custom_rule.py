@@ -52,6 +52,7 @@ class CustomRule(BaseModel):
     auto_translate: Mapped[bool] = mapped_column(Boolean, default=False)
     auto_summarize: Mapped[bool] = mapped_column(Boolean, default=False)
     target_language: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    translate_method: Mapped[str] = mapped_column(String(20), default='none')  # none, ai, google
     
     # Status
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

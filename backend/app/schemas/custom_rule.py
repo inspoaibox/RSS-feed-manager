@@ -20,6 +20,7 @@ class CustomRuleBase(BaseModel):
     auto_translate: bool = False
     auto_summarize: bool = False
     target_language: str | None = Field(None, max_length=10)
+    translate_method: str = Field(default='none', pattern='^(none|ai|google)$')
     is_active: bool = True
 
 
@@ -45,15 +46,32 @@ class CustomRuleUpdate(BaseModel):
     auto_translate: bool | None = None
     auto_summarize: bool | None = None
     target_language: str | None = Field(None, max_length=10)
+    translate_method: str | None = Field(None, pattern='^(none|ai|google)$')
     is_active: bool | None = None
 
 
-class CustomRuleResponse(CustomRuleBase):
+class CustomRuleResponse(BaseModel):
     """Schema for custom rule response."""
     id: int
     user_id: int
     category_id: int | None
     feed_id: int | None
+    name: str
+    target_url: str
+    rule_type: str
+    cookies: str | None
+    list_selector: str
+    title_selector: str
+    link_selector: str | None
+    content_selector: str | None
+    date_selector: str | None
+    fetch_interval: int
+    use_playwright: bool
+    auto_translate: bool
+    auto_summarize: bool
+    target_language: str | None
+    translate_method: str = 'none'
+    is_active: bool
     last_fetched_at: datetime | None
     last_error: str | None
     error_count: int

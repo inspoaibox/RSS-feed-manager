@@ -90,69 +90,102 @@ def _generate_article_embedding_sync(db: Session, article: Article, user_id: int
 
 
 def _process_article_with_ai(db: Session, article: Article, feed: Feed) -> None:
-    """Process article with AI (translate/summarize) if enabled."""
+    """Process article with AI/Google translate and summarize if enabled."""
     from app.models.user import User
     
-    if not feed.auto_translate and not feed.auto_summarize:
+    # Get translate_method, default to checking auto_translate for backward compatibility
+    translate_method = getattr(feed, 'translate_method', None) or ('ai' if feed.auto_translate else 'none')
+    
+    if translate_method == 'none' and not feed.auto_summarize:
         return
-    
-    # Get default model for the feed's user (must filter by user_id)
-    default_model = db.execute(
-        select(AIModel)
-        .join(AIProvider, AIModel.provider_id == AIProvider.id)
-        .where(
-            AIProvider.user_id == feed.user_id,
-            AIModel.is_default == True
-        )
-    ).scalar_one_or_none()
-    
-    if not default_model:
-        print(f"No default AI model set for user {feed.user_id}, skipping AI processing")
-        return
-    
-    provider = db.execute(
-        select(AIProvider).where(AIProvider.id == default_model.provider_id)
-    ).scalar_one_or_none()
-    
-    if not provider:
-        return
-    
-    # Get user's custom prompts
-    user = db.execute(
-        select(User).where(User.id == feed.user_id)
-    ).scalar_one_or_none()
-    
-    translate_prompt = user.translate_prompt if user and user.translate_prompt else None
-    summarize_prompt = user.summarize_prompt if user and user.summarize_prompt else None
     
     content = article.content or article.title
     if not content:
         return
     
-    # Run AI operations
+    # Get user info
+    user = db.execute(
+        select(User).where(User.id == feed.user_id)
+    ).scalar_one_or_none()
+    
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    
     try:
-        from app.services.ai_client import create_ai_client, AIClientError
-        client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
-        
-        if feed.auto_translate and feed.target_language:
+        # Handle translation based on method
+        if translate_method == 'google' and feed.target_language:
+            # Use Google Translate
             try:
-                translation = loop.run_until_complete(client.translate(content, feed.target_language, translate_prompt))
+                from app.services.google_translate_service import GoogleTranslateService, GoogleTranslateError
+                google_api_key = user.google_translate_api_key if user else None
+                google_service = GoogleTranslateService(api_key=google_api_key)
+                translation = loop.run_until_complete(google_service.translate(content, feed.target_language))
                 article.translation = translation
-            except AIClientError as e:
-                print(f"AI translate error for article {article.id}: {e}")
+                print(f"Google translated article {article.id}: {article.title[:50]}...")
+            except GoogleTranslateError as e:
+                print(f"Google translate error for article {article.id}: {e}")
         
+        elif translate_method == 'ai' and feed.target_language:
+            # Use AI translation
+            default_model = db.execute(
+                select(AIModel)
+                .join(AIProvider, AIModel.provider_id == AIProvider.id)
+                .where(
+                    AIProvider.user_id == feed.user_id,
+                    AIModel.is_default == True
+                )
+            ).scalar_one_or_none()
+            
+            if not default_model:
+                print(f"No default AI model set for user {feed.user_id}, skipping AI translation")
+            else:
+                provider = db.execute(
+                    select(AIProvider).where(AIProvider.id == default_model.provider_id)
+                ).scalar_one_or_none()
+                
+                if provider:
+                    translate_prompt = user.translate_prompt if user and user.translate_prompt else None
+                    
+                    try:
+                        from app.services.ai_client import create_ai_client, AIClientError
+                        client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
+                        translation = loop.run_until_complete(client.translate(content, feed.target_language, translate_prompt))
+                        article.translation = translation
+                    except AIClientError as e:
+                        print(f"AI translate error for article {article.id}: {e}")
+        
+        # Handle AI summarization (always uses AI model)
         if feed.auto_summarize:
-            try:
-                summary = loop.run_until_complete(client.summarize(content, summarize_prompt))
-                article.summary = summary
-            except AIClientError as e:
-                print(f"AI summarize error for article {article.id}: {e}")
+            default_model = db.execute(
+                select(AIModel)
+                .join(AIProvider, AIModel.provider_id == AIProvider.id)
+                .where(
+                    AIProvider.user_id == feed.user_id,
+                    AIModel.is_default == True
+                )
+            ).scalar_one_or_none()
+            
+            if not default_model:
+                print(f"No default AI model set for user {feed.user_id}, skipping AI summarization")
+            else:
+                provider = db.execute(
+                    select(AIProvider).where(AIProvider.id == default_model.provider_id)
+                ).scalar_one_or_none()
+                
+                if provider:
+                    summarize_prompt = user.summarize_prompt if user and user.summarize_prompt else None
+                    
+                    try:
+                        from app.services.ai_client import create_ai_client, AIClientError
+                        client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
+                        summary = loop.run_until_complete(client.summarize(content, summarize_prompt))
+                        article.summary = summary
+                    except AIClientError as e:
+                        print(f"AI summarize error for article {article.id}: {e}")
         
         db.commit()
     except Exception as e:
-        print(f"AI processing error: {e}")
+        print(f"Article processing error: {e}")
     finally:
         loop.close()
 
@@ -249,6 +282,7 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
             auto_translate=rule.auto_translate,
             auto_summarize=rule.auto_summarize,
             target_language=rule.target_language,
+            translate_method=getattr(rule, 'translate_method', 'none'),
             is_active=rule.is_active,
         )
         db.add(feed)
@@ -745,7 +779,7 @@ def execute_single_custom_rule(self, rule_id: int) -> dict:
 
 @shared_task(name="app.tasks.feed_tasks.translate_feed_articles")
 def translate_feed_articles(feed_id: int) -> dict:
-    """Translate all untranslated articles in a feed."""
+    """Translate all untranslated articles in a feed using configured method (AI or Google)."""
     from app.models.user import User
     
     with get_sync_session() as db:
@@ -753,34 +787,16 @@ def translate_feed_articles(feed_id: int) -> dict:
         if not feed:
             return {"success": False, "error": "Feed not found"}
         
-        if not feed.auto_translate or not feed.target_language:
+        # Get translate_method, default to checking auto_translate for backward compatibility
+        translate_method = getattr(feed, 'translate_method', None) or ('ai' if feed.auto_translate else 'none')
+        
+        if translate_method == 'none' or not feed.target_language:
             return {"success": False, "error": "Feed does not have translation enabled"}
         
-        # Get default model for this user (must filter by user_id)
-        default_model = db.execute(
-            select(AIModel)
-            .join(AIProvider, AIModel.provider_id == AIProvider.id)
-            .where(
-                AIProvider.user_id == feed.user_id,
-                AIModel.is_default == True
-            )
-        ).scalar_one_or_none()
-        
-        if not default_model:
-            return {"success": False, "error": "请先在 AI 设置中设置默认模型"}
-        
-        provider = db.execute(
-            select(AIProvider).where(AIProvider.id == default_model.provider_id)
-        ).scalar_one_or_none()
-        
-        if not provider:
-            return {"success": False, "error": "AI provider not found"}
-        
-        # Get user's custom translate prompt
+        # Get user info
         user = db.execute(
             select(User).where(User.id == feed.user_id)
         ).scalar_one_or_none()
-        translate_prompt = user.translate_prompt if user and user.translate_prompt else None
         
         # Get untranslated articles
         articles = db.execute(
@@ -799,26 +815,73 @@ def translate_feed_articles(feed_id: int) -> dict:
         errors = 0
         
         try:
-            from app.services.ai_client import create_ai_client, AIClientError
-            client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
-            
-            for article in articles:
-                content = article.content or article.title
-                if not content:
-                    continue
+            if translate_method == 'google':
+                # Use Google Translate
+                from app.services.google_translate_service import GoogleTranslateService, GoogleTranslateError
+                google_api_key = user.google_translate_api_key if user else None
+                google_service = GoogleTranslateService(api_key=google_api_key)
                 
-                try:
-                    translation = loop.run_until_complete(client.translate(content, feed.target_language, translate_prompt))
-                    article.translation = translation
-                    db.commit()
-                    translated_count += 1
-                    print(f"Translated article {article.id}: {article.title[:50]}...")
-                except AIClientError as e:
-                    print(f"AI translate error for article {article.id}: {e}")
-                    errors += 1
-                except Exception as e:
-                    print(f"Error translating article {article.id}: {e}")
-                    errors += 1
+                for article in articles:
+                    content = article.content or article.title
+                    if not content:
+                        continue
+                    
+                    try:
+                        translation = loop.run_until_complete(google_service.translate(content, feed.target_language))
+                        article.translation = translation
+                        db.commit()
+                        translated_count += 1
+                        print(f"Google translated article {article.id}: {article.title[:50]}...")
+                    except GoogleTranslateError as e:
+                        print(f"Google translate error for article {article.id}: {e}")
+                        errors += 1
+                    except Exception as e:
+                        print(f"Error translating article {article.id}: {e}")
+                        errors += 1
+            
+            elif translate_method == 'ai':
+                # Use AI translation
+                default_model = db.execute(
+                    select(AIModel)
+                    .join(AIProvider, AIModel.provider_id == AIProvider.id)
+                    .where(
+                        AIProvider.user_id == feed.user_id,
+                        AIModel.is_default == True
+                    )
+                ).scalar_one_or_none()
+                
+                if not default_model:
+                    return {"success": False, "error": "请先在 AI 设置中设置默认模型"}
+                
+                provider = db.execute(
+                    select(AIProvider).where(AIProvider.id == default_model.provider_id)
+                ).scalar_one_or_none()
+                
+                if not provider:
+                    return {"success": False, "error": "AI provider not found"}
+                
+                translate_prompt = user.translate_prompt if user and user.translate_prompt else None
+                
+                from app.services.ai_client import create_ai_client, AIClientError
+                client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
+                
+                for article in articles:
+                    content = article.content or article.title
+                    if not content:
+                        continue
+                    
+                    try:
+                        translation = loop.run_until_complete(client.translate(content, feed.target_language, translate_prompt))
+                        article.translation = translation
+                        db.commit()
+                        translated_count += 1
+                        print(f"AI translated article {article.id}: {article.title[:50]}...")
+                    except AIClientError as e:
+                        print(f"AI translate error for article {article.id}: {e}")
+                        errors += 1
+                    except Exception as e:
+                        print(f"Error translating article {article.id}: {e}")
+                        errors += 1
         finally:
             loop.close()
         
@@ -826,7 +889,8 @@ def translate_feed_articles(feed_id: int) -> dict:
             "success": True,
             "translated": translated_count,
             "errors": errors,
-            "total": len(articles)
+            "total": len(articles),
+            "method": translate_method
         }
 
 

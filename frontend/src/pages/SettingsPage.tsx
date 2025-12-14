@@ -81,9 +81,10 @@ function FeedsTab() {
   const [newFeedCategory, setNewFeedCategory] = useState<number | null>(null)
   const [newFeedInterval, setNewFeedInterval] = useState<number | null>(null)
   const [newFeedPlaywright, setNewFeedPlaywright] = useState(false)
-  const [newFeedAutoTranslate, setNewFeedAutoTranslate] = useState(false)
+
   const [newFeedAutoSummarize, setNewFeedAutoSummarize] = useState(false)
   const [newFeedTargetLanguage, setNewFeedTargetLanguage] = useState('zh-CN')
+  const [newFeedTranslateMethod, setNewFeedTranslateMethod] = useState<'none' | 'ai' | 'google'>('none')
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editData, setEditData] = useState<{
@@ -95,7 +96,8 @@ function FeedsTab() {
     auto_translate: boolean
     auto_summarize: boolean
     target_language: string
-  }>({ title: '', category_id: null, fetch_interval: 3600, is_active: true, use_playwright: false, auto_translate: false, auto_summarize: false, target_language: 'zh-CN' })
+    translate_method: 'none' | 'ai' | 'google'
+  }>({ title: '', category_id: null, fetch_interval: 3600, is_active: true, use_playwright: false, auto_translate: false, auto_summarize: false, target_language: 'zh-CN', translate_method: 'none' })
   
   // Filter states
   const [searchQuery, setSearchQuery] = useState('')
@@ -134,9 +136,10 @@ function FeedsTab() {
         category_id: newFeedCategory,
         fetch_interval: newFeedInterval ?? defaultSyncInterval,
         use_playwright: newFeedPlaywright,
-        auto_translate: newFeedAutoTranslate,
+        auto_translate: newFeedTranslateMethod !== 'none',
         auto_summarize: newFeedAutoSummarize,
-        target_language: newFeedAutoTranslate ? newFeedTargetLanguage : null
+        target_language: newFeedTranslateMethod !== 'none' ? newFeedTargetLanguage : null,
+        translate_method: newFeedTranslateMethod
       })
       return response.data
     },
@@ -149,9 +152,9 @@ function FeedsTab() {
       setNewFeedCategory(null)
       setNewFeedInterval(3600)
       setNewFeedPlaywright(false)
-      setNewFeedAutoTranslate(false)
       setNewFeedAutoSummarize(false)
       setNewFeedTargetLanguage('zh-CN')
+      setNewFeedTranslateMethod('none')
       setMessage({ type: 'success', text: `订阅源 "${data.title || newFeedUrl}" 添加成功` })
       setTimeout(() => setMessage(null), 3000)
     },
@@ -311,7 +314,8 @@ function FeedsTab() {
       use_playwright: feed.use_playwright,
       auto_translate: feed.auto_translate,
       auto_summarize: feed.auto_summarize,
-      target_language: feed.target_language || 'zh-CN'
+      target_language: feed.target_language || 'zh-CN',
+      translate_method: feed.translate_method || 'none'
     })
   }
 
@@ -484,22 +488,27 @@ function FeedsTab() {
             <span className="text-sm dark:text-yellow-200">使用浏览器模式 (Playwright)</span>
             <span className="text-xs text-yellow-600 dark:text-yellow-400">适用于 Cloudflare 保护的网站</span>
           </label>
-          <div className="flex gap-2 flex-wrap">
-            <label className={`flex items-center gap-2 p-2 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded ${!hasDefaultModel ? 'opacity-50' : ''}`}>
-              <input
-                type="checkbox"
-                checked={newFeedAutoTranslate}
+          <div className="flex gap-2 flex-wrap items-center">
+            <div className="flex items-center gap-2 p-2 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded">
+              <span className="text-sm dark:text-blue-200">翻译方式:</span>
+              <select
+                value={newFeedTranslateMethod}
                 onChange={(e) => {
-                  if (e.target.checked && !hasDefaultModel) {
+                  const method = e.target.value as 'none' | 'ai' | 'google'
+                  if (method === 'ai' && !hasDefaultModel) {
                     setMessage({ type: 'error', text: '请先在 AI 设置中设置默认模型' })
                     return
                   }
-                  setNewFeedAutoTranslate(e.target.checked)
+                  setNewFeedTranslateMethod(method)
                 }}
-              />
-              <span className="text-sm dark:text-blue-200">启用 AI 翻译</span>
-            </label>
-            {newFeedAutoTranslate && (
+                className="px-2 py-1 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-800 dark:text-white"
+              >
+                <option value="none">不翻译</option>
+                <option value="google">Google 翻译</option>
+                <option value="ai" disabled={!hasDefaultModel}>AI 翻译{!hasDefaultModel ? ' (需配置)' : ''}</option>
+              </select>
+            </div>
+            {newFeedTranslateMethod !== 'none' && (
               <select
                 value={newFeedTargetLanguage}
                 onChange={(e) => setNewFeedTargetLanguage(e.target.value)}
@@ -536,7 +545,7 @@ function FeedsTab() {
               {addFeedMutation.isPending ? '添加中...' : '添加'}
             </button>
             <button
-              onClick={() => { setShowAddForm(false); setNewFeedUrl(''); setNewFeedCategory(null); setNewFeedPlaywright(false); setNewFeedAutoTranslate(false); setNewFeedAutoSummarize(false) }}
+              onClick={() => { setShowAddForm(false); setNewFeedUrl(''); setNewFeedCategory(null); setNewFeedPlaywright(false); setNewFeedAutoSummarize(false); setNewFeedTranslateMethod('none') }}
               className="px-4 py-2 border dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600 dark:text-gray-200"
             >
               取消
@@ -597,22 +606,27 @@ function FeedsTab() {
                   />
                   浏览器模式 (Playwright)
                 </label>
-                <div className="flex gap-2 flex-wrap">
-                  <label className={`flex items-center gap-2 p-2 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded text-sm dark:text-blue-200 ${!hasDefaultModel ? 'opacity-50' : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={editData.auto_translate}
+                <div className="flex gap-2 flex-wrap items-center">
+                  <div className="flex items-center gap-2 p-2 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded text-sm">
+                    <span className="dark:text-blue-200">翻译:</span>
+                    <select
+                      value={editData.translate_method}
                       onChange={(e) => {
-                        if (e.target.checked && !hasDefaultModel) {
+                        const method = e.target.value as 'none' | 'ai' | 'google'
+                        if (method === 'ai' && !hasDefaultModel) {
                           setMessage({ type: 'error', text: '请先在 AI 设置中设置默认模型' })
                           return
                         }
-                        setEditData({ ...editData, auto_translate: e.target.checked })
+                        setEditData({ ...editData, translate_method: method, auto_translate: method !== 'none' })
                       }}
-                    />
-                    AI 翻译
-                  </label>
-                  {editData.auto_translate && (
+                      className="px-2 py-1 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-800 dark:text-white"
+                    >
+                      <option value="none">不翻译</option>
+                      <option value="google">Google</option>
+                      <option value="ai" disabled={!hasDefaultModel}>AI{!hasDefaultModel ? ' (需配置)' : ''}</option>
+                    </select>
+                  </div>
+                  {editData.translate_method !== 'none' && (
                     <select
                       value={editData.target_language}
                       onChange={(e) => setEditData({ ...editData, target_language: e.target.value })}
@@ -693,8 +707,11 @@ function FeedsTab() {
                     {feed.use_playwright && (
                       <span className="text-yellow-600 dark:text-yellow-400">🌐 浏览器模式</span>
                     )}
-                    {feed.auto_translate && (
-                      <span className="text-primary-600 dark:text-primary-400">🌐 AI翻译</span>
+                    {feed.translate_method === 'google' && (
+                      <span className="text-blue-600 dark:text-blue-400">🌐 Google翻译</span>
+                    )}
+                    {feed.translate_method === 'ai' && (
+                      <span className="text-primary-600 dark:text-primary-400">🤖 AI翻译</span>
                     )}
                     {feed.auto_summarize && (
                       <span className="text-green-600 dark:text-green-400">📝 AI整理</span>
@@ -709,7 +726,7 @@ function FeedsTab() {
                 >
                   <RefreshCw className={`w-4 h-4 ${refreshFeedMutation.isPending ? 'animate-spin' : ''}`} />
                 </button>
-                {feed.auto_translate && (
+                {(feed.translate_method === 'ai' || feed.translate_method === 'google') && (
                   <button
                     onClick={() => translateAllMutation.mutate(feed.id)}
                     disabled={translateAllMutation.isPending}

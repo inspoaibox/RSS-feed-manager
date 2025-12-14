@@ -51,6 +51,7 @@ export interface Feed {
   last_fetched_at: string | null
   is_active: boolean
   target_language: string | null
+  translate_method: 'none' | 'ai' | 'google'
   use_playwright: boolean
   position: number
 }
@@ -108,6 +109,7 @@ export interface CustomRule {
   auto_translate: boolean
   auto_summarize: boolean
   target_language: string | null
+  translate_method: 'none' | 'ai' | 'google'
   is_active: boolean
   category_id: number | null
   last_fetched_at: string | null
@@ -116,6 +118,9 @@ export interface CustomRule {
   created_at: string
   updated_at: string | null
 }
+
+// Translate method type
+export type TranslateMethod = 'none' | 'ai' | 'google'
 
 // Pagination
 export interface PaginatedResponse<T> {

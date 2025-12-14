@@ -13,6 +13,7 @@ class FeedCreate(BaseModel):
     auto_translate: bool = False  # Auto translate articles using AI
     auto_summarize: bool = False  # Auto summarize articles using AI
     target_language: str | None = Field(None, max_length=10)  # Target language for translation
+    translate_method: str = Field(default='none', pattern='^(none|ai|google)$')  # Translation method
 
 
 class FeedUpdate(BaseModel):
@@ -23,6 +24,7 @@ class FeedUpdate(BaseModel):
     auto_translate: bool | None = None
     auto_summarize: bool | None = None
     target_language: str | None = Field(None, max_length=10)
+    translate_method: str | None = Field(None, pattern='^(none|ai|google)$')
     is_active: bool | None = None
     use_playwright: bool | None = None
     position: int | None = None
@@ -47,6 +49,7 @@ class FeedResponse(BaseModel):
     auto_translate: bool
     auto_summarize: bool
     target_language: str | None
+    translate_method: str = 'none'
     is_active: bool
     use_playwright: bool = False
     position: int = 0

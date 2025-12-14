@@ -213,10 +213,11 @@ async def subscribe_to_recommendation(
     # Trigger initial fetch via Celery task
     try:
         from app.tasks.feed_tasks import refresh_single_feed
-        refresh_single_feed.delay(feed.id)
-    except Exception:
+        result = refresh_single_feed.delay(feed.id)
+        print(f"[Recommendations] Triggered refresh_single_feed for feed {feed.id}, task_id={result.id}")
+    except Exception as e:
         # If Celery is not available, ignore - user can manually refresh
-        pass
+        print(f"[Recommendations] Failed to trigger Celery task for feed {feed.id}: {e}")
     
     return {"success": True, "message": f"已订阅 {rec.title}，正在抓取文章...", "feed_id": feed.id}
 

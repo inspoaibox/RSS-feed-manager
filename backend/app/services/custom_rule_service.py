@@ -75,6 +75,7 @@ class CustomRuleService:
             auto_translate=data.auto_translate,
             auto_summarize=data.auto_summarize,
             target_language=data.target_language,
+            translate_method=data.translate_method,
             is_active=data.is_active,
         )
         self.db.add(feed)
@@ -132,6 +133,8 @@ class CustomRuleService:
                     feed.auto_summarize = update_data['auto_summarize']
                 if 'target_language' in update_data:
                     feed.target_language = update_data['target_language']
+                if 'translate_method' in update_data:
+                    feed.translate_method = update_data['translate_method']
                 if 'is_active' in update_data:
                     feed.is_active = update_data['is_active']
         
@@ -248,6 +251,7 @@ class CustomRuleService:
             auto_translate=rule.auto_translate,
             auto_summarize=rule.auto_summarize,
             target_language=rule.target_language,
+            translate_method=getattr(rule, 'translate_method', 'none'),
             is_active=rule.is_active,
         )
         self.db.add(feed)

@@ -44,6 +44,9 @@ class User(BaseModel):
     
     # Last login time
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    
+    # Google Translate API key (optional, for paid API)
+    google_translate_api_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Relationships
     categories: Mapped[List["Category"]] = relationship(

@@ -100,7 +100,8 @@ class FeedService:
             use_playwright=data.use_playwright,
             auto_translate=data.auto_translate,
             auto_summarize=data.auto_summarize,
-            target_language=data.target_language
+            target_language=data.target_language,
+            translate_method=data.translate_method
         )
         
         # Save articles from the feed
@@ -390,6 +391,7 @@ class FeedService:
             auto_translate=feed.auto_translate,
             auto_summarize=feed.auto_summarize,
             target_language=feed.target_language,
+            translate_method=getattr(feed, 'translate_method', 'none'),
             is_active=feed.is_active,
             use_playwright=feed.use_playwright,
             position=feed.position,
