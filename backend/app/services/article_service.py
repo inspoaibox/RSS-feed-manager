@@ -259,6 +259,7 @@ class ArticleService:
         
         if translate_method == 'google':
             # Use Google Translate
+            print(f"[Translate] Using Google Translate for article {article_id}")
             from app.services.google_translate_service import GoogleTranslateService, GoogleTranslateError
             google_api_key = user.google_translate_api_key if user else None
             google_service = GoogleTranslateService(api_key=google_api_key)
@@ -275,6 +276,7 @@ class ArticleService:
                 )
         else:
             # Use AI translation (default)
+            print(f"[Translate] Using AI Translate for article {article_id}")
             from app.repositories.ai_repository import AIModelRepository, AIProviderRepository
             model_repo = AIModelRepository(self.session)
             provider_repo = AIProviderRepository(self.session)
