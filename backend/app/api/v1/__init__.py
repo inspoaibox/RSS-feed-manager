@@ -1,7 +1,7 @@
 """API v1 router."""
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import ai, articles, auth, backup, categories, feeds, oauth, recommendations, rules, stats, system
+from app.api.v1.endpoints import ai, articles, auth, backup, categories, feeds, notifications, oauth, recommendations, rules, stats, system
 
 router = APIRouter()
 
@@ -17,3 +17,4 @@ router.include_router(backup.router, prefix="/backup", tags=["backup"])
 router.include_router(stats.router, prefix="/stats", tags=["stats"])
 router.include_router(system.router, prefix="/system", tags=["system"])
 router.include_router(recommendations.router, prefix="/recommendations", tags=["recommendations"])
+router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])

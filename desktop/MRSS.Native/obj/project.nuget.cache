@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "dgSpecHash": "NmsQvzrW7js=",
+  "success": true,
+  "projectFilePath": "D:\\website\\RSS feed manager\\desktop\\MRSS.Native\\MRSS.Native.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\nfksu\\.nuget\\packages\\codehollow.feedreader\\1.2.6\\codehollow.feedreader.1.2.6.nupkg.sha512",
+    "C:\\Users\\nfksu\\.nuget\\packages\\communitytoolkit.mvvm\\8.4.2\\communitytoolkit.mvvm.8.4.2.nupkg.sha512",
+    "C:\\Users\\nfksu\\.nuget\\packages\\htmlagilitypack\\1.12.4\\htmlagilitypack.1.12.4.nupkg.sha512",
+    "C:\\Users\\nfksu\\.nuget\\packages\\microsoft.data.sqlite\\10.0.7\\microsoft.data.sqlite.10.0.7.nupkg.sha512",
+    "C:\\Users\\nfksu\\.nuget\\packages\\microsoft.data.sqlite.core\\10.0.7\\microsoft.data.sqlite.core.10.0.7.nupkg.sha512",
+    "C:\\Users\\nfksu\\.nuget\\packages\\sqlitepclraw.bundle_e_sqlite3\\2.1.11\\sqlitepclraw.bundle_e_sqlite3.2.1.11.nupkg.sha512",
+    "C:\\Users\\nfksu\\.nuget\\packages\\sqlitepclraw.core\\2.1.11\\sqlitepclraw.core.2.1.11.nupkg.sha512",
+    "C:\\Users\\nfksu\\.nuget\\packages\\sqlitepclraw.lib.e_sqlite3\\2.1.11\\sqlitepclraw.lib.e_sqlite3.2.1.11.nupkg.sha512",
+    "C:\\Users\\nfksu\\.nuget\\packages\\sqlitepclraw.provider.e_sqlite3\\2.1.11\\sqlitepclraw.provider.e_sqlite3.2.1.11.nupkg.sha512",
+    "C:\\Users\\nfksu\\.nuget\\packages\\microsoft.netcore.app.runtime.win-x64\\10.0.7\\microsoft.netcore.app.runtime.win-x64.10.0.7.nupkg.sha512",
+    "C:\\Users\\nfksu\\.nuget\\packages\\microsoft.windowsdesktop.app.runtime.win-x64\\10.0.7\\microsoft.windowsdesktop.app.runtime.win-x64.10.0.7.nupkg.sha512",
+    "C:\\Users\\nfksu\\.nuget\\packages\\microsoft.aspnetcore.app.runtime.win-x64\\10.0.7\\microsoft.aspnetcore.app.runtime.win-x64.10.0.7.nupkg.sha512"
+  ],
+  "logs": []
+}

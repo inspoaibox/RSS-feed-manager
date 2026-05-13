@@ -1,0 +1,501 @@
+<Window x:Class="MRSS.Native.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="clr-namespace:MRSS.Native.Models"
+        Title="MRSS"
+        Width="1240"
+        Height="780"
+        MinWidth="980"
+        MinHeight="620"
+        Icon="Assets/mrss.ico"
+        Background="{StaticResource PageBrush}">
+    <Window.Resources>
+        <Style x:Key="SidebarItem" TargetType="ListBoxItem">
+            <Setter Property="Margin" Value="0,1" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Root"
+                                Background="Transparent"
+                                CornerRadius="7"
+                                Padding="{Binding Level, Converter={StaticResource SidebarPaddingConverter}}">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{StaticResource PrimarySoftBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#F1F5F9" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ArticleItem" TargetType="ListBoxItem">
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Root"
+                                Background="{StaticResource SurfaceBrush}"
+                                BorderBrush="#DCEAE6"
+                                BorderThickness="0,0,0,1"
+                                Padding="12,8">
+                            <Grid>
+                                <Border x:Name="UnreadAccent"
+                                        Width="4"
+                                        HorizontalAlignment="Left"
+                                        Background="{StaticResource PrimaryBrush}"
+                                        Margin="-12,-8,0,-8" />
+                                <ContentPresenter />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <DataTrigger Binding="{Binding IsRead}" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#F7F9FB" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#EEF2F7" />
+                                <Setter TargetName="UnreadAccent" Property="Background" Value="Transparent" />
+                            </DataTrigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#F2F8F6" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{StaticResource PrimarySoftBrush}" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#8ED4C8" />
+                                <Setter TargetName="UnreadAccent" Property="Background" Value="{StaticResource PrimaryBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="FilterMenuButton" TargetType="Button" BasedOn="{StaticResource GhostButton}">
+            <Setter Property="Height" Value="30" />
+            <Setter Property="MinWidth" Value="112" />
+            <Setter Property="Padding" Value="10,0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="15">
+                            <Grid Margin="{TemplateBinding Padding}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ContentPresenter VerticalAlignment="Center" />
+                                <Path Grid.Column="1"
+                                      Data="M 0 0 L 4 4 L 8 0 Z"
+                                      Fill="{StaticResource MutedBrush}"
+                                      Width="8"
+                                      Height="4"
+                                      Stretch="Fill"
+                                      VerticalAlignment="Center"
+                                      Margin="8,0,0,0" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#EEF2F7" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#D3DAE6" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#E5EAF2" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Root" Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="FilterChoiceItem" TargetType="ListBoxItem">
+            <Setter Property="Margin" Value="3" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Root" Background="Transparent" CornerRadius="7" Padding="10,7">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="18" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="✓" Foreground="{StaticResource PrimaryBrush}" FontWeight="Bold" Visibility="{Binding IsSelected, Converter={StaticResource BoolToVisibility}}" />
+                                <TextBlock Grid.Column="1" Text="{Binding Label}" Foreground="{StaticResource TextBrush}" FontSize="13" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#EEF7F5" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{StaticResource PrimarySoftBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Background="{StaticResource PageBrush}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="248" MinWidth="220" />
+            <ColumnDefinition Width="5" />
+            <ColumnDefinition Width="1.18*" MinWidth="390" />
+            <ColumnDefinition Width="5" />
+            <ColumnDefinition Width="0.82*" MinWidth="320" />
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0" Background="{StaticResource SidebarBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+            <Grid Margin="12,12,12,10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="38" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Width="34" Height="34" CornerRadius="7" ClipToBounds="True">
+                        <Image Source="Assets/logo.png" Stretch="UniformToFill" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                        <TextBlock Text="MRSS" Foreground="{StaticResource TextBrush}" FontSize="23" FontWeight="Bold" />
+                        <TextBlock Text="本地 RSS 阅读器" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,1,0,0" />
+                    </StackPanel>
+                </Grid>
+
+                <Grid Grid.Row="1" Margin="0,10,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="8" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Button Content="+ 订阅" Command="{Binding AddFeedCommand}" />
+                    <Button Grid.Column="2" Content="+ 分类" Command="{Binding AddCategoryCommand}" Style="{StaticResource GhostButton}" />
+                </Grid>
+
+                <Border Grid.Row="2" Style="{StaticResource SoftPanelBorder}" Padding="9" Margin="0,0,0,8">
+                    <StackPanel>
+                        <TextBlock Text="当前选择" Foreground="{StaticResource MutedBrush}" FontSize="12" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding SelectedNavTitle}" Foreground="{StaticResource TextBrush}" FontSize="15" FontWeight="Bold" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" />
+                        <TextBlock Text="{Binding SelectedNavDetail}" Foreground="{StaticResource MutedBrush}" FontSize="12" TextTrimming="CharacterEllipsis" Margin="0,2,0,6" />
+                        <WrapPanel>
+                            <Button Content="{Binding EditNavButtonText}" MinWidth="76" Margin="0,0,6,6" Style="{StaticResource GhostButton}" Command="{Binding EditNavCommand}" />
+                            <Button Content="删除" MinWidth="58" Margin="0,0,6,6" Style="{StaticResource GhostButton}" Command="{Binding DeleteNavCommand}" />
+                            <Button Content="刷新" MinWidth="58" Margin="0,0,0,6" Command="{Binding RefreshCommand}" />
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <ListBox Grid.Row="3"
+                         ItemsSource="{Binding NavItems}"
+                         SelectedItem="{Binding SelectedNavItem}"
+                         ItemContainerStyle="{StaticResource SidebarItem}"
+                         PreviewMouseRightButtonDown="ListBoxItem_PreviewMouseRightButtonDown"
+                         MouseDoubleClick="NavList_MouseDoubleClick"
+                         Background="Transparent"
+                         Foreground="{StaticResource TextBrush}"
+                         BorderThickness="0"
+                         ScrollViewer.IsDeferredScrollingEnabled="True">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="{x:Type models:NavItem}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="18" />
+                                    <ColumnDefinition Width="28" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Button Width="16"
+                                        Height="22"
+                                        Padding="0"
+                                        Background="Transparent"
+                                        Foreground="{StaticResource MutedBrush}"
+                                        BorderThickness="0"
+                                        FontSize="15"
+                                        FontWeight="Bold"
+                                        Content="{Binding ExpandGlyph}"
+                                        Command="{Binding DataContext.ToggleNavExpansionCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                        CommandParameter="{Binding}"
+                                        Visibility="{Binding CanToggle, Converter={StaticResource BoolToVisibility}}"
+                                        VerticalAlignment="Top"
+                                        ToolTip="展开或收起" />
+                                <Border Grid.Column="1" Width="22" Height="22" CornerRadius="5" Background="{Binding IconColor}" HorizontalAlignment="Left" VerticalAlignment="Top" ClipToBounds="True">
+                                    <Grid>
+                                        <Image Source="{Binding IconPath}" Stretch="UniformToFill" Visibility="{Binding HasIconPath, Converter={StaticResource BoolToVisibility}}" />
+                                        <TextBlock Text="{Binding IconText}" Foreground="White" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding HasNoIconPath, Converter={StaticResource BoolToVisibility}}" />
+                                    </Grid>
+                                </Border>
+                                <Grid Grid.Column="2">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Text="{Binding Title}" Foreground="{StaticResource TextBrush}" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Row="1" Text="{Binding Subtitle}" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,2,0,0" />
+                                </Grid>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                    <ListBox.ContextMenu>
+                        <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                            <MenuItem Header="编辑" Command="{Binding EditNavCommand}" />
+                            <MenuItem Header="重命名" Command="{Binding RenameNavCommand}" />
+                            <MenuItem Header="删除" Command="{Binding DeleteNavCommand}" />
+                            <Separator />
+                            <MenuItem Header="刷新当前" Command="{Binding RefreshCommand}" />
+                        </ContextMenu>
+                    </ListBox.ContextMenu>
+                </ListBox>
+
+                <TextBlock Grid.Row="4" Text="{Binding StatusText}" Foreground="{StaticResource MutedBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0" />
+            </Grid>
+        </Border>
+
+        <GridSplitter Grid.Column="1"
+                      Width="5"
+                      HorizontalAlignment="Stretch"
+                      Background="{StaticResource BorderBrush}"
+                      ShowsPreview="True" />
+
+        <Grid Grid.Column="2" Margin="10,10,8,10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <Border Style="{StaticResource PanelBorder}" Padding="10" Margin="0,0,0,8">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <DockPanel LastChildFill="False">
+                        <StackPanel DockPanel.Dock="Left">
+                            <TextBlock Text="{Binding ScopeTitle}" Foreground="{StaticResource TextBrush}" FontSize="20" FontWeight="Bold" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding CountText}" Foreground="{StaticResource MutedBrush}" FontSize="13" Margin="0,1,0,0" />
+                        </StackPanel>
+                    </DockPanel>
+
+                    <Grid Grid.Row="1" Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="82" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                 VerticalContentAlignment="Center"
+                                 KeyDown="SearchBox_KeyDown"
+                                 ToolTip="搜索标题、内容或订阅源" />
+                        <Button Grid.Column="1" Content="搜索" Margin="8,0,0,0" Command="{Binding ApplyFiltersCommand}" />
+                    </Grid>
+
+                    <WrapPanel Grid.Row="2" Margin="0,7,0,0">
+                        <Button Content="刷新" MinWidth="74" Command="{Binding RefreshCommand}" />
+                        <Button Content="全部已读" MinWidth="82" Margin="6,0,0,0" Style="{StaticResource GhostButton}" Command="{Binding MarkAllReadCommand}" />
+                        <Button Content="失败详情" MinWidth="82" Margin="6,0,0,0" Style="{StaticResource GhostButton}" Command="{Binding ShowRefreshFailuresCommand}" />
+                        <Button Content="设置" MinWidth="66" Margin="6,0,0,0" Style="{StaticResource GhostButton}" Command="{Binding SettingsCommand}" />
+                        <Button Content="更多" MinWidth="66" Margin="6,0,0,0" Style="{StaticResource GhostButton}" Click="MoreButton_Click" />
+                    </WrapPanel>
+
+                    <WrapPanel Grid.Row="3" Margin="0,7,0,0" VerticalAlignment="Center">
+                        <CheckBox Content="未读" IsChecked="{Binding UnreadOnly}" Command="{Binding ApplyFiltersCommand}" Margin="0,0,12,6" VerticalAlignment="Center" />
+                        <CheckBox Content="收藏" IsChecked="{Binding FavoriteOnly}" Command="{Binding ApplyFiltersCommand}" Margin="0,0,12,6" VerticalAlignment="Center" />
+                        <CheckBox Content="降序" IsChecked="{Binding Descending}" Command="{Binding ApplyFiltersCommand}" Margin="0,0,12,6" VerticalAlignment="Center" />
+                        <Button x:Name="SortFilterButton" Content="{Binding SortLabel}" Style="{StaticResource FilterMenuButton}" Margin="0,0,8,6" Click="SortFilterButton_Click" />
+                        <Button x:Name="DateFilterButton" Content="{Binding DateLabel}" Style="{StaticResource FilterMenuButton}" Margin="0,0,0,6" Click="DateFilterButton_Click" />
+                    </WrapPanel>
+
+                    <Popup x:Name="FilterPopup" AllowsTransparency="True" Placement="Bottom" StaysOpen="False" PopupAnimation="Fade">
+                        <Border Background="White" BorderBrush="#D9E2EC" BorderThickness="1" CornerRadius="10" Padding="4" MinWidth="142">
+                            <Border.Effect>
+                                <DropShadowEffect Color="#64748B" BlurRadius="18" ShadowDepth="4" Opacity="0.18" />
+                            </Border.Effect>
+                            <ListBox x:Name="FilterPopupList"
+                                     ItemContainerStyle="{StaticResource FilterChoiceItem}"
+                                     SelectionChanged="FilterPopupList_SelectionChanged"
+                                     BorderThickness="0"
+                                     Background="Transparent"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" />
+                        </Border>
+                    </Popup>
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" ClipToBounds="True">
+                <Grid>
+                    <ListBox x:Name="ArticleListBox"
+                             ItemsSource="{Binding Articles}"
+                             SelectedItem="{Binding SelectedArticle}"
+                             ItemContainerStyle="{StaticResource ArticleItem}"
+                             PreviewMouseRightButtonDown="ListBoxItem_PreviewMouseRightButtonDown"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.IsDeferredScrollingEnabled="True"
+                             VirtualizingPanel.ScrollUnit="Item">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="{x:Type models:Article}">
+                                <Grid Width="{Binding ActualWidth, ElementName=ArticleListBox}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="20" />
+                                        <ColumnDefinition Width="*" MinWidth="0" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Width="9"
+                                            Height="9"
+                                            CornerRadius="5"
+                                            Background="{StaticResource PrimaryBrush}"
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Top"
+                                            Margin="0,7,0,0"
+                                            Visibility="{Binding IsUnread, Converter={StaticResource BoolToVisibility}}" />
+                                    <Grid Grid.Column="1">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Text="{Binding DisplayTitle}" Foreground="#06141B" FontSize="15.5" FontWeight="Bold" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsRead}" Value="True">
+                                                            <Setter Property="FontWeight" Value="Normal" />
+                                                            <Setter Property="FontSize" Value="15" />
+                                                            <Setter Property="Foreground" Value="#718096" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <Grid Grid.Row="1" Margin="0,6,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Width="16" Height="16" CornerRadius="4" Background="{Binding FeedIconColor}" ClipToBounds="True" Margin="0,0,0,0">
+                                                <Grid>
+                                                    <Image Source="{Binding FeedIconPath}" Stretch="UniformToFill" Visibility="{Binding HasFeedIconPath, Converter={StaticResource BoolToVisibility}}" />
+                                                    <TextBlock Text="{Binding FeedIconText}" Foreground="White" FontSize="9" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding HasNoFeedIconPath, Converter={StaticResource BoolToVisibility}}" />
+                                                </Grid>
+                                            </Border>
+                                            <TextBlock Grid.Column="1" Foreground="#8A94A6" FontSize="12" TextTrimming="CharacterEllipsis" Margin="6,0,0,0" VerticalAlignment="Center">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="#667085" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsRead}" Value="True">
+                                                                <Setter Property="Foreground" Value="#A2ACB8" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                                <Run Text="{Binding FeedTitle, Mode=OneWay}" FontWeight="SemiBold" />
+                                                <Run Text=" · " />
+                                                <Run Text="{Binding DisplayTime, Mode=OneWay}" />
+                                                <Run Text=" · " />
+                                                <Run Text="{Binding StatusText, Mode=OneWay}" />
+                                                <Run Text=" · " />
+                                                <Run Text="{Binding Summary, Mode=OneWay}" />
+                                            </TextBlock>
+                                        </Grid>
+                                    </Grid>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                        <ListBox.ContextMenu>
+                            <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                <MenuItem Header="打开原文" Command="{Binding OpenArticleCommand}" />
+                                <MenuItem Header="收藏/取消收藏" Command="{Binding ToggleFavoriteCommand}" />
+                                <MenuItem Header="标为未读" Command="{Binding MarkUnreadCommand}" />
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
+                    </ListBox>
+
+                    <Border Background="{StaticResource SurfaceBrush}" Visibility="{Binding HasNoArticles, Converter={StaticResource BoolToVisibility}}">
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Width="320">
+                            <TextBlock Text="暂无文章" Foreground="{StaticResource TextBrush}" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center" />
+                            <TextBlock Text="添加或导入订阅后，点击刷新即可抓取内容。" Foreground="{StaticResource MutedBrush}" FontSize="13" TextWrapping="Wrap" TextAlignment="Center" Margin="0,8,0,0" />
+                            <Button Content="+ 添加订阅" Width="120" Margin="0,18,0,0" Command="{Binding AddFeedCommand}" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="2" Margin="0,7,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding ArticleStatusText}" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                <Button Grid.Column="1" Content="加载更多文章" MinWidth="116" Style="{StaticResource GhostButton}" Command="{Binding LoadMoreCommand}" />
+            </Grid>
+        </Grid>
+
+        <GridSplitter Grid.Column="3"
+                      Width="5"
+                      HorizontalAlignment="Stretch"
+                      Background="{StaticResource BorderBrush}"
+                      ShowsPreview="True" />
+
+        <Border Grid.Column="4" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,0,0">
+            <Grid Margin="18,16,18,14">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="1" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <StackPanel>
+                    <TextBlock Text="{Binding ReaderTitle}" Foreground="{StaticResource TextBrush}" FontSize="22" FontWeight="Bold" TextWrapping="Wrap" LineHeight="29" />
+                    <TextBlock Text="{Binding ReaderMeta}" Foreground="{StaticResource MutedBrush}" FontSize="13" TextWrapping="Wrap" Margin="0,6,0,0" />
+                </StackPanel>
+
+                <WrapPanel Grid.Row="1" Margin="0,10,0,10">
+                    <Button Content="打开原文" MinWidth="92" Command="{Binding OpenArticleCommand}" />
+                    <Button Content="{Binding FavoriteButtonText}" MinWidth="92" Margin="8,0,0,8" Style="{StaticResource GhostButton}" Command="{Binding ToggleFavoriteCommand}" />
+                    <Button Content="{Binding OriginalButtonText}" MinWidth="86" Margin="8,0,0,8" Style="{StaticResource GhostButton}" Command="{Binding ToggleOriginalCommand}" Visibility="{Binding HasTranslatedArticle, Converter={StaticResource BoolToVisibility}}" />
+                    <Button Content="标为未读" MinWidth="86" Margin="8,0,0,8" Style="{StaticResource GhostButton}" Command="{Binding MarkUnreadCommand}" />
+                </WrapPanel>
+
+                <Border Grid.Row="2" Background="{StaticResource BorderBrush}" />
+
+                <Grid Grid.Row="3">
+                    <FlowDocumentScrollViewer x:Name="ReaderDocumentViewer"
+                                              Document="{Binding ReaderDocument}"
+                                              Margin="0,14,0,0"
+                                              VerticalScrollBarVisibility="Auto"
+                                              IsSelectionEnabled="True"
+                                              Zoom="100" />
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Width="300" Visibility="{Binding HasNoSelectedArticle, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="选择一篇文章" Foreground="{StaticResource TextBrush}" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center" />
+                        <TextBlock Text="左侧选择分类或订阅，中间点击文章后会在这里阅读。" Foreground="{StaticResource MutedBrush}" FontSize="13" TextWrapping="Wrap" TextAlignment="Center" Margin="0,8,0,0" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

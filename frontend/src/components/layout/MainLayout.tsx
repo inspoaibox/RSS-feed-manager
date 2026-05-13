@@ -1,19 +1,23 @@
 import { useState, useEffect } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Menu, X, Rss, FolderOpen, Star, Settings, LogOut, ChevronDown, ChevronRight, User, BarChart3, Sparkles } from 'lucide-react'
+import { Menu, X, Rss, FolderOpen, Star, Settings, LogOut, ChevronDown, ChevronRight, User, BarChart3, Sparkles, Bell } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { useSiteStore } from '@/stores/siteStore'
 import api from '@/services/api'
 import type { Category, Feed } from '@/types'
+import type { UnreadCountResponse } from '@/types/notification'
+import NotificationModal from '@/components/NotificationModal'
 import clsx from 'clsx'
 
 interface SidebarProps {
   isOpen: boolean
   onClose: () => void
+  onOpenNotifications: () => void
+  unreadCount: number
 }
 
-function Sidebar({ isOpen, onClose }: SidebarProps) {
+function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const clearAuth = useAuthStore((state) => state.clearAuth)
@@ -310,6 +314,19 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
                 <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{user.username}</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{user.email}</p>
               </div>
+              {/* Notification bell */}
+              <button
+                onClick={onOpenNotifications}
+                className="relative p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                title="通知"
+              >
+                <Bell className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-red-500 text-white text-xs font-medium rounded-full flex items-center justify-center">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
             </div>
           )}
           
@@ -352,11 +369,38 @@ function Sidebar({ isOpen, onClose }: SidebarProps) {
 
 export default function MainLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [notificationModalOpen, setNotificationModalOpen] = useState(false)
+  const [hasShownInitialNotification, setHasShownInitialNotification] = useState(false)
   const siteName = useSiteStore((state) => state.siteName)
+
+  // Query unread notification count
+  const { data: unreadData } = useQuery({
+    queryKey: ['unread-count'],
+    queryFn: async () => {
+      const response = await api.get<UnreadCountResponse>('/notifications/unread/count')
+      return response.data
+    },
+    refetchInterval: 60000, // Refresh every minute
+  })
+
+  const unreadCount = unreadData?.count || 0
+
+  // Auto-show notification modal on first load if there are unread notifications
+  useEffect(() => {
+    if (unreadCount > 0 && !hasShownInitialNotification) {
+      setNotificationModalOpen(true)
+      setHasShownInitialNotification(true)
+    }
+  }, [unreadCount, hasShownInitialNotification])
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar 
+        isOpen={sidebarOpen} 
+        onClose={() => setSidebarOpen(false)}
+        onOpenNotifications={() => setNotificationModalOpen(true)}
+        unreadCount={unreadCount}
+      />
       
       <main className="flex-1 flex flex-col overflow-hidden">
         {/* Mobile header */}
@@ -367,18 +411,36 @@ export default function MainLayout() {
           >
             <Menu className="w-5 h-5" />
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-1">
             <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
               <Rss className="w-4 h-4 text-white" />
             </div>
             <h1 className="text-lg font-semibold text-gray-900 dark:text-white">{siteName}</h1>
           </div>
+          {/* Mobile notification bell */}
+          <button
+            onClick={() => setNotificationModalOpen(true)}
+            className="relative p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          >
+            <Bell className="w-5 h-5" />
+            {unreadCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-red-500 text-white text-xs font-medium rounded-full flex items-center justify-center">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
         </header>
         
         <div className="flex-1 overflow-auto">
           <Outlet />
         </div>
       </main>
+
+      {/* Notification Modal */}
+      <NotificationModal 
+        isOpen={notificationModalOpen} 
+        onClose={() => setNotificationModalOpen(false)} 
+      />
     </div>
   )
 }

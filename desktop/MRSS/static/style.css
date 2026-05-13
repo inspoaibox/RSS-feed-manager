@@ -1,0 +1,228 @@
+:root {
+  --green: #176b5b;
+  --green-dark: #0e3f37;
+  --accent: #d69245;
+  --bg: #f7f8f5;
+  --surface: #ffffff;
+  --text: #1e2825;
+  --muted: #68746f;
+  --border: #dde4df;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 292px 1fr;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+}
+
+button, input, select {
+  font: inherit;
+}
+
+button {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+button:hover { border-color: var(--green); color: var(--green); }
+button.primary, .toolbar-actions button:first-child {
+  background: var(--green);
+  border-color: var(--green);
+  color: white;
+}
+
+.sidebar {
+  height: 100vh;
+  overflow: auto;
+  background: #eef4f1;
+  border-right: 1px solid var(--border);
+  padding: 18px 12px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.brand img {
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.brand strong {
+  display: block;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.brand span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.side-title {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  margin: 16px 8px 6px;
+}
+
+.scope, .feed-item, .category-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  min-height: 38px;
+  margin: 2px 0;
+}
+
+.feed-item { padding-left: 24px; color: #33413d; }
+.scope.active, .feed-item.active, .category-item.active {
+  background: #dfeee9;
+  color: var(--green);
+  font-weight: 700;
+}
+
+.side-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.main {
+  min-width: 0;
+  height: 100vh;
+  overflow: auto;
+}
+
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.toolbar h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.toolbar p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.filters {
+  padding: 14px 22px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.filters input[type="text"], .filters input:not([type]), input, select {
+  border: 1px solid var(--border);
+  background: white;
+  min-height: 36px;
+  border-radius: 6px;
+  padding: 0 10px;
+}
+
+#searchInput { width: min(420px, 100%); }
+
+.status {
+  color: var(--muted);
+  padding: 0 22px 10px;
+}
+
+.articles {
+  padding: 0 22px 18px;
+  display: grid;
+  gap: 10px;
+}
+
+.article-card {
+  background: var(--surface);
+  border: 1px solid #edf1ee;
+  border-radius: 8px;
+  padding: 14px 16px;
+  cursor: pointer;
+}
+
+.article-card:hover { border-color: var(--green); }
+.article-card.read h2 { font-weight: 600; color: #46534f; }
+.article-card h2 {
+  margin: 0 0 8px;
+  font-size: 17px;
+}
+
+.article-card p {
+  margin: 0 0 8px;
+  color: #5e6b66;
+  line-height: 1.45;
+}
+
+.meta {
+  color: #84908c;
+  font-size: 13px;
+}
+
+.load-more {
+  margin: 0 22px 22px;
+  width: calc(100% - 44px);
+}
+
+dialog {
+  border: 0;
+  border-radius: 8px;
+  padding: 0;
+  max-width: 860px;
+  width: 82vw;
+}
+
+dialog::backdrop { background: rgba(0, 0, 0, .35); }
+.article-dialog article { padding: 22px; }
+.article-dialog h2 { margin: 0 0 8px; }
+.dialog-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+.article-body { line-height: 1.65; color: #29332f; max-height: 58vh; overflow: auto; }
+
+@media (max-width: 860px) {
+  body { grid-template-columns: 1fr; }
+  .sidebar { height: auto; max-height: 42vh; }
+  .main { height: auto; }
+  .toolbar { position: static; align-items: flex-start; flex-direction: column; }
+}

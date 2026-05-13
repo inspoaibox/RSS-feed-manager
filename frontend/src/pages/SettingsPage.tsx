@@ -6,6 +6,7 @@ import type { Category, Feed, AIProvider, AIModel, CustomRule } from '@/types'
 import { useThemeStore, type ThemeColor } from '@/stores/themeStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useSyncIntervals } from '@/hooks/useSyncIntervals'
+import NotificationManagement from '@/components/NotificationManagement'
 
 type Tab = 'feeds' | 'categories' | 'ai' | 'rules' | 'backup' | 'appearance' | 'system'
 
@@ -3064,7 +3065,7 @@ function SystemTab() {
     },
   })
 
-  const [activeSubTab, setActiveSubTab] = useState<'general' | 'sync' | 'oauth' | 'recommendations' | 'users'>('general')
+  const [activeSubTab, setActiveSubTab] = useState<'general' | 'sync' | 'oauth' | 'recommendations' | 'notifications' | 'users'>('general')
 
   if (isLoading) {
     return <div className="text-center py-8 text-gray-500 dark:text-gray-400">加载中...</div>
@@ -3075,6 +3076,7 @@ function SystemTab() {
     { id: 'sync', label: '同步设置' },
     { id: 'oauth', label: '第三方登录' },
     { id: 'recommendations', label: '订阅推荐' },
+    { id: 'notifications', label: '通知管理' },
     { id: 'users', label: '用户管理' },
   ]
 
@@ -3319,6 +3321,13 @@ function SystemTab() {
           onToggle={(enabled) => updateSettingsMutation.mutate({ enable_feed_recommendations: enabled })}
           isPending={updateSettingsMutation.isPending}
         />
+      )}
+
+      {/* 通知管理 */}
+      {activeSubTab === 'notifications' && (
+        <div className="p-4 border dark:border-gray-700 rounded-lg">
+          <NotificationManagement />
+        </div>
       )}
 
       {/* 用户列表 */}

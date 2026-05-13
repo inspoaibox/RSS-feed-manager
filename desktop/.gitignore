@@ -1,0 +1,34 @@
+# Desktop build artifacts
+dist/
+build/
+*.spec.bak
+frontend/
+backend/app/
+!backend/app/scheduler/
+!backend/app/core/config_desktop.py
+!backend/app/core/deps_desktop.py
+!backend/app/main_desktop.py
+!backend/app/services/init_service.py
+!backend/app/api/v1/__init___desktop.py
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+
+# Backup
+build/frontend_backup/
+
+# Installer output
+installer/output/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

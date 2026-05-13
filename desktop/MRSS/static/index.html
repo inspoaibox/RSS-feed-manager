@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MRSS Desktop</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <img src="/logo.png" alt="">
+      <div>
+        <strong>MRSS</strong>
+        <span>电脑本地端</span>
+      </div>
+    </div>
+    <button class="scope active" data-scope="all">全部文章 <span id="allCount">0</span></button>
+    <div class="side-title">分类</div>
+    <div id="categoryList"></div>
+    <div class="side-title">未分类订阅</div>
+    <div id="uncategorizedList"></div>
+    <div class="side-actions">
+      <button id="addCategoryBtn">新建分类</button>
+      <button id="importOpmlBtn">导入 OPML</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="toolbar">
+      <div>
+        <h1 id="scopeTitle">全部文章</h1>
+        <p id="scopeMeta">电脑端本地抓取和保存，不需要登录。</p>
+      </div>
+      <div class="toolbar-actions">
+        <button id="addFeedBtn">添加</button>
+        <button id="refreshBtn">刷新</button>
+        <button id="exportBtn">导出备份</button>
+        <button id="importBtn">导入备份</button>
+        <button id="gistBtn">GitHub Gist</button>
+      </div>
+    </header>
+
+    <section class="filters">
+      <input id="searchInput" placeholder="搜索标题、内容或订阅源">
+      <button id="searchBtn">搜索</button>
+      <label><input id="unreadOnly" type="checkbox"> 未读</label>
+      <label><input id="favoriteOnly" type="checkbox"> 收藏</label>
+      <label><input id="descending" type="checkbox" checked> 降序</label>
+      <select id="sortSelect">
+        <option value="published">发布时间</option>
+        <option value="created">抓取时间</option>
+        <option value="title">标题</option>
+      </select>
+      <select id="dateSelect">
+        <option value="all">全部日期</option>
+        <option value="today">今天</option>
+        <option value="yesterday">昨天</option>
+        <option value="7d">最近 7 天</option>
+      </select>
+      <button id="markAllReadBtn">全部已读</button>
+    </section>
+
+    <div id="status" class="status">正在加载...</div>
+    <section id="articles" class="articles"></section>
+    <button id="loadMoreBtn" class="load-more">加载更多</button>
+  </main>
+
+  <dialog id="articleDialog" class="article-dialog">
+    <article>
+      <h2 id="dialogTitle"></h2>
+      <p id="dialogMeta"></p>
+      <div class="dialog-actions">
+        <button id="favoriteArticleBtn">收藏</button>
+        <button id="unreadArticleBtn">标为未读</button>
+        <button id="openArticleBtn">原文</button>
+        <button id="closeArticleBtn">关闭</button>
+      </div>
+      <div id="dialogContent" class="article-body"></div>
+    </article>
+  </dialog>
+
+  <input id="fileInput" type="file" hidden>
+  <script src="/app.js"></script>
+</body>
+</html>
