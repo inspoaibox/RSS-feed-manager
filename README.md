@@ -2,6 +2,8 @@
 
 一个功能完善的 RSS 订阅管理器，支持多用户、分类管理、定时抓取、自定义抓取规则以及 AI 翻译和摘要功能。
 
+项目地址：[https://github.com/inspoaibox/RSS-feed-manager](https://github.com/inspoaibox/RSS-feed-manager)
+
 ## 功能特性
 
 - 📰 RSS/Atom 订阅源管理
@@ -29,7 +31,17 @@
 
 ## 快速开始
 
-从 GitHub 拉取并用 Docker 部署的完整流程见：[GitHub + Docker 完整使用流程](docs/GITHUB_DOCKER_USAGE.md)。
+从 GitHub 拉取、Docker 构建、生产运行、Nginx/Caddy 反向代理、HTTPS 配置、更新和备份的完整流程见：[GitHub + Docker 安装、构建、反向代理与更新完整说明](docs/GITHUB_DOCKER_USAGE.md)。
+
+生产环境推荐流程：
+
+1. 从 GitHub 克隆项目
+2. 复制并修改 `.env.production`
+3. 使用 Docker Compose 构建并启动服务
+4. 通过 `http://服务器IP:5666` 测试访问
+5. 使用 Nginx 或 Caddy 反向代理到 `127.0.0.1:5666`
+6. 将 `.env.production` 中的 `CORS_ORIGINS` 和 `BASE_URL` 改为最终域名
+7. 后续通过 `git pull origin main` 和 `docker compose ... up -d --build` 更新
 
 ### 方式一：生产环境部署（Docker 一键启动，推荐）
 
@@ -78,6 +90,10 @@ docker exec -it rss_manager_backend alembic upgrade head
 > docker compose -f docker-compose.prod.yml up -d --build backend
 > docker restart rss_manager_frontend
 > ```
+
+**反向代理部署：**
+
+生产环境建议使用独立域名，例如 `https://rss.example.com`，由服务器上的 Nginx/Caddy 代理到本机 `127.0.0.1:5666`。项目内部的前端 Nginx 已经负责把 `/api/` 转发给后端容器，因此外层反向代理只需要代理前端入口。完整 Nginx、Caddy 和 HTTPS 示例见：[反向代理说明](docs/GITHUB_DOCKER_USAGE.md#7-使用-nginx-反向代理)。
 
 ### 方式二：开发环境（SQLite，无需 Docker）
 
