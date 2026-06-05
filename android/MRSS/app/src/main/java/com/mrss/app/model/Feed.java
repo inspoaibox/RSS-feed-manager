@@ -15,6 +15,7 @@ public class Feed {
     public int errorCount;
     public boolean active;
     public boolean translateEnabled;
+    public String translationMode;
     public String translationLanguage;
     public int position;
     public int articleCount;
@@ -23,6 +24,7 @@ public class Feed {
     public Feed() {
         active = true;
         fetchIntervalSeconds = 3600;
+        translationMode = "off";
         translationLanguage = "中文";
     }
 }

@@ -11,6 +11,8 @@ import android.os.IBinder;
 
 import com.mrss.app.MainActivity;
 import com.mrss.app.R;
+import com.mrss.app.data.AppSettings;
+
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -38,7 +40,11 @@ public class SyncService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        startForeground(RUNNING_NOTIFICATION_ID, buildNotification("MRSS 正在同步", "正在检查到期订阅源...", false));
+        startForeground(RUNNING_NOTIFICATION_ID, buildNotification(
+                text("MRSS 正在同步", "MRSS Syncing"),
+                text("正在检查到期订阅源...", "Checking due feeds..."),
+                false
+        ));
         if (running) {
             return START_NOT_STICKY;
         }
@@ -70,13 +76,19 @@ public class SyncService extends Service {
         SyncEngine.Result result = SyncEngine.syncDueFeeds(this);
         if (result.totalNew > 0) {
             showResultNotification(
-                    "MRSS 有新文章",
-                    "新增 " + result.totalNew + " 篇，已翻译 " + result.translated + " 篇"
+                    text("MRSS 有新文章", "MRSS has new articles"),
+                    text("新增 ", "New ") + result.totalNew + text(" 篇，已翻译 ", " articles, translated ") + result.translated + text(" 篇", " articles")
             );
         } else if (result.translated > 0 || result.translationFailed > 0) {
-            showResultNotification("MRSS 自动翻译完成", "成功 " + result.translated + " 篇，失败 " + result.translationFailed + " 篇");
+            showResultNotification(
+                    text("MRSS 自动翻译完成", "MRSS auto translation complete"),
+                    text("成功 ", "Success ") + result.translated + text(" 篇，失败 ", " articles, failed ") + result.translationFailed + text(" 篇", " articles")
+            );
         } else if (result.failed > 0) {
-            showResultNotification("MRSS 同步完成", "成功 " + result.success + " 个，失败 " + result.failed + " 个");
+            showResultNotification(
+                    text("MRSS 同步完成", "MRSS sync complete"),
+                    text("成功 ", "Success ") + result.success + text(" 个，失败 ", ", failed ") + result.failed
+            );
         }
     }
 
@@ -114,11 +126,19 @@ public class SyncService extends Service {
             }
             NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID,
-                    "MRSS 同步",
+                    text("MRSS 同步", "MRSS Sync"),
                     NotificationManager.IMPORTANCE_LOW
             );
-            channel.setDescription("订阅源后台同步状态和结果");
+            channel.setDescription(text("订阅源后台同步状态和结果", "Feed background sync status and results"));
             manager.createNotificationChannel(channel);
         }
+    }
+
+    private String text(String zh, String en) {
+        return isEnglish() ? en : zh;
+    }
+
+    private boolean isEnglish() {
+        return "en".equals(new AppSettings(this).getAppLanguage());
     }
 }

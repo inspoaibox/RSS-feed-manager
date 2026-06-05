@@ -21,6 +21,10 @@ public partial class SettingsWindow : Window
         Loaded += (_, _) =>
         {
             TokenBox.Password = Settings.GithubToken;
+            BaiduSecretBox.Password = Settings.BaiduTranslateSecret;
+            TencentSecretKeyBox.Password = Settings.TencentTranslateSecretKey;
+            SelectComboByTag(DefaultTranslationModeBox, Settings.DefaultTranslationMode, "off");
+            SelectComboByTag(StandardProviderBox, Settings.StandardTranslationProvider, "microsoft");
             AiChannelList.ItemsSource = Settings.AiChannels;
             if (Settings.AiChannels.Count > 0)
             {
@@ -39,6 +43,16 @@ public partial class SettingsWindow : Window
     private void TokenBox_PasswordChanged(object sender, RoutedEventArgs e)
     {
         Settings.GithubToken = TokenBox.Password;
+    }
+
+    private void BaiduSecretBox_PasswordChanged(object sender, RoutedEventArgs e)
+    {
+        Settings.BaiduTranslateSecret = BaiduSecretBox.Password;
+    }
+
+    private void TencentSecretKeyBox_PasswordChanged(object sender, RoutedEventArgs e)
+    {
+        Settings.TencentTranslateSecretKey = TencentSecretKeyBox.Password;
     }
 
     private void AddAiChannel_Click(object sender, RoutedEventArgs e)
@@ -305,16 +319,35 @@ public partial class SettingsWindow : Window
 
     private void SelectProvider(string provider)
     {
-        foreach (ComboBoxItem item in AiProviderBox.Items)
+        SelectComboByTag(AiProviderBox, provider, "openai");
+    }
+
+    private static void SelectComboByTag(ComboBox comboBox, string? value, string fallback)
+    {
+        foreach (ComboBoxItem item in comboBox.Items)
         {
-            if (item.Tag is string tag && tag == provider)
+            if (item.Tag is string tag && tag.Equals(value, StringComparison.OrdinalIgnoreCase))
             {
-                AiProviderBox.SelectedItem = item;
+                comboBox.SelectedItem = item;
                 return;
             }
         }
 
-        AiProviderBox.SelectedIndex = 0;
+        foreach (ComboBoxItem item in comboBox.Items)
+        {
+            if (item.Tag is string tag && tag.Equals(fallback, StringComparison.OrdinalIgnoreCase))
+            {
+                comboBox.SelectedItem = item;
+                return;
+            }
+        }
+
+        comboBox.SelectedIndex = comboBox.Items.Count > 0 ? 0 : -1;
+    }
+
+    private static string SelectedTag(ComboBox comboBox, string fallback)
+    {
+        return comboBox.SelectedItem is ComboBoxItem item && item.Tag is string tag ? tag : fallback;
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e)
@@ -354,6 +387,8 @@ public partial class SettingsWindow : Window
             }
         }
 
+        Settings.DefaultTranslationMode = SelectedTag(DefaultTranslationModeBox, "off");
+        Settings.StandardTranslationProvider = SelectedTag(StandardProviderBox, "microsoft");
         DialogResult = true;
     }
 }

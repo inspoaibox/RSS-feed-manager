@@ -6,7 +6,7 @@ import android.database.sqlite.SQLiteOpenHelper;
 
 public class MrssDatabase extends SQLiteOpenHelper {
     private static final String DATABASE_NAME = "mrss.db";
-    private static final int DATABASE_VERSION = 4;
+    private static final int DATABASE_VERSION = 6;
 
     public MrssDatabase(Context context) {
         super(context, DATABASE_NAME, null, DATABASE_VERSION);
@@ -36,6 +36,7 @@ public class MrssDatabase extends SQLiteOpenHelper {
                 "error_count INTEGER NOT NULL DEFAULT 0, " +
                 "is_active INTEGER NOT NULL DEFAULT 1, " +
                 "translate_enabled INTEGER NOT NULL DEFAULT 0, " +
+                "translation_mode TEXT NOT NULL DEFAULT 'off', " +
                 "translation_language TEXT NOT NULL DEFAULT '中文', " +
                 "position INTEGER NOT NULL DEFAULT 0, " +
                 "created_at INTEGER NOT NULL, " +
@@ -68,6 +69,7 @@ public class MrssDatabase extends SQLiteOpenHelper {
         db.execSQL("CREATE INDEX idx_articles_read ON articles(is_read)");
         db.execSQL("CREATE INDEX idx_articles_favorite ON articles(is_favorite)");
         createKeywordSubscriptions(db);
+        createWebScrapingRules(db);
         createAiChannels(db);
     }
 
@@ -88,6 +90,13 @@ public class MrssDatabase extends SQLiteOpenHelper {
         }
         if (oldVersion < 4) {
             addColumn(db, "ai_channels", "models_json", "TEXT");
+        }
+        if (oldVersion < 5) {
+            addColumn(db, "feeds", "translation_mode", "TEXT NOT NULL DEFAULT 'off'");
+            db.execSQL("UPDATE feeds SET translation_mode = 'ai' WHERE translate_enabled = 1 AND (translation_mode IS NULL OR translation_mode = '' OR translation_mode = 'off')");
+        }
+        if (oldVersion < 6) {
+            createWebScrapingRules(db);
         }
     }
 
@@ -125,6 +134,35 @@ public class MrssDatabase extends SQLiteOpenHelper {
                 "created_at INTEGER NOT NULL, " +
                 "updated_at INTEGER)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_ai_channels_default ON ai_channels(is_default)");
+    }
+
+    private void createWebScrapingRules(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS web_scraping_rules (" +
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                "feed_id INTEGER REFERENCES feeds(id) ON DELETE CASCADE, " +
+                "name TEXT NOT NULL, " +
+                "type TEXT NOT NULL DEFAULT 'html', " +
+                "list_url TEXT NOT NULL UNIQUE, " +
+                "base_url TEXT, " +
+                "item_selector TEXT NOT NULL, " +
+                "title_selector TEXT, " +
+                "link_selector TEXT, " +
+                "summary_selector TEXT, " +
+                "content_selector TEXT, " +
+                "author_selector TEXT, " +
+                "date_selector TEXT, " +
+                "cover_selector TEXT, " +
+                "next_page_selector TEXT, " +
+                "page_url_template TEXT, " +
+                "max_pages INTEGER NOT NULL DEFAULT 1, " +
+                "request_headers TEXT, " +
+                "date_format TEXT, " +
+                "encoding TEXT, " +
+                "enabled INTEGER NOT NULL DEFAULT 1, " +
+                "created_at INTEGER NOT NULL, " +
+                "updated_at INTEGER)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_web_scraping_rules_feed ON web_scraping_rules(feed_id)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_web_scraping_rules_enabled ON web_scraping_rules(enabled)");
     }
 
     private void addColumn(SQLiteDatabase db, String table, String column, String definition) {

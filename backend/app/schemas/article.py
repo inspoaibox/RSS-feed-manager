@@ -38,6 +38,7 @@ class ArticleFilter(BaseModel):
     """Schema for article filtering."""
     feed_id: int | None = None
     category_id: int | None = None
+    keyword_id: int | None = None
     is_read: bool | None = None
     is_favorite: bool | None = None
     sort_by: str = Field(default="published_at", pattern="^(published_at|created_at|title)$")
@@ -61,6 +62,7 @@ class MarkAllReadRequest(BaseModel):
     """Schema for marking all articles as read."""
     feed_id: int | None = None
     category_id: int | None = None
+    keyword_id: int | None = None
 
 
 class FavoriteResponse(BaseModel):

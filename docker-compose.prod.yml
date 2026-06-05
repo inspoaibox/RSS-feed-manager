@@ -48,7 +48,7 @@ services:
       - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_prod_2024}@redis:6379/0
       - SECRET_KEY=${SECRET_KEY:-rss_manager_secret_key_2024_production}
       - DEBUG=false
-      - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:5173"]}
+      - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:5666"]}
       - BASE_URL=${BASE_URL:-https://rss.8y.cx}
     depends_on:
       postgres:

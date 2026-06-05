@@ -63,6 +63,7 @@ public sealed class Repository
                 error_count INTEGER NOT NULL DEFAULT 0,
                 is_active INTEGER NOT NULL DEFAULT 1,
                 translate_enabled INTEGER NOT NULL DEFAULT 0,
+                translation_mode TEXT NOT NULL DEFAULT 'off',
                 translation_language TEXT NOT NULL DEFAULT '中文',
                 position INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL,
@@ -105,6 +106,31 @@ public sealed class Repository
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER
             );
+            CREATE TABLE IF NOT EXISTS web_scraping_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                feed_id INTEGER REFERENCES feeds(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                type TEXT NOT NULL DEFAULT 'html',
+                list_url TEXT NOT NULL UNIQUE,
+                base_url TEXT,
+                item_selector TEXT NOT NULL,
+                title_selector TEXT,
+                link_selector TEXT,
+                summary_selector TEXT,
+                content_selector TEXT,
+                author_selector TEXT,
+                date_selector TEXT,
+                cover_selector TEXT,
+                next_page_selector TEXT,
+                page_url_template TEXT,
+                max_pages INTEGER NOT NULL DEFAULT 1,
+                request_headers TEXT,
+                date_format TEXT,
+                encoding TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER
+            );
             CREATE INDEX IF NOT EXISTS idx_feeds_category ON feeds(category_id);
             CREATE INDEX IF NOT EXISTS idx_articles_feed ON articles(feed_id);
             CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(published_at);
@@ -112,8 +138,12 @@ public sealed class Repository
             CREATE INDEX IF NOT EXISTS idx_articles_favorite ON articles(is_favorite);
             CREATE INDEX IF NOT EXISTS idx_articles_created ON articles(created_at);
             CREATE INDEX IF NOT EXISTS idx_keyword_subscriptions_active ON keyword_subscriptions(is_active);
+            CREATE INDEX IF NOT EXISTS idx_web_scraping_rules_feed ON web_scraping_rules(feed_id);
+            CREATE INDEX IF NOT EXISTS idx_web_scraping_rules_enabled ON web_scraping_rules(enabled);
             """);
         EnsureColumn(connection, "feeds", "translate_enabled", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumn(connection, "feeds", "translation_mode", "TEXT NOT NULL DEFAULT 'off'");
+        ExecuteNonQuery(connection, "UPDATE feeds SET translation_mode = 'ai' WHERE translate_enabled = 1 AND (translation_mode IS NULL OR translation_mode = '' OR translation_mode = 'off')");
         EnsureColumn(connection, "feeds", "translation_language", "TEXT NOT NULL DEFAULT '中文'");
         EnsureColumn(connection, "articles", "original_title", "TEXT");
         EnsureColumn(connection, "articles", "original_content", "TEXT");
@@ -430,6 +460,11 @@ public sealed class Repository
 
     public async Task<int> AddFeedAsync(ParsedFeed parsed, int? categoryId, int intervalSeconds, bool translateEnabled = false, string translationLanguage = "中文")
     {
+        return await AddFeedAsync(parsed, categoryId, intervalSeconds, translateEnabled ? "ai" : "off", translationLanguage);
+    }
+
+    public async Task<int> AddFeedAsync(ParsedFeed parsed, int? categoryId, int intervalSeconds, string translationMode, string translationLanguage = "中文")
+    {
         await _writeLock.WaitAsync();
         try
         {
@@ -437,6 +472,7 @@ public sealed class Repository
             using var transaction = connection.BeginTransaction();
             var existing = Scalar(connection, "SELECT id FROM feeds WHERE url = $url", ("$url", parsed.Url));
             var ts = Clock.NowMs();
+            var normalizedMode = NormalizeTranslationMode(translationMode);
             int feedId;
             if (existing is not null)
             {
@@ -446,7 +482,7 @@ public sealed class Repository
                     """
                     UPDATE feeds SET title = $title, description = $description, site_url = $site_url, icon_url = $icon_url,
                     category_id = $category_id, fetch_interval = $interval, last_fetched_at = $fetched_at,
-                    translate_enabled = $translate_enabled, translation_language = $translation_language,
+                    translate_enabled = $translate_enabled, translation_mode = $translation_mode, translation_language = $translation_language,
                     last_error = NULL, error_count = 0, updated_at = $updated_at WHERE id = $id
                     """,
                     ("$title", parsed.Title),
@@ -455,7 +491,8 @@ public sealed class Repository
                     ("$icon_url", parsed.IconUrl),
                     ("$category_id", categoryId),
                     ("$interval", intervalSeconds),
-                    ("$translate_enabled", translateEnabled ? 1 : 0),
+                    ("$translate_enabled", TranslationEnabled(normalizedMode) ? 1 : 0),
+                    ("$translation_mode", normalizedMode),
                     ("$translation_language", NormalizeLanguage(translationLanguage)),
                     ("$fetched_at", ts),
                     ("$updated_at", ts),
@@ -468,9 +505,9 @@ public sealed class Repository
                 command.CommandText =
                     """
                     INSERT INTO feeds(category_id, url, title, description, site_url, icon_url, fetch_interval, last_fetched_at,
-                    is_active, translate_enabled, translation_language, created_at)
+                    is_active, translate_enabled, translation_mode, translation_language, created_at)
                     VALUES($category_id, $url, $title, $description, $site_url, $icon_url, $interval, $fetched_at,
-                    1, $translate_enabled, $translation_language, $created_at);
+                    1, $translate_enabled, $translation_mode, $translation_language, $created_at);
                     SELECT last_insert_rowid();
                     """;
                 command.Parameters.AddWithValue("$category_id", DbValue(categoryId));
@@ -480,7 +517,8 @@ public sealed class Repository
                 command.Parameters.AddWithValue("$site_url", DbValue(parsed.SiteUrl));
                 command.Parameters.AddWithValue("$icon_url", DbValue(parsed.IconUrl));
                 command.Parameters.AddWithValue("$interval", intervalSeconds);
-                command.Parameters.AddWithValue("$translate_enabled", translateEnabled ? 1 : 0);
+                command.Parameters.AddWithValue("$translate_enabled", TranslationEnabled(normalizedMode) ? 1 : 0);
+                command.Parameters.AddWithValue("$translation_mode", normalizedMode);
                 command.Parameters.AddWithValue("$translation_language", NormalizeLanguage(translationLanguage));
                 command.Parameters.AddWithValue("$fetched_at", ts);
                 command.Parameters.AddWithValue("$created_at", ts);
@@ -503,18 +541,20 @@ public sealed class Repository
         try
         {
             using var connection = Connect();
+            var normalizedMode = NormalizeTranslationMode(feed.TranslateEnabled ? feed.TranslationMode : "off");
             ExecuteNonQuery(
                 connection,
                 """
                 UPDATE feeds SET title = $title, category_id = $category_id, fetch_interval = $interval,
-                is_active = $active, translate_enabled = $translate_enabled, translation_language = $translation_language,
+                is_active = $active, translate_enabled = $translate_enabled, translation_mode = $translation_mode, translation_language = $translation_language,
                 updated_at = $updated_at WHERE id = $id
                 """,
                 ("$title", string.IsNullOrWhiteSpace(feed.Title) ? "Untitled Feed" : feed.Title.Trim()),
                 ("$category_id", feed.CategoryId),
                 ("$interval", feed.FetchInterval),
                 ("$active", feed.IsActive ? 1 : 0),
-                ("$translate_enabled", feed.TranslateEnabled ? 1 : 0),
+                ("$translate_enabled", TranslationEnabled(normalizedMode) ? 1 : 0),
+                ("$translation_mode", normalizedMode),
                 ("$translation_language", NormalizeLanguage(feed.TranslationLanguage)),
                 ("$updated_at", Clock.NowMs()),
                 ("$id", feed.Id));
@@ -532,6 +572,86 @@ public sealed class Repository
         {
             using var connection = Connect();
             ExecuteNonQuery(connection, "DELETE FROM feeds WHERE id = $id", ("$id", feedId));
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    public List<WebScrapingRule> WebScrapingRules()
+    {
+        using var connection = Connect();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT * FROM web_scraping_rules ORDER BY created_at ASC, name COLLATE NOCASE ASC";
+        using var reader = command.ExecuteReader();
+        var rules = new List<WebScrapingRule>();
+        while (reader.Read())
+        {
+            rules.Add(ReadWebScrapingRule(reader));
+        }
+
+        return rules;
+    }
+
+    public async Task<int> SaveWebScrapingRuleAsync(WebScrapingRule rule)
+    {
+        await _writeLock.WaitAsync();
+        try
+        {
+            using var connection = Connect();
+            var now = Clock.NowMs();
+            if (rule.Id <= 0)
+            {
+                using var command = connection.CreateCommand();
+                command.CommandText =
+                    """
+                    INSERT INTO web_scraping_rules(feed_id, name, type, list_url, base_url, item_selector, title_selector,
+                    link_selector, summary_selector, content_selector, author_selector, date_selector, cover_selector,
+                    next_page_selector, page_url_template, max_pages, request_headers, date_format, encoding, enabled,
+                    created_at, updated_at)
+                    VALUES($feed_id, $name, $type, $list_url, $base_url, $item_selector, $title_selector,
+                    $link_selector, $summary_selector, $content_selector, $author_selector, $date_selector, $cover_selector,
+                    $next_page_selector, $page_url_template, $max_pages, $request_headers, $date_format, $encoding, $enabled,
+                    $created_at, $updated_at);
+                    SELECT last_insert_rowid();
+                    """;
+                AddWebScrapingRuleParameters(command, rule, now, now);
+                return Convert.ToInt32(command.ExecuteScalar());
+            }
+
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText =
+                    """
+                    UPDATE web_scraping_rules SET feed_id = $feed_id, name = $name, type = $type, list_url = $list_url,
+                    base_url = $base_url, item_selector = $item_selector, title_selector = $title_selector,
+                    link_selector = $link_selector, summary_selector = $summary_selector, content_selector = $content_selector,
+                    author_selector = $author_selector, date_selector = $date_selector, cover_selector = $cover_selector,
+                    next_page_selector = $next_page_selector, page_url_template = $page_url_template, max_pages = $max_pages,
+                    request_headers = $request_headers, date_format = $date_format, encoding = $encoding, enabled = $enabled,
+                    updated_at = $updated_at WHERE id = $id
+                    """;
+                command.Parameters.AddWithValue("$id", rule.Id);
+                AddWebScrapingRuleParameters(command, rule, null, now);
+                command.ExecuteNonQuery();
+            }
+
+            return rule.Id;
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    public async Task DeleteWebScrapingRuleAsync(int ruleId)
+    {
+        await _writeLock.WaitAsync();
+        try
+        {
+            using var connection = Connect();
+            ExecuteNonQuery(connection, "DELETE FROM web_scraping_rules WHERE id = $id", ("$id", ruleId));
         }
         finally
         {
@@ -602,19 +722,26 @@ public sealed class Repository
 
     public List<TranslationJob> PendingTranslationJobs(int limit = 20)
     {
+        return PendingTranslationJobs("ai", limit);
+    }
+
+    public List<TranslationJob> PendingTranslationJobs(string translationMode, int limit = 20)
+    {
         using var connection = Connect();
         using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT a.id AS article_id, a.feed_id, a.title, a.content, a.link, f.translation_language
+            SELECT a.id AS article_id, a.feed_id, a.title, a.content, a.link, f.translation_language, f.translation_mode
             FROM articles a
             JOIN feeds f ON f.id = a.feed_id
             WHERE f.translate_enabled = 1
+              AND f.translation_mode = $translation_mode
               AND (a.translation_status IS NULL OR a.translation_status = 'pending')
               AND (a.original_content IS NULL OR a.original_content = '')
             ORDER BY a.created_at DESC
             LIMIT $limit
             """;
+        command.Parameters.AddWithValue("$translation_mode", NormalizeTranslationMode(translationMode));
         command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 100));
         using var reader = command.ExecuteReader();
         var jobs = new List<TranslationJob>();
@@ -624,6 +751,7 @@ public sealed class Repository
             {
                 ArticleId = Int(reader, "article_id"),
                 FeedId = Int(reader, "feed_id"),
+                TranslationMode = NormalizeTranslationMode(NullableText(reader, "translation_mode")),
                 TargetLanguage = NormalizeLanguage(NullableText(reader, "translation_language")),
                 Title = Text(reader, "title"),
                 Content = NullableText(reader, "content") ?? "",
@@ -790,11 +918,22 @@ public sealed class Repository
                     ErrorCount = Int(reader, "error_count"),
                     IsActive = Int(reader, "is_active") == 1,
                     TranslateEnabled = Int(reader, "translate_enabled") == 1,
+                    TranslationMode = NormalizeTranslationMode(NullableText(reader, "translation_mode")),
                     TranslationLanguage = NormalizeLanguage(NullableText(reader, "translation_language")),
                     Position = Int(reader, "position"),
                     CreatedAt = Long(reader, "created_at"),
                     UpdatedAt = NullableLong(reader, "updated_at")
                 });
+            }
+        }
+
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT * FROM web_scraping_rules ORDER BY id ASC";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                document.WebScrapingRules.Add(ReadWebScrapingRuleBackup(reader));
             }
         }
 
@@ -871,6 +1010,7 @@ public sealed class Repository
                     FetchInterval = Int(reader, "fetch_interval"),
                     IsActive = Int(reader, "is_active"),
                     TranslateEnabled = Int(reader, "translate_enabled"),
+                    TranslationMode = NormalizeTranslationMode(NullableText(reader, "translation_mode")),
                     TranslationLanguage = NullableText(reader, "translation_language"),
                     Position = Int(reader, "position"),
                     CreatedAt = Long(reader, "created_at"),
@@ -898,6 +1038,16 @@ public sealed class Repository
                     CreatedAt = Long(reader, "created_at"),
                     UpdatedAt = NullableLong(reader, "updated_at")
                 });
+            }
+        }
+
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT * FROM web_scraping_rules ORDER BY created_at ASC, name COLLATE NOCASE ASC";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                document.WebScrapingRules.Add(ReadWebScrapingRuleBackup(reader));
             }
         }
 
@@ -973,15 +1123,16 @@ public sealed class Repository
                 var existingFeedId = FindFeedIdByUrl(connection, url);
                 var title = Truncate(FirstNonEmpty(feed.Title, url, "Untitled Feed"), 255);
                 var interval = feed.FetchInterval <= 0 ? 3600 : feed.FetchInterval;
+                var translationMode = NormalizeTranslationMode(feed.TranslationMode ?? (feed.TranslateEnabled == 1 ? "ai" : "off"));
                 if (existingFeedId is null)
                 {
                     ExecuteNonQuery(
                         connection,
                         """
                         INSERT INTO feeds(category_id, url, title, description, site_url, icon_url, fetch_interval, last_fetched_at,
-                        is_active, translate_enabled, translation_language, position, created_at, updated_at)
+                        is_active, translate_enabled, translation_mode, translation_language, position, created_at, updated_at)
                         VALUES($category_id, $url, $title, $description, $site_url, $icon_url, $fetch_interval, 0,
-                        $is_active, $translate_enabled, $translation_language, $position, $created_at, $updated_at)
+                        $is_active, $translate_enabled, $translation_mode, $translation_language, $position, $created_at, $updated_at)
                         """,
                         ("$category_id", categoryId),
                         ("$url", url),
@@ -991,7 +1142,8 @@ public sealed class Repository
                         ("$icon_url", BlankToNull(feed.IconUrl)),
                         ("$fetch_interval", interval),
                         ("$is_active", feed.IsActive == 0 ? 0 : 1),
-                        ("$translate_enabled", feed.TranslateEnabled == 0 ? 0 : 1),
+                        ("$translate_enabled", TranslationEnabled(translationMode) ? 1 : 0),
+                        ("$translation_mode", translationMode),
                         ("$translation_language", NormalizeLanguage(feed.TranslationLanguage)),
                         ("$position", feed.Position),
                         ("$created_at", feed.CreatedAt <= 0 ? now : feed.CreatedAt),
@@ -1004,7 +1156,7 @@ public sealed class Repository
                         """
                         UPDATE feeds SET category_id = $category_id, title = $title, description = $description,
                         site_url = $site_url, icon_url = $icon_url, fetch_interval = $fetch_interval,
-                        is_active = $is_active, translate_enabled = $translate_enabled, translation_language = $translation_language,
+                        is_active = $is_active, translate_enabled = $translate_enabled, translation_mode = $translation_mode, translation_language = $translation_language,
                         position = $position, updated_at = $updated_at WHERE id = $id
                         """,
                         ("$category_id", categoryId),
@@ -1014,7 +1166,8 @@ public sealed class Repository
                         ("$icon_url", BlankToNull(feed.IconUrl)),
                         ("$fetch_interval", interval),
                         ("$is_active", feed.IsActive == 0 ? 0 : 1),
-                        ("$translate_enabled", feed.TranslateEnabled == 0 ? 0 : 1),
+                        ("$translate_enabled", TranslationEnabled(translationMode) ? 1 : 0),
+                        ("$translation_mode", translationMode),
                         ("$translation_language", NormalizeLanguage(feed.TranslationLanguage)),
                         ("$position", feed.Position),
                         ("$updated_at", now),
@@ -1076,6 +1229,60 @@ public sealed class Repository
                 changed++;
             }
 
+            foreach (var rule in document.WebScrapingRules ?? [])
+            {
+                var listUrl = rule.ListUrl?.Trim() ?? "";
+                if (string.IsNullOrWhiteSpace(listUrl))
+                {
+                    continue;
+                }
+
+                int? feedId = null;
+                if (rule.FeedId is not null)
+                {
+                    var feedUrl = FeedUrlByExportId(document.Feeds, rule.FeedId.Value);
+                    if (!string.IsNullOrWhiteSpace(feedUrl))
+                    {
+                        feedId = FindFeedIdByUrl(connection, feedUrl.Trim());
+                    }
+                }
+
+                var existingRuleId = FindWebScrapingRuleIdByListUrl(connection, listUrl);
+                if (existingRuleId is null)
+                {
+                    ExecuteNonQuery(
+                        connection,
+                        """
+                        INSERT INTO web_scraping_rules(feed_id, name, type, list_url, base_url, item_selector, title_selector,
+                        link_selector, summary_selector, content_selector, author_selector, date_selector, cover_selector,
+                        next_page_selector, page_url_template, max_pages, request_headers, date_format, encoding, enabled,
+                        created_at, updated_at)
+                        VALUES($feed_id, $name, $type, $list_url, $base_url, $item_selector, $title_selector,
+                        $link_selector, $summary_selector, $content_selector, $author_selector, $date_selector, $cover_selector,
+                        $next_page_selector, $page_url_template, $max_pages, $request_headers, $date_format, $encoding, $enabled,
+                        $created_at, $updated_at)
+                        """,
+                        WebScrapingRuleParameters(rule, feedId, rule.CreatedAt <= 0 ? now : rule.CreatedAt, now));
+                }
+                else
+                {
+                    ExecuteNonQuery(
+                        connection,
+                        """
+                        UPDATE web_scraping_rules SET feed_id = $feed_id, name = $name, type = $type, list_url = $list_url,
+                        base_url = $base_url, item_selector = $item_selector, title_selector = $title_selector,
+                        link_selector = $link_selector, summary_selector = $summary_selector, content_selector = $content_selector,
+                        author_selector = $author_selector, date_selector = $date_selector, cover_selector = $cover_selector,
+                        next_page_selector = $next_page_selector, page_url_template = $page_url_template, max_pages = $max_pages,
+                        request_headers = $request_headers, date_format = $date_format, encoding = $encoding, enabled = $enabled,
+                        updated_at = $updated_at WHERE id = $id
+                        """,
+                        WebScrapingRuleParameters(rule, feedId, null, now).Append(("$id", existingRuleId.Value)).ToArray());
+                }
+
+                changed++;
+            }
+
             transaction.Commit();
             return changed;
         }
@@ -1093,6 +1300,7 @@ public sealed class Repository
             using var connection = Connect();
             using var transaction = connection.BeginTransaction();
             ExecuteNonQuery(connection, "DELETE FROM articles");
+            ExecuteNonQuery(connection, "DELETE FROM web_scraping_rules");
             ExecuteNonQuery(connection, "DELETE FROM feeds");
             ExecuteNonQuery(connection, "DELETE FROM categories");
             foreach (var category in document.Categories)
@@ -1110,13 +1318,14 @@ public sealed class Repository
 
             foreach (var feed in document.Feeds)
             {
+                var translationMode = NormalizeTranslationMode(feed.TranslationMode ?? (feed.TranslateEnabled ? "ai" : "off"));
                 ExecuteNonQuery(
                     connection,
                     """
                     INSERT INTO feeds(id, category_id, url, title, description, site_url, icon_url, fetch_interval, last_fetched_at,
-                    last_error, error_count, is_active, translate_enabled, translation_language, position, created_at, updated_at)
+                    last_error, error_count, is_active, translate_enabled, translation_mode, translation_language, position, created_at, updated_at)
                     VALUES($id, $category_id, $url, $title, $description, $site_url, $icon_url, $fetch_interval, $last_fetched_at,
-                    $last_error, $error_count, $is_active, $translate_enabled, $translation_language, $position, $created_at, $updated_at)
+                    $last_error, $error_count, $is_active, $translate_enabled, $translation_mode, $translation_language, $position, $created_at, $updated_at)
                     """,
                     ("$id", feed.Id),
                     ("$category_id", feed.CategoryId),
@@ -1130,11 +1339,29 @@ public sealed class Repository
                     ("$last_error", feed.LastError),
                     ("$error_count", feed.ErrorCount),
                     ("$is_active", feed.IsActive ? 1 : 0),
-                    ("$translate_enabled", feed.TranslateEnabled ? 1 : 0),
+                    ("$translate_enabled", TranslationEnabled(translationMode) ? 1 : 0),
+                    ("$translation_mode", translationMode),
                     ("$translation_language", NormalizeLanguage(feed.TranslationLanguage)),
                     ("$position", feed.Position),
                     ("$created_at", feed.CreatedAt),
                     ("$updated_at", feed.UpdatedAt));
+            }
+
+            foreach (var rule in document.WebScrapingRules ?? [])
+            {
+                ExecuteNonQuery(
+                    connection,
+                    """
+                    INSERT INTO web_scraping_rules(id, feed_id, name, type, list_url, base_url, item_selector, title_selector,
+                    link_selector, summary_selector, content_selector, author_selector, date_selector, cover_selector,
+                    next_page_selector, page_url_template, max_pages, request_headers, date_format, encoding, enabled,
+                    created_at, updated_at)
+                    VALUES($id, $feed_id, $name, $type, $list_url, $base_url, $item_selector, $title_selector,
+                    $link_selector, $summary_selector, $content_selector, $author_selector, $date_selector, $cover_selector,
+                    $next_page_selector, $page_url_template, $max_pages, $request_headers, $date_format, $encoding, $enabled,
+                    $created_at, $updated_at)
+                    """,
+                    WebScrapingRuleParameters(rule, rule.FeedId, rule.CreatedAt, rule.UpdatedAt).Prepend(("$id", rule.Id)).ToArray());
             }
 
             foreach (var article in document.Articles)
@@ -1382,6 +1609,7 @@ public sealed class Repository
             ErrorCount = Int(reader, "error_count"),
             IsActive = Int(reader, "is_active") == 1,
             TranslateEnabled = Int(reader, "translate_enabled") == 1,
+            TranslationMode = NormalizeTranslationMode(NullableText(reader, "translation_mode")),
             TranslationLanguage = NormalizeLanguage(NullableText(reader, "translation_language")),
             CategoryName = NullableText(reader, "category_name"),
             ArticleCount = Int(reader, "article_count"),
@@ -1413,6 +1641,66 @@ public sealed class Repository
             FavoritedAt = Long(reader, "favorited_at"),
             FeedTitle = Text(reader, "feed_title"),
             FeedIconUrl = NullableText(reader, "feed_icon_url")
+        };
+    }
+
+    private static WebScrapingRule ReadWebScrapingRule(SqliteDataReader reader)
+    {
+        return new WebScrapingRule
+        {
+            Id = Int(reader, "id"),
+            FeedId = NullableInt(reader, "feed_id"),
+            Name = Text(reader, "name"),
+            Type = NormalizeWebScrapingRuleType(NullableText(reader, "type")),
+            ListUrl = Text(reader, "list_url"),
+            BaseUrl = NullableText(reader, "base_url"),
+            ItemSelector = Text(reader, "item_selector"),
+            TitleSelector = NullableText(reader, "title_selector"),
+            LinkSelector = NullableText(reader, "link_selector"),
+            SummarySelector = NullableText(reader, "summary_selector"),
+            ContentSelector = NullableText(reader, "content_selector"),
+            AuthorSelector = NullableText(reader, "author_selector"),
+            DateSelector = NullableText(reader, "date_selector"),
+            CoverSelector = NullableText(reader, "cover_selector"),
+            NextPageSelector = NullableText(reader, "next_page_selector"),
+            PageUrlTemplate = NullableText(reader, "page_url_template"),
+            MaxPages = ClampMaxPages(Int(reader, "max_pages")),
+            RequestHeaders = NullableText(reader, "request_headers"),
+            DateFormat = NullableText(reader, "date_format"),
+            Encoding = NullableText(reader, "encoding"),
+            Enabled = Int(reader, "enabled") != 0,
+            CreatedAt = Long(reader, "created_at"),
+            UpdatedAt = NullableLong(reader, "updated_at")
+        };
+    }
+
+    private static WebScrapingRuleBackup ReadWebScrapingRuleBackup(SqliteDataReader reader)
+    {
+        return new WebScrapingRuleBackup
+        {
+            Id = Int(reader, "id"),
+            FeedId = NullableInt(reader, "feed_id"),
+            Name = Text(reader, "name"),
+            Type = NormalizeWebScrapingRuleType(NullableText(reader, "type")),
+            ListUrl = Text(reader, "list_url"),
+            BaseUrl = NullableText(reader, "base_url"),
+            ItemSelector = Text(reader, "item_selector"),
+            TitleSelector = NullableText(reader, "title_selector"),
+            LinkSelector = NullableText(reader, "link_selector"),
+            SummarySelector = NullableText(reader, "summary_selector"),
+            ContentSelector = NullableText(reader, "content_selector"),
+            AuthorSelector = NullableText(reader, "author_selector"),
+            DateSelector = NullableText(reader, "date_selector"),
+            CoverSelector = NullableText(reader, "cover_selector"),
+            NextPageSelector = NullableText(reader, "next_page_selector"),
+            PageUrlTemplate = NullableText(reader, "page_url_template"),
+            MaxPages = ClampMaxPages(Int(reader, "max_pages")),
+            RequestHeaders = NullableText(reader, "request_headers"),
+            DateFormat = NullableText(reader, "date_format"),
+            Encoding = NullableText(reader, "encoding"),
+            Enabled = Int(reader, "enabled") == 0 ? 0 : 1,
+            CreatedAt = Long(reader, "created_at"),
+            UpdatedAt = NullableLong(reader, "updated_at")
         };
     }
 
@@ -1470,6 +1758,12 @@ public sealed class Repository
         return value is null ? null : Convert.ToInt32(value);
     }
 
+    private static int? FindWebScrapingRuleIdByListUrl(SqliteConnection connection, string listUrl)
+    {
+        var value = Scalar(connection, "SELECT id FROM web_scraping_rules WHERE list_url = $list_url", ("$list_url", listUrl));
+        return value is null ? null : Convert.ToInt32(value);
+    }
+
     private static int GetOrCreateCategory(SqliteConnection connection, string name, long now)
     {
         var existing = FindCategoryIdByName(connection, name);
@@ -1489,6 +1783,11 @@ public sealed class Repository
     private static string? CategoryNameByExportId(IEnumerable<SubscriptionCategorySync> categories, int exportId)
     {
         return categories.FirstOrDefault(category => category.Id == exportId)?.Name;
+    }
+
+    private static string? FeedUrlByExportId(IEnumerable<SubscriptionFeedSync> feeds, int exportId)
+    {
+        return feeds.FirstOrDefault(feed => feed.Id == exportId)?.Url;
     }
 
     private static object? Scalar(SqliteConnection connection, string sql, params (string Name, object? Value)[] parameters)
@@ -1514,6 +1813,69 @@ public sealed class Repository
         {
             command.Parameters.AddWithValue(parameter.Name, DbValue(parameter.Value));
         }
+    }
+
+    private static void AddWebScrapingRuleParameters(SqliteCommand command, WebScrapingRule rule, long? createdAt, long updatedAt)
+    {
+        AddParameters(command, WebScrapingRuleParameters(rule, createdAt, updatedAt));
+    }
+
+    private static (string Name, object? Value)[] WebScrapingRuleParameters(WebScrapingRule rule, long? createdAt, long updatedAt)
+    {
+        return
+        [
+            ("$feed_id", rule.FeedId),
+            ("$name", Truncate(FirstNonEmpty(rule.Name, rule.ListUrl, "网页订阅"), 255)),
+            ("$type", NormalizeWebScrapingRuleType(rule.Type)),
+            ("$list_url", Truncate(FirstNonEmpty(rule.ListUrl, ""), 2048)),
+            ("$base_url", TruncateNullable(rule.BaseUrl, 2048)),
+            ("$item_selector", Truncate(FirstNonEmpty(rule.ItemSelector, ""), 1000)),
+            ("$title_selector", TruncateNullable(rule.TitleSelector, 1000)),
+            ("$link_selector", TruncateNullable(rule.LinkSelector, 1000)),
+            ("$summary_selector", TruncateNullable(rule.SummarySelector, 1000)),
+            ("$content_selector", TruncateNullable(rule.ContentSelector, 1000)),
+            ("$author_selector", TruncateNullable(rule.AuthorSelector, 1000)),
+            ("$date_selector", TruncateNullable(rule.DateSelector, 1000)),
+            ("$cover_selector", TruncateNullable(rule.CoverSelector, 1000)),
+            ("$next_page_selector", TruncateNullable(rule.NextPageSelector, 1000)),
+            ("$page_url_template", TruncateNullable(rule.PageUrlTemplate, 2048)),
+            ("$max_pages", ClampMaxPages(rule.MaxPages)),
+            ("$request_headers", BlankToNull(rule.RequestHeaders)),
+            ("$date_format", TruncateNullable(rule.DateFormat, 200)),
+            ("$encoding", TruncateNullable(rule.Encoding, 100)),
+            ("$enabled", rule.Enabled ? 1 : 0),
+            ("$created_at", createdAt),
+            ("$updated_at", updatedAt)
+        ];
+    }
+
+    private static (string Name, object? Value)[] WebScrapingRuleParameters(WebScrapingRuleBackup rule, int? feedId, long? createdAt, long? updatedAt)
+    {
+        return
+        [
+            ("$feed_id", feedId),
+            ("$name", Truncate(FirstNonEmpty(rule.Name, rule.ListUrl, "网页订阅"), 255)),
+            ("$type", NormalizeWebScrapingRuleType(rule.Type)),
+            ("$list_url", Truncate(FirstNonEmpty(rule.ListUrl, ""), 2048)),
+            ("$base_url", TruncateNullable(rule.BaseUrl, 2048)),
+            ("$item_selector", Truncate(FirstNonEmpty(rule.ItemSelector, ""), 1000)),
+            ("$title_selector", TruncateNullable(rule.TitleSelector, 1000)),
+            ("$link_selector", TruncateNullable(rule.LinkSelector, 1000)),
+            ("$summary_selector", TruncateNullable(rule.SummarySelector, 1000)),
+            ("$content_selector", TruncateNullable(rule.ContentSelector, 1000)),
+            ("$author_selector", TruncateNullable(rule.AuthorSelector, 1000)),
+            ("$date_selector", TruncateNullable(rule.DateSelector, 1000)),
+            ("$cover_selector", TruncateNullable(rule.CoverSelector, 1000)),
+            ("$next_page_selector", TruncateNullable(rule.NextPageSelector, 1000)),
+            ("$page_url_template", TruncateNullable(rule.PageUrlTemplate, 2048)),
+            ("$max_pages", ClampMaxPages(rule.MaxPages)),
+            ("$request_headers", BlankToNull(rule.RequestHeaders)),
+            ("$date_format", TruncateNullable(rule.DateFormat, 200)),
+            ("$encoding", TruncateNullable(rule.Encoding, 100)),
+            ("$enabled", rule.Enabled == 0 ? 0 : 1),
+            ("$created_at", createdAt),
+            ("$updated_at", updatedAt)
+        ];
     }
 
     private static object DbValue(object? value)
@@ -1575,6 +1937,12 @@ public sealed class Repository
         return value.Length <= maxLength ? value : value[..maxLength];
     }
 
+    private static string? TruncateNullable(string? value, int maxLength)
+    {
+        var normalized = BlankToNull(value);
+        return normalized is null ? null : Truncate(normalized, maxLength);
+    }
+
     private static string? BlankToNull(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -1583,6 +1951,36 @@ public sealed class Repository
     private static string NormalizeLanguage(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? "中文" : value.Trim();
+    }
+
+    private static string NormalizeTranslationMode(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            "ai" => "ai",
+            "standard" => "standard",
+            _ => "off"
+        };
+    }
+
+    private static bool TranslationEnabled(string? mode)
+    {
+        var normalized = NormalizeTranslationMode(mode);
+        return normalized is "ai" or "standard";
+    }
+
+    private static string NormalizeWebScrapingRuleType(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            "json" => "json",
+            _ => "html"
+        };
+    }
+
+    private static int ClampMaxPages(int value)
+    {
+        return Math.Clamp(value <= 0 ? 1 : value, 1, 20);
     }
 
     private static void EnsureColumn(SqliteConnection connection, string table, string column, string definition)

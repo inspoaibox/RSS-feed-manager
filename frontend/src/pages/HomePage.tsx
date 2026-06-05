@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, Check, Star, ExternalLink, Search, SortAsc, SortDesc, X, Languages, FileText, Loader2, ChevronLeft, ChevronRight, Calendar } from 'lucide-react'
@@ -62,8 +62,9 @@ const parseTranslation = (translation: string | null | undefined): { title: stri
 const PAGE_SIZE = 30
 
 export default function HomePage() {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const queryClient = useQueryClient()
+  const articleListRef = useRef<HTMLDivElement | null>(null)
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearching, setIsSearching] = useState(false)
@@ -79,7 +80,18 @@ export default function HomePage() {
 
   const feedId = searchParams.get('feed')
   const categoryId = searchParams.get('category')
+  const keywordId = searchParams.get('keyword_id')
   const isFavorite = searchParams.get('favorite') === 'true'
+
+  useEffect(() => {
+    if (keywordId) {
+      setSearchQuery('')
+      setIsSearching(false)
+      setSearchPage(1)
+      setCurrentPage(1)
+      setSelectedArticle(null)
+    }
+  }, [keywordId])
 
   // Calculate date range based on filter - returns ISO timestamps
   const getDateRange = () => {
@@ -107,11 +119,12 @@ export default function HomePage() {
   }
 
   const { data, isLoading } = useQuery({
-    queryKey: ['articles', feedId, categoryId, isFavorite, sortBy, sortOrder, currentPage, dateFilter, customDateStart, customDateEnd],
+    queryKey: ['articles', feedId, categoryId, keywordId, isFavorite, sortBy, sortOrder, currentPage, dateFilter, customDateStart, customDateEnd],
     queryFn: async () => {
       const params = new URLSearchParams()
       if (feedId) params.append('feed_id', feedId)
       if (categoryId) params.append('category_id', categoryId)
+      if (keywordId) params.append('keyword_id', keywordId)
       if (isFavorite) params.append('is_favorite', 'true')
       params.append('sort_by', sortBy)
       params.append('sort_order', sortOrder)
@@ -155,6 +168,7 @@ export default function HomePage() {
       queryClient.invalidateQueries({ queryKey: ['articles'] })
       queryClient.invalidateQueries({ queryKey: ['feeds'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
+      queryClient.invalidateQueries({ queryKey: ['keywords'] })
     },
   })
 
@@ -203,12 +217,14 @@ export default function HomePage() {
       await api.post('/articles/mark-all-read', {
         feed_id: feedId ? parseInt(feedId) : null,
         category_id: categoryId ? parseInt(categoryId) : null,
+        keyword_id: keywordId ? parseInt(keywordId) : null,
       })
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['articles'] })
       queryClient.invalidateQueries({ queryKey: ['feeds'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
+      queryClient.invalidateQueries({ queryKey: ['keywords'] })
     },
   })
 
@@ -219,6 +235,7 @@ export default function HomePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['articles'] })
       queryClient.invalidateQueries({ queryKey: ['feeds'] })
+      queryClient.invalidateQueries({ queryKey: ['keywords'] })
     },
   })
 
@@ -232,6 +249,7 @@ export default function HomePage() {
       queryClient.invalidateQueries({ queryKey: ['articles'] })
       queryClient.invalidateQueries({ queryKey: ['feeds'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
+      queryClient.invalidateQueries({ queryKey: ['keywords'] })
     },
   })
 
@@ -245,11 +263,22 @@ export default function HomePage() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
     if (searchQuery.trim()) {
+      if (keywordId) {
+        const nextParams = new URLSearchParams(searchParams)
+        nextParams.delete('keyword_id')
+        setSearchParams(nextParams)
+      }
       setIsSearching(true)
+      setSearchPage(1)
     }
   }
 
   const clearSearch = () => {
+    if (keywordId) {
+      const nextParams = new URLSearchParams(searchParams)
+      nextParams.delete('keyword_id')
+      setSearchParams(nextParams)
+    }
     setSearchQuery('')
     setIsSearching(false)
     setSearchPage(1)
@@ -270,6 +299,9 @@ export default function HomePage() {
   const goToPage = (newPage: number) => {
     if (newPage >= 1 && newPage <= totalPages) {
       setPage(newPage)
+      requestAnimationFrame(() => {
+        articleListRef.current?.scrollTo({ top: 0 })
+      })
     }
   }
 
@@ -280,7 +312,7 @@ export default function HomePage() {
       <div className={clsx(
         'border-r dark:border-gray-700 bg-white dark:bg-gray-800 overflow-y-auto',
         selectedArticle ? 'hidden md:block md:w-96' : 'w-full'
-      )}>
+      )} ref={articleListRef}>
         {/* Toolbar */}
         <div className="sticky top-0 bg-white dark:bg-gray-800 border-b dark:border-gray-700 p-3 space-y-2">
           {/* Search Bar */}

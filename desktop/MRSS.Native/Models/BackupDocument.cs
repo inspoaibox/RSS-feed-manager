@@ -16,6 +16,9 @@ public sealed class BackupDocument
     [JsonPropertyName("feeds")]
     public List<FeedBackup> Feeds { get; set; } = [];
 
+    [JsonPropertyName("web_scraping_rules")]
+    public List<WebScrapingRuleBackup> WebScrapingRules { get; set; } = [];
+
     [JsonPropertyName("articles")]
     public List<ArticleBackup> Articles { get; set; } = [];
 }
@@ -39,6 +42,9 @@ public sealed class SubscriptionSyncDocument
 
     [JsonPropertyName("keyword_subscriptions")]
     public List<KeywordSubscriptionBackup> KeywordSubscriptions { get; set; } = [];
+
+    [JsonPropertyName("web_scraping_rules")]
+    public List<WebScrapingRuleBackup> WebScrapingRules { get; set; } = [];
 }
 
 public sealed class CategoryBackup
@@ -73,6 +79,7 @@ public sealed class SubscriptionFeedSync
     public int FetchInterval { get; set; } = 3600;
     public int IsActive { get; set; } = 1;
     public int TranslateEnabled { get; set; }
+    public string? TranslationMode { get; set; }
     public string? TranslationLanguage { get; set; }
     public int Position { get; set; }
     public long CreatedAt { get; set; }
@@ -94,6 +101,7 @@ public sealed class FeedBackup
     public int ErrorCount { get; set; }
     public bool IsActive { get; set; }
     public bool TranslateEnabled { get; set; }
+    public string? TranslationMode { get; set; }
     public string? TranslationLanguage { get; set; }
     public int Position { get; set; }
     public long CreatedAt { get; set; }
@@ -132,6 +140,33 @@ public sealed class KeywordSubscriptionBackup
     public int MatchContent { get; set; } = 1;
     public int MatchAuthor { get; set; }
     public int MatchFeedTitle { get; set; } = 1;
+    public long CreatedAt { get; set; }
+    public long? UpdatedAt { get; set; }
+}
+
+public sealed class WebScrapingRuleBackup
+{
+    public int Id { get; set; }
+    public int? FeedId { get; set; }
+    public string Name { get; set; } = "";
+    public string Type { get; set; } = "html";
+    public string ListUrl { get; set; } = "";
+    public string? BaseUrl { get; set; }
+    public string ItemSelector { get; set; } = "";
+    public string? TitleSelector { get; set; }
+    public string? LinkSelector { get; set; }
+    public string? SummarySelector { get; set; }
+    public string? ContentSelector { get; set; }
+    public string? AuthorSelector { get; set; }
+    public string? DateSelector { get; set; }
+    public string? CoverSelector { get; set; }
+    public string? NextPageSelector { get; set; }
+    public string? PageUrlTemplate { get; set; }
+    public int MaxPages { get; set; } = 1;
+    public string? RequestHeaders { get; set; }
+    public string? DateFormat { get; set; }
+    public string? Encoding { get; set; }
+    public int Enabled { get; set; } = 1;
     public long CreatedAt { get; set; }
     public long? UpdatedAt { get; set; }
 }

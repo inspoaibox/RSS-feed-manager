@@ -8,6 +8,7 @@ from app.models.custom_rule import CustomRule
 from app.models.system_settings import SystemSettings
 from app.models.analysis_query import AnalysisQuery
 from app.models.recommended_feed import RecommendedFeed
+from app.models.keyword_subscription import KeywordSubscription
 
 __all__ = [
     "User",
@@ -21,4 +22,5 @@ __all__ = [
     "SystemSettings",
     "AnalysisQuery",
     "RecommendedFeed",
+    "KeywordSubscription",
 ]

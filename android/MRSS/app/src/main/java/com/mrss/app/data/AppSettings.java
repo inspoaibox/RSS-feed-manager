@@ -17,6 +17,17 @@ public class AppSettings {
     private static final String KEY_GIST_FILENAME = "gist_filename";
     private static final String KEY_ARTICLE_PAGE_SIZE = "article_page_size";
     private static final String KEY_DEFAULT_TRANSLATION_LANGUAGE = "default_translation_language";
+    private static final String KEY_DEFAULT_TRANSLATION_MODE = "default_translation_mode";
+    private static final String KEY_STANDARD_TRANSLATION_PROVIDER = "standard_translation_provider";
+    private static final String KEY_BAIDU_APP_ID = "baidu_translate_app_id";
+    private static final String KEY_BAIDU_SECRET = "baidu_translate_secret";
+    private static final String KEY_TENCENT_SECRET_ID = "tencent_translate_secret_id";
+    private static final String KEY_TENCENT_SECRET_KEY = "tencent_translate_secret_key";
+    private static final String KEY_TENCENT_REGION = "tencent_translate_region";
+    private static final String KEY_GOOGLE_API_KEY = "google_translate_api_key";
+    private static final String KEY_MICROSOFT_KEY = "microsoft_translate_key";
+    private static final String KEY_MICROSOFT_REGION = "microsoft_translate_region";
+    private static final String KEY_APP_LANGUAGE = "app_language";
 
     private final SharedPreferences preferences;
 
@@ -114,5 +125,109 @@ public class AppSettings {
         preferences.edit()
                 .putString(KEY_DEFAULT_TRANSLATION_LANGUAGE, language == null || language.trim().isEmpty() ? "中文" : language.trim())
                 .apply();
+    }
+
+    public String getDefaultTranslationMode() {
+        return normalizeTranslationMode(preferences.getString(KEY_DEFAULT_TRANSLATION_MODE, "off"));
+    }
+
+    public void setDefaultTranslationMode(String mode) {
+        preferences.edit().putString(KEY_DEFAULT_TRANSLATION_MODE, normalizeTranslationMode(mode)).apply();
+    }
+
+    public String getStandardTranslationProvider() {
+        String value = preferences.getString(KEY_STANDARD_TRANSLATION_PROVIDER, "microsoft");
+        if ("baidu".equals(value) || "tencent".equals(value) || "google".equals(value) || "microsoft".equals(value)) {
+            return value;
+        }
+        return "microsoft";
+    }
+
+    public void setStandardTranslationProvider(String provider) {
+        if (!"baidu".equals(provider) && !"tencent".equals(provider) && !"google".equals(provider) && !"microsoft".equals(provider)) {
+            provider = "microsoft";
+        }
+        preferences.edit().putString(KEY_STANDARD_TRANSLATION_PROVIDER, provider).apply();
+    }
+
+    public String getBaiduTranslateAppId() {
+        return preferences.getString(KEY_BAIDU_APP_ID, "");
+    }
+
+    public String getBaiduTranslateSecret() {
+        return preferences.getString(KEY_BAIDU_SECRET, "");
+    }
+
+    public void setBaiduTranslateSettings(String appId, String secret) {
+        preferences.edit()
+                .putString(KEY_BAIDU_APP_ID, appId == null ? "" : appId.trim())
+                .putString(KEY_BAIDU_SECRET, secret == null ? "" : secret.trim())
+                .apply();
+    }
+
+    public String getTencentTranslateSecretId() {
+        return preferences.getString(KEY_TENCENT_SECRET_ID, "");
+    }
+
+    public String getTencentTranslateSecretKey() {
+        return preferences.getString(KEY_TENCENT_SECRET_KEY, "");
+    }
+
+    public String getTencentTranslateRegion() {
+        String value = preferences.getString(KEY_TENCENT_REGION, "ap-beijing");
+        return value == null || value.trim().isEmpty() ? "ap-beijing" : value.trim();
+    }
+
+    public void setTencentTranslateSettings(String secretId, String secretKey, String region) {
+        preferences.edit()
+                .putString(KEY_TENCENT_SECRET_ID, secretId == null ? "" : secretId.trim())
+                .putString(KEY_TENCENT_SECRET_KEY, secretKey == null ? "" : secretKey.trim())
+                .putString(KEY_TENCENT_REGION, region == null || region.trim().isEmpty() ? "ap-beijing" : region.trim())
+                .apply();
+    }
+
+    public String getGoogleTranslateApiKey() {
+        return preferences.getString(KEY_GOOGLE_API_KEY, "");
+    }
+
+    public void setGoogleTranslateApiKey(String apiKey) {
+        preferences.edit().putString(KEY_GOOGLE_API_KEY, apiKey == null ? "" : apiKey.trim()).apply();
+    }
+
+    public String getMicrosoftTranslateKey() {
+        return preferences.getString(KEY_MICROSOFT_KEY, "");
+    }
+
+    public String getMicrosoftTranslateRegion() {
+        String value = preferences.getString(KEY_MICROSOFT_REGION, "global");
+        return value == null || value.trim().isEmpty() ? "global" : value.trim();
+    }
+
+    public void setMicrosoftTranslateSettings(String key, String region) {
+        preferences.edit()
+                .putString(KEY_MICROSOFT_KEY, key == null ? "" : key.trim())
+                .putString(KEY_MICROSOFT_REGION, region == null || region.trim().isEmpty() ? "global" : region.trim())
+                .apply();
+    }
+
+    public String getAppLanguage() {
+        String value = preferences.getString(KEY_APP_LANGUAGE, "zh");
+        if ("en".equals(value)) {
+            return "en";
+        }
+        return "zh";
+    }
+
+    public void setAppLanguage(String language) {
+        preferences.edit()
+                .putString(KEY_APP_LANGUAGE, "en".equals(language) ? "en" : "zh")
+                .apply();
+    }
+
+    private String normalizeTranslationMode(String mode) {
+        if ("ai".equals(mode) || "standard".equals(mode)) {
+            return mode;
+        }
+        return "off";
     }
 }

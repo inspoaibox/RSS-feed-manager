@@ -11,12 +11,13 @@ public sealed class AddFeedResult
     public int? CategoryId { get; init; }
     public int FetchIntervalMinutes { get; init; }
     public bool TranslateEnabled { get; init; }
+    public string TranslationMode { get; init; } = "off";
     public string TranslationLanguage { get; init; } = "中文";
 }
 
 public static class AddFeedDialog
 {
-    public static AddFeedResult? Show(Window owner, IReadOnlyList<Category> categories, int? defaultCategoryId, string defaultLanguage)
+    public static AddFeedResult? Show(Window owner, IReadOnlyList<Category> categories, int? defaultCategoryId, string defaultLanguage, string defaultTranslationMode = "off")
     {
         var window = new Window
         {
@@ -76,11 +77,22 @@ public static class AddFeedDialog
         AddField(root, 3, "同步间隔", intervalGrid);
 
         var translateGrid = new Grid();
-        translateGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        translateGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        translateGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        translateGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(82) });
         translateGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var translate = new CheckBox { Content = "自动 AI 翻译", VerticalAlignment = VerticalAlignment.Center };
-        translateGrid.Children.Add(translate);
-        var language = new TextBox { Text = string.IsNullOrWhiteSpace(defaultLanguage) ? "中文" : defaultLanguage.Trim(), Height = 36, Margin = new Thickness(16, 0, 0, 0) };
+        var modeBox = new ComboBox { Height = 36, DisplayMemberPath = nameof(TranslationModeOption.Name) };
+        var modeOptions = TranslationModeOptions();
+        modeBox.ItemsSource = modeOptions;
+        modeBox.SelectedItem = modeOptions.FirstOrDefault(item => item.Value == NormalizeTranslationMode(defaultTranslationMode)) ?? modeOptions[0];
+        translateGrid.Children.Add(new TextBlock { Text = "方式", VerticalAlignment = VerticalAlignment.Center, Foreground = (System.Windows.Media.Brush)Application.Current.Resources["MutedBrush"] });
+        Grid.SetColumn(modeBox, 1);
+        translateGrid.Children.Add(modeBox);
+        var languageLabel = new TextBlock { Text = "目标语言", VerticalAlignment = VerticalAlignment.Center, Foreground = (System.Windows.Media.Brush)Application.Current.Resources["MutedBrush"], Margin = new Thickness(0, 10, 0, 0) };
+        Grid.SetRow(languageLabel, 1);
+        translateGrid.Children.Add(languageLabel);
+        var language = new TextBox { Text = string.IsNullOrWhiteSpace(defaultLanguage) ? "中文" : defaultLanguage.Trim(), Height = 36, Margin = new Thickness(0, 10, 0, 0) };
+        Grid.SetRow(language, 1);
         Grid.SetColumn(language, 1);
         translateGrid.Children.Add(language);
         AddField(root, 4, "翻译", translateGrid);
@@ -118,12 +130,14 @@ public static class AddFeedDialog
             }
 
             var selected = (CategoryOption?)categoryBox.SelectedItem;
+            var selectedMode = ((TranslationModeOption?)modeBox.SelectedItem)?.Value ?? "off";
             window.Tag = new AddFeedResult
             {
                 Url = rawUrl,
                 CategoryId = selected?.Id,
                 FetchIntervalMinutes = minutes,
-                TranslateEnabled = translate.IsChecked == true,
+                TranslationMode = selectedMode,
+                TranslateEnabled = selectedMode is "ai" or "standard",
                 TranslationLanguage = string.IsNullOrWhiteSpace(language.Text) ? "中文" : language.Text.Trim()
             };
             window.DialogResult = true;
@@ -154,5 +168,26 @@ public static class AddFeedDialog
         root.Children.Add(box);
     }
 
+    private static List<TranslationModeOption> TranslationModeOptions()
+    {
+        return
+        [
+            new("off", "不自动翻译"),
+            new("ai", "AI 翻译"),
+            new("standard", "常规翻译平台")
+        ];
+    }
+
+    private static string NormalizeTranslationMode(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            "ai" => "ai",
+            "standard" => "standard",
+            _ => "off"
+        };
+    }
+
     private sealed record CategoryOption(int? Id, string Name);
+    private sealed record TranslationModeOption(string Value, string Name);
 }

@@ -56,6 +56,23 @@ export interface Feed {
   position: number
 }
 
+// Keyword subscription types
+export interface KeywordSubscription {
+  id: number
+  name: string
+  keyword: string
+  is_active: boolean
+  match_title: boolean
+  match_content: boolean
+  match_author: boolean
+  match_feed_title: boolean
+  position: number
+  article_count: number
+  unread_count: number
+  created_at: string
+  updated_at: string | null
+}
+
 // Article types
 export interface Article {
   id: number

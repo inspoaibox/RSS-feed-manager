@@ -15,6 +15,7 @@ public sealed class Feed
     public int ErrorCount { get; set; }
     public bool IsActive { get; set; } = true;
     public bool TranslateEnabled { get; set; }
+    public string TranslationMode { get; set; } = "off";
     public string TranslationLanguage { get; set; } = "中文";
     public string? CategoryName { get; set; }
     public int ArticleCount { get; set; }

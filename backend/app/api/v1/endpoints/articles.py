@@ -21,6 +21,7 @@ async def get_articles(
     db: DbSession,
     feed_id: int | None = Query(None),
     category_id: int | None = Query(None),
+    keyword_id: int | None = Query(None),
     is_read: bool | None = Query(None),
     is_favorite: bool | None = Query(None),
     sort_by: str = Query("published_at", pattern="^(published_at|created_at|title)$"),
@@ -35,6 +36,7 @@ async def get_articles(
     filters = ArticleFilter(
         feed_id=feed_id,
         category_id=category_id,
+        keyword_id=keyword_id,
         is_read=is_read,
         is_favorite=is_favorite,
         sort_by=sort_by,
@@ -104,9 +106,9 @@ async def mark_all_read(
     user_id: CurrentUserId,
     db: DbSession
 ):
-    """Mark all articles as read (optionally filtered by feed or category)."""
+    """Mark all articles as read (optionally filtered by feed, category, or keyword)."""
     service = ArticleService(db)
-    count = await service.mark_all_read(user_id, data.feed_id, data.category_id)
+    count = await service.mark_all_read(user_id, data.feed_id, data.category_id, data.keyword_id)
     return {"marked_count": count}
 
 

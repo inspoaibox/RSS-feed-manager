@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { Menu, X, Rss, FolderOpen, Star, Settings, LogOut, ChevronDown, ChevronRight, User, BarChart3, Sparkles, Bell } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Menu, X, Rss, FolderOpen, Star, Settings, LogOut, ChevronDown, ChevronRight, User, BarChart3, Sparkles, Bell, Hash, Plus, Trash2 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { useSiteStore } from '@/stores/siteStore'
 import api from '@/services/api'
-import type { Category, Feed } from '@/types'
+import type { Category, Feed, KeywordSubscription } from '@/types'
 import type { UnreadCountResponse } from '@/types/notification'
 import NotificationModal from '@/components/NotificationModal'
 import clsx from 'clsx'
@@ -20,10 +20,14 @@ interface SidebarProps {
 function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarProps) {
   const navigate = useNavigate()
   const location = useLocation()
+  const queryClient = useQueryClient()
   const clearAuth = useAuthStore((state) => state.clearAuth)
   const user = useAuthStore((state) => state.user)
   const [expandedCategories, setExpandedCategories] = useState<Set<number>>(new Set())
+  const [newKeyword, setNewKeyword] = useState('')
+  const [keywordMessage, setKeywordMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
   const { siteName, setSiteName } = useSiteStore()
+  const activeKeywordId = new URLSearchParams(location.search).get('keyword_id')
 
   // 获取公开设置（网站名称）
   const { data: publicSettings } = useQuery({
@@ -59,6 +63,50 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
     refetchInterval: 30000,
   })
 
+  const { data: keywordSubscriptions = [] } = useQuery({
+    queryKey: ['keywords'],
+    queryFn: async () => {
+      const response = await api.get<KeywordSubscription[]>('/keywords')
+      return response.data
+    },
+    refetchInterval: 30000,
+  })
+
+  const createKeywordMutation = useMutation({
+    mutationFn: async (keyword: string) => {
+      const response = await api.post<KeywordSubscription>('/keywords', {
+        keyword,
+        name: keyword,
+      })
+      return response.data
+    },
+    onSuccess: (keyword) => {
+      queryClient.invalidateQueries({ queryKey: ['keywords'] })
+      setNewKeyword('')
+      setKeywordMessage({ type: 'success', text: '关键词订阅已添加' })
+      navigate(`/?keyword_id=${keyword.id}`)
+      setTimeout(() => setKeywordMessage(null), 3000)
+    },
+    onError: (err: any) => {
+      const detail = err.response?.data?.detail
+      setKeywordMessage({ type: 'error', text: detail || '添加关键词失败' })
+      setTimeout(() => setKeywordMessage(null), 3000)
+    },
+  })
+
+  const deleteKeywordMutation = useMutation({
+    mutationFn: async (keywordId: number) => {
+      await api.delete(`/keywords/${keywordId}`)
+      return keywordId
+    },
+    onSuccess: (keywordId) => {
+      queryClient.invalidateQueries({ queryKey: ['keywords'] })
+      if (activeKeywordId === String(keywordId)) {
+        navigate('/')
+      }
+    },
+  })
+
   const toggleCategory = (categoryId: number) => {
     setExpandedCategories((prev) => {
       const next = new Set(prev)
@@ -83,6 +131,13 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
 
   const uncategorizedFeeds = feeds.filter((f) => !f.category_id)
   const totalUnread = feeds.reduce((sum, f) => sum + (f.unread_count || 0), 0)
+
+  const handleCreateKeyword = (e: React.FormEvent) => {
+    e.preventDefault()
+    const keyword = newKeyword.trim()
+    if (!keyword) return
+    createKeywordMutation.mutate(keyword)
+  }
 
   // 检查当前路由是否匹配
   const isActive = (path: string) => {
@@ -187,6 +242,92 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
             <Star className="w-5 h-5" />
             <span>订阅推荐</span>
           </button>
+
+          {/* Keyword Subscriptions */}
+          <div className="pt-4">
+            <div className="px-3 py-2 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+              关键词订阅
+            </div>
+            <form onSubmit={handleCreateKeyword} className="px-3 mb-2 flex items-center gap-2">
+              <div className="relative flex-1 min-w-0">
+                <Hash className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <input
+                  type="text"
+                  value={newKeyword}
+                  onChange={(e) => setNewKeyword(e.target.value)}
+                  placeholder="关键词"
+                  maxLength={200}
+                  className="w-full pl-7 pr-2 py-1.5 text-sm border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={!newKeyword.trim() || createKeywordMutation.isPending}
+                className="p-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="添加关键词订阅"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </form>
+            {keywordMessage && (
+              <div className={clsx(
+                'mx-3 mb-2 px-2 py-1 text-xs rounded-lg',
+                keywordMessage.type === 'success'
+                  ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                  : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+              )}>
+                {keywordMessage.text}
+              </div>
+            )}
+            {keywordSubscriptions.length > 0 && (
+              <div className="space-y-0.5">
+                {keywordSubscriptions.map((keyword) => {
+                  const keywordActive = activeKeywordId === String(keyword.id)
+                  return (
+                    <div
+                      key={keyword.id}
+                      className={clsx(
+                        'flex items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200',
+                        keywordActive
+                          ? 'bg-primary-50 dark:bg-primary-900/30'
+                          : 'hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                      )}
+                    >
+                      <button
+                        onClick={() => navigate(`/?keyword_id=${keyword.id}`)}
+                        className={clsx(
+                          'flex-1 min-w-0 flex items-center gap-2 text-left',
+                          keywordActive ? 'text-primary-700 dark:text-primary-300 font-medium' : 'text-gray-700 dark:text-gray-300'
+                        )}
+                        title={keyword.keyword}
+                      >
+                        <Hash className="w-4 h-4 flex-shrink-0" />
+                        <span className="flex-1 truncate">{keyword.name || keyword.keyword}</span>
+                        {(keyword.unread_count > 0 || keyword.article_count > 0) && (
+                          <span className={clsx(
+                            'px-2 py-0.5 text-xs font-medium rounded-full',
+                            keyword.unread_count > 0
+                              ? 'bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300'
+                              : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+                          )}>
+                            {keyword.unread_count > 0 ? keyword.unread_count : keyword.article_count}
+                          </span>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => deleteKeywordMutation.mutate(keyword.id)}
+                        disabled={deleteKeywordMutation.isPending}
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
+                        title="删除关键词订阅"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
 
           {/* Categories */}
           {categories.length > 0 && (

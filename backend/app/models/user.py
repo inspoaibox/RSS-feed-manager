@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from app.models.category import Category
     from app.models.custom_rule import CustomRule
     from app.models.feed import Feed
+    from app.models.keyword_subscription import KeywordSubscription
 
 
 class User(BaseModel):
@@ -63,6 +64,9 @@ class User(BaseModel):
     )
     analysis_queries: Mapped[List["AnalysisQuery"]] = relationship(
         "AnalysisQuery", back_populates="user", cascade="all, delete-orphan"
+    )
+    keyword_subscriptions: Mapped[List["KeywordSubscription"]] = relationship(
+        "KeywordSubscription", back_populates="user", cascade="all, delete-orphan"
     )
 
     def set_password(self, password: str) -> None:

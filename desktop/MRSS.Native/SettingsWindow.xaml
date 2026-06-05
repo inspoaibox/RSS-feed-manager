@@ -62,24 +62,85 @@
                 </Border>
                 <TextBlock Text="Gist 同步只合并分类、订阅源和关键词订阅，不上传本地已保存文章。" Foreground="{StaticResource MutedBrush}" FontSize="12" TextWrapping="Wrap" Margin="2,8,2,0" />
 
-                <TextBlock Text="AI 翻译" Style="{StaticResource SectionTitle}" Margin="0,22,0,0" />
+                <TextBlock Text="翻译设置" Style="{StaticResource SectionTitle}" Margin="0,22,0,0" />
                 <Border Style="{StaticResource PanelBorder}" Margin="0,10,0,0">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="150" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Text="默认翻译方式" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" />
+                        <ComboBox x:Name="DefaultTranslationModeBox" Grid.Column="1">
+                            <ComboBoxItem Content="不自动翻译" Tag="off" />
+                            <ComboBoxItem Content="AI 翻译" Tag="ai" />
+                            <ComboBoxItem Content="常规翻译平台" Tag="standard" />
+                        </ComboBox>
+
+                        <TextBlock Grid.Row="1" Text="默认翻译语言" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,12,0,0" />
+                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding DefaultTranslationLanguage, UpdateSourceTrigger=PropertyChanged}" Margin="0,12,0,0" />
+
+                        <TextBlock Grid.Row="2" Text="常规翻译平台" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,12,0,0" />
+                        <ComboBox x:Name="StandardProviderBox" Grid.Row="2" Grid.Column="1" Margin="0,12,0,0">
+                            <ComboBoxItem Content="微软翻译" Tag="microsoft" />
+                            <ComboBoxItem Content="百度翻译" Tag="baidu" />
+                            <ComboBoxItem Content="腾讯翻译君" Tag="tencent" />
+                            <ComboBoxItem Content="Google 翻译" Tag="google" />
+                        </ComboBox>
+
+                        <TextBlock Grid.Row="3" Text="百度 App ID" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,12,0,0" />
+                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding BaiduTranslateAppId, UpdateSourceTrigger=PropertyChanged}" Margin="0,12,0,0" />
+
+                        <TextBlock Grid.Row="4" Text="百度密钥" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,12,0,0" />
+                        <PasswordBox x:Name="BaiduSecretBox" Grid.Row="4" Grid.Column="1" Margin="0,12,0,0" PasswordChanged="BaiduSecretBox_PasswordChanged" />
+
+                        <TextBlock Grid.Row="5" Text="腾讯 SecretId" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,12,0,0" />
+                        <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding TencentTranslateSecretId, UpdateSourceTrigger=PropertyChanged}" Margin="0,12,0,0" />
+
+                        <TextBlock Grid.Row="6" Text="腾讯 SecretKey" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,12,0,0" />
+                        <PasswordBox x:Name="TencentSecretKeyBox" Grid.Row="6" Grid.Column="1" Margin="0,12,0,0" PasswordChanged="TencentSecretKeyBox_PasswordChanged" />
+
+                        <TextBlock Grid.Row="7" Text="腾讯地域" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,12,0,0" />
+                        <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding TencentTranslateRegion, UpdateSourceTrigger=PropertyChanged}" Margin="0,12,0,0" />
+
+                        <TextBlock Grid.Row="8" Text="Google Key" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,12,0,0" />
+                        <TextBox Grid.Row="8" Grid.Column="1" Text="{Binding GoogleTranslateApiKey, UpdateSourceTrigger=PropertyChanged}" Margin="0,12,0,0" />
+
+                        <TextBlock Grid.Row="9" Text="微软 Key / 区域" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,12,0,0" />
+                        <Grid Grid.Row="9" Grid.Column="1" Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="160" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Text="{Binding MicrosoftTranslateKey, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox Grid.Column="2" Text="{Binding MicrosoftTranslateRegion, UpdateSourceTrigger=PropertyChanged}" ToolTip="全球资源可填 global；Azure 区域资源填 eastasia、southeastasia 等区域名。" />
+                        </Grid>
+                    </Grid>
+                </Border>
+                <TextBlock Text="常规翻译用于需要速度优先的订阅源；MRSS 会尽量保留 HTML 标签和段落结构，只翻译文本内容。" Foreground="{StaticResource MutedBrush}" FontSize="12" TextWrapping="Wrap" Margin="2,8,2,0" />
+
+                <TextBlock Text="AI 渠道" Style="{StaticResource SectionTitle}" Margin="0,22,0,0" />
+                <Border Style="{StaticResource PanelBorder}" Margin="0,10,0,0">
+                    <Grid>
+                        <Grid.RowDefinitions>
                             <RowDefinition Height="*" />
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="150" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="默认翻译语言" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" />
-                            <TextBox Grid.Column="1" Text="{Binding DefaultTranslationLanguage, UpdateSourceTrigger=PropertyChanged}" />
-                        </Grid>
 
-                        <Grid Grid.Row="1" Margin="0,16,0,0">
+                        <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="220" />
                                 <ColumnDefinition Width="18" />

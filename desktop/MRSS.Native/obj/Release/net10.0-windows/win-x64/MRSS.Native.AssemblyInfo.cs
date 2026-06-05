@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MRSS")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("0.2.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.2.0+b3c41cc4c178e7ad4cfce872e8ab6f6c02557754")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.2.0+a8f28c42874b435ec77bdae34980958d0ff0ac9c")]
 [assembly: System.Reflection.AssemblyProductAttribute("MRSS")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MRSS")]
 [assembly: System.Reflection.AssemblyVersionAttribute("0.2.0.0")]

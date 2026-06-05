@@ -15,6 +15,7 @@
 - 🕷️ 自定义抓取规则
 - 📦 OPML 导入导出
 - 💾 配置备份恢复
+- 🏷️ 关键词订阅：按指定关键词自动聚合命中的 RSS 文章
 
 ## 技术栈
 
@@ -28,15 +29,23 @@
 
 ## 快速开始
 
+从 GitHub 拉取并用 Docker 部署的完整流程见：[GitHub + Docker 完整使用流程](docs/GITHUB_DOCKER_USAGE.md)。
+
 ### 方式一：生产环境部署（Docker 一键启动，推荐）
 
 只需安装 Docker，几条命令启动所有服务：
 
 ```bash
-# 1. 启动所有服务
-docker compose -f docker-compose.prod.yml up -d
+# 1. 复制并编辑生产环境配置
+cp .env.production.example .env.production
 
-# 2. 初始化数据库（首次部署必须执行）
+# 2. 构建并启动所有服务
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+```
+
+后端容器启动时会自动执行数据库迁移。需要手动确认或重跑迁移时：
+
+```bash
 docker exec -it rss_manager_backend alembic upgrade head
 ```
 
@@ -57,9 +66,10 @@ docker compose -f docker-compose.prod.yml down
 **更新代码后重新部署：**
 ```bash
 # 拉取最新代码后，重建并重启所有服务
-docker compose -f docker-compose.prod.yml up -d --build
+git pull origin main
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
 
-# 如果有数据库结构变更，执行迁移
+# 如需手动确认数据库迁移
 docker exec -it rss_manager_backend alembic upgrade head
 ```
 
@@ -209,7 +219,7 @@ AI 分析功能允许你使用自然语言查询订阅的文章内容，系统�
 ### 部署相关
 - 项目可以安装在任意目录，没有路径限制
 - 端口 5666 需要可用，如需修改请编辑 `docker-compose.prod.yml` 中的端口映射
-- 首次部署必须执行数据库迁移：`docker exec -it rss_manager_backend alembic upgrade head`
+- 后端容器启动时会自动执行数据库迁移，也可手动运行：`docker exec -it rss_manager_backend alembic upgrade head`
 - 首个注册的用户将自动成为管理员
 
 ### 更新部署

@@ -22,6 +22,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private readonly FeedParser _feedParser = new();
     private readonly FeedIconService _feedIconService = new(AppPaths.IconCacheDirectory);
     private readonly AiClient _aiClient = new();
+    private readonly StandardTranslationClient _standardTranslationClient = new();
     private readonly BackupService _backupService;
     private readonly CancellationTokenSource _stop = new();
     private List<Category> _categories = [];
@@ -542,7 +543,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             : SelectedNavItem?.Kind == NavKind.Feed
                 ? _feeds.FirstOrDefault(feed => feed.Id == SelectedNavItem.Id)?.CategoryId
                 : null;
-        var data = AddFeedDialog.Show(this, _categories, defaultCategoryId, _repository.GetSetting("default_translation_language", "中文"));
+        var data = AddFeedDialog.Show(
+            this,
+            _categories,
+            defaultCategoryId,
+            _repository.GetSetting("default_translation_language", "中文"),
+            _repository.GetSetting("default_translation_mode", "off"));
         if (data is null)
         {
             return;
@@ -552,7 +558,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         try
         {
             var parsed = await _feedParser.ParseAsync(data.Url, _stop.Token);
-            await _repository.AddFeedAsync(parsed, data.CategoryId, data.FetchIntervalMinutes * 60, data.TranslateEnabled, data.TranslationLanguage);
+            await _repository.AddFeedAsync(parsed, data.CategoryId, data.FetchIntervalMinutes * 60, data.TranslationMode, data.TranslationLanguage);
             _ = TranslatePendingArticlesAsync();
             await ReloadCurrentViewAsync();
             MessageBox.Show(this, "订阅已添加。", "MRSS", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -690,42 +696,58 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             return;
         }
 
+        _translationRunning = true;
+        try
+        {
+            await TranslateAiPendingArticlesAsync();
+            await TranslateStandardPendingArticlesAsync();
+            await ReloadCurrentViewAsync();
+        }
+        finally
+        {
+            _translationRunning = false;
+        }
+    }
+
+    private async Task TranslateAiPendingArticlesAsync()
+    {
         var channel = _repository.DefaultAiChannel();
         if (channel is null || string.IsNullOrWhiteSpace(channel.ApiKey) || string.IsNullOrWhiteSpace(channel.Model))
         {
             return;
         }
 
-        _translationRunning = true;
-        try
-        {
-            while (!_stop.IsCancellationRequested)
-            {
-                var jobs = await Task.Run(() => _repository.PendingTranslationJobs(8));
-                if (jobs.Count == 0)
-                {
-                    break;
-                }
+        await TranslatePendingBatchAsync("ai", 8, job => _aiClient.TranslateAsync(channel, job, _stop.Token));
+    }
 
-                foreach (var job in jobs)
-                {
-                    try
-                    {
-                        var translation = await _aiClient.TranslateAsync(channel, job, _stop.Token);
-                        await _repository.SaveTranslationAsync(job.ArticleId, job.TargetLanguage, translation);
-                    }
-                    catch (Exception ex)
-                    {
-                        await _repository.MarkTranslationFailedAsync(job.ArticleId, ex.Message);
-                    }
-                }
+    private async Task TranslateStandardPendingArticlesAsync()
+    {
+        var settings = StandardTranslationSettingsFromRepository();
+        await TranslatePendingBatchAsync("standard", 10, job => _standardTranslationClient.TranslateAsync(settings, job, _stop.Token));
+    }
+
+    private async Task TranslatePendingBatchAsync(string translationMode, int batchSize, Func<TranslationJob, Task<ArticleTranslation>> translator)
+    {
+        while (!_stop.IsCancellationRequested)
+        {
+            var jobs = await Task.Run(() => _repository.PendingTranslationJobs(translationMode, batchSize));
+            if (jobs.Count == 0)
+            {
+                break;
             }
 
-            await ReloadCurrentViewAsync();
-        }
-        finally
-        {
-            _translationRunning = false;
+            foreach (var job in jobs)
+            {
+                try
+                {
+                    var translation = await translator(job);
+                    await _repository.SaveTranslationAsync(job.ArticleId, job.TargetLanguage, translation);
+                }
+                catch (Exception ex)
+                {
+                    await _repository.MarkTranslationFailedAsync(job.ArticleId, ex.Message);
+                }
+            }
         }
     }
 
@@ -842,6 +864,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         feed.FetchInterval = result.FetchIntervalMinutes * 60;
         feed.IsActive = result.IsActive;
         feed.TranslateEnabled = result.TranslateEnabled;
+        feed.TranslationMode = result.TranslationMode;
         feed.TranslationLanguage = result.TranslationLanguage;
         await _repository.UpdateFeedAsync(feed);
         _ = TranslatePendingArticlesAsync();
@@ -1050,7 +1073,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             GistFilename = _repository.GetSetting("gist_filename", "mrss-subscriptions.json"),
             RefreshOnStartup = GetBoolSetting("refresh_on_startup", true),
             StartupRefreshMinutes = SchedulerIntervalMinutes(),
+            DefaultTranslationMode = NormalizeTranslationMode(_repository.GetSetting("default_translation_mode", "off")),
             DefaultTranslationLanguage = _repository.GetSetting("default_translation_language", "中文"),
+            StandardTranslationProvider = NormalizeStandardTranslationProvider(_repository.GetSetting("standard_translation_provider", "microsoft")),
+            BaiduTranslateAppId = _repository.GetSetting("baidu_translate_app_id"),
+            BaiduTranslateSecret = _repository.GetSetting("baidu_translate_secret"),
+            TencentTranslateSecretId = _repository.GetSetting("tencent_translate_secret_id"),
+            TencentTranslateSecretKey = _repository.GetSetting("tencent_translate_secret_key"),
+            TencentTranslateRegion = _repository.GetSetting("tencent_translate_region", "ap-beijing"),
+            GoogleTranslateApiKey = _repository.GetSetting("google_translate_api_key"),
+            MicrosoftTranslateKey = _repository.GetSetting("microsoft_translate_key"),
+            MicrosoftTranslateRegion = _repository.GetSetting("microsoft_translate_region", "global"),
             AiChannels = _repository.AiChannels()
         };
     }
@@ -1062,8 +1095,55 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         await _repository.SetSettingAsync("gist_filename", settings.GistFilename.Trim());
         await _repository.SetSettingAsync("refresh_on_startup", settings.RefreshOnStartup ? "1" : "0");
         await _repository.SetSettingAsync("scheduler_interval_minutes", settings.StartupRefreshMinutes.ToString());
+        await _repository.SetSettingAsync("default_translation_mode", NormalizeTranslationMode(settings.DefaultTranslationMode));
         await _repository.SetSettingAsync("default_translation_language", string.IsNullOrWhiteSpace(settings.DefaultTranslationLanguage) ? "中文" : settings.DefaultTranslationLanguage.Trim());
+        await _repository.SetSettingAsync("standard_translation_provider", NormalizeStandardTranslationProvider(settings.StandardTranslationProvider));
+        await _repository.SetSettingAsync("baidu_translate_app_id", settings.BaiduTranslateAppId.Trim());
+        await _repository.SetSettingAsync("baidu_translate_secret", settings.BaiduTranslateSecret.Trim());
+        await _repository.SetSettingAsync("tencent_translate_secret_id", settings.TencentTranslateSecretId.Trim());
+        await _repository.SetSettingAsync("tencent_translate_secret_key", settings.TencentTranslateSecretKey.Trim());
+        await _repository.SetSettingAsync("tencent_translate_region", string.IsNullOrWhiteSpace(settings.TencentTranslateRegion) ? "ap-beijing" : settings.TencentTranslateRegion.Trim());
+        await _repository.SetSettingAsync("google_translate_api_key", settings.GoogleTranslateApiKey.Trim());
+        await _repository.SetSettingAsync("microsoft_translate_key", settings.MicrosoftTranslateKey.Trim());
+        await _repository.SetSettingAsync("microsoft_translate_region", string.IsNullOrWhiteSpace(settings.MicrosoftTranslateRegion) ? "global" : settings.MicrosoftTranslateRegion.Trim());
         await _repository.SaveAiChannelsAsync(settings.AiChannels);
+    }
+
+    private StandardTranslationSettings StandardTranslationSettingsFromRepository()
+    {
+        return new StandardTranslationSettings
+        {
+            Provider = NormalizeStandardTranslationProvider(_repository.GetSetting("standard_translation_provider", "microsoft")),
+            BaiduAppId = _repository.GetSetting("baidu_translate_app_id"),
+            BaiduSecret = _repository.GetSetting("baidu_translate_secret"),
+            TencentSecretId = _repository.GetSetting("tencent_translate_secret_id"),
+            TencentSecretKey = _repository.GetSetting("tencent_translate_secret_key"),
+            TencentRegion = _repository.GetSetting("tencent_translate_region", "ap-beijing"),
+            GoogleApiKey = _repository.GetSetting("google_translate_api_key"),
+            MicrosoftKey = _repository.GetSetting("microsoft_translate_key"),
+            MicrosoftRegion = _repository.GetSetting("microsoft_translate_region", "global")
+        };
+    }
+
+    private static string NormalizeTranslationMode(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            "ai" => "ai",
+            "standard" => "standard",
+            _ => "off"
+        };
+    }
+
+    private static string NormalizeStandardTranslationProvider(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            "baidu" => "baidu",
+            "tencent" => "tencent",
+            "google" => "google",
+            _ => "microsoft"
+        };
     }
 
     private bool GetBoolSetting(string key, bool defaultValue)

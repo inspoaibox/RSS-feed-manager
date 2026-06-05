@@ -9,9 +9,11 @@ import com.mrss.app.model.AiChannel;
 import com.mrss.app.model.ArticleTranslation;
 import com.mrss.app.model.Feed;
 import com.mrss.app.model.ParsedFeed;
+import com.mrss.app.model.StandardTranslationSettings;
 import com.mrss.app.model.TranslationJob;
 import com.mrss.app.network.AiClient;
 import com.mrss.app.network.FeedParser;
+import com.mrss.app.network.StandardTranslationClient;
 
 import java.util.List;
 
@@ -53,7 +55,7 @@ public final class SyncEngine {
             }
         }
 
-        TranslationResult translation = translatePending(repository);
+        TranslationResult translation = translatePending(repository, settings);
 
         long nextDueAt = repository.getNextDueAt(System.currentTimeMillis());
         if (nextDueAt > 0) {
@@ -67,26 +69,39 @@ public final class SyncEngine {
         return result;
     }
 
-    private static TranslationResult translatePending(FeedRepository repository) {
-        if (repository.countPendingTranslationJobs() <= 0) {
-            return new TranslationResult(0, 0);
-        }
+    private static TranslationResult translatePending(FeedRepository repository, AppSettings settings) {
+        TranslationResult ai = translateAiPending(repository);
+        TranslationResult standard = translateStandardPending(repository, settings);
+        return new TranslationResult(ai.translated + standard.translated, ai.failed + standard.failed);
+    }
+
+    private static TranslationResult translateAiPending(FeedRepository repository) {
         AiChannel channel = repository.getDefaultAiChannel();
         if (channel == null || channel.apiKey == null || channel.apiKey.trim().isEmpty() || channel.model == null || channel.model.trim().isEmpty()) {
             return new TranslationResult(0, 0);
         }
+        return translateJobs(repository, "ai", 5, job -> new AiClient().translate(channel, job));
+    }
 
-        AiClient client = new AiClient();
+    private static TranslationResult translateStandardPending(FeedRepository repository, AppSettings settings) {
+        StandardTranslationSettings translationSettings = standardSettings(settings);
+        return translateJobs(repository, "standard", 8, job -> new StandardTranslationClient().translate(translationSettings, job));
+    }
+
+    private static TranslationResult translateJobs(FeedRepository repository, String mode, int batchSize, Translator translator) {
+        if (repository.countPendingTranslationJobs(mode) <= 0) {
+            return new TranslationResult(0, 0);
+        }
         int translated = 0;
         int failed = 0;
         while (true) {
-            List<TranslationJob> jobs = repository.pendingTranslationJobs(5);
+            List<TranslationJob> jobs = repository.pendingTranslationJobs(mode, batchSize);
             if (jobs.isEmpty()) {
                 return new TranslationResult(translated, failed);
             }
             for (TranslationJob job : jobs) {
                 try {
-                    ArticleTranslation translation = client.translate(channel, job);
+                    ArticleTranslation translation = translator.translate(job);
                     repository.saveTranslation(job.articleId, job.targetLanguage, translation);
                     translated++;
                 } catch (Exception e) {
@@ -95,6 +110,20 @@ public final class SyncEngine {
                 }
             }
         }
+    }
+
+    private static StandardTranslationSettings standardSettings(AppSettings settings) {
+        StandardTranslationSettings value = new StandardTranslationSettings();
+        value.provider = settings.getStandardTranslationProvider();
+        value.baiduAppId = settings.getBaiduTranslateAppId();
+        value.baiduSecret = settings.getBaiduTranslateSecret();
+        value.tencentSecretId = settings.getTencentTranslateSecretId();
+        value.tencentSecretKey = settings.getTencentTranslateSecretKey();
+        value.tencentRegion = settings.getTencentTranslateRegion();
+        value.googleApiKey = settings.getGoogleTranslateApiKey();
+        value.microsoftKey = settings.getMicrosoftTranslateKey();
+        value.microsoftRegion = settings.getMicrosoftTranslateRegion();
+        return value;
     }
 
     private static void sendSyncCompletedBroadcast(Context context, Result result) {
@@ -135,5 +164,9 @@ public final class SyncEngine {
             this.translated = translated;
             this.failed = failed;
         }
+    }
+
+    private interface Translator {
+        ArticleTranslation translate(TranslationJob job) throws Exception;
     }
 }

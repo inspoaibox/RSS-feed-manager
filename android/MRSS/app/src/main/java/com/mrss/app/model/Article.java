@@ -10,6 +10,7 @@ public class Article {
     public String content;
     public String originalTitle;
     public String originalContent;
+    public String feedTranslationMode;
     public String translationLanguage;
     public String translationStatus;
     public String translationError;

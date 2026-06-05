@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.article import Article
 from app.repositories.article_repository import ArticleRepository
 from app.repositories.feed_repository import FeedRepository
+from app.repositories.keyword_subscription_repository import KeywordSubscriptionRepository
 from app.schemas.article import (
     ArticleFilter,
     ArticleListResponse,
@@ -23,15 +24,26 @@ class ArticleService:
         self.session = session
         self.repo = ArticleRepository(session)
         self.feed_repo = FeedRepository(session)
+        self.keyword_repo = KeywordSubscriptionRepository(session)
 
     async def get_articles(
         self, user_id: int, filters: ArticleFilter
     ) -> ArticleListResponse:
         """Get paginated articles with filters."""
+        keyword = None
+        if filters.keyword_id is not None:
+            keyword = await self.keyword_repo.get_by_id(filters.keyword_id, user_id)
+            if not keyword:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Keyword subscription not found"
+                )
+
         articles_data, total = await self.repo.get_articles_paginated(
             user_id=user_id,
             feed_id=filters.feed_id,
             category_id=filters.category_id,
+            keyword=keyword,
             is_read=filters.is_read,
             is_favorite=filters.is_favorite,
             sort_by=filters.sort_by,
@@ -110,7 +122,8 @@ class ArticleService:
         self,
         user_id: int,
         feed_id: int | None = None,
-        category_id: int | None = None
+        category_id: int | None = None,
+        keyword_id: int | None = None
     ) -> int:
         """Mark all articles as read."""
         if feed_id:
@@ -124,6 +137,14 @@ class ArticleService:
             return await self.repo.mark_all_read_by_feed(user_id, feed_id)
         elif category_id:
             return await self.repo.mark_all_read_by_category(user_id, category_id)
+        elif keyword_id:
+            keyword = await self.keyword_repo.get_by_id(keyword_id, user_id)
+            if not keyword:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Keyword subscription not found"
+                )
+            return await self.repo.mark_all_read_by_keyword(user_id, keyword)
         else:
             # Mark all user's articles as read
             feeds = await self.feed_repo.get_all_by_user(user_id)

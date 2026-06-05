@@ -17,6 +17,7 @@ import com.mrss.app.model.ParsedArticle;
 import com.mrss.app.model.ParsedFeed;
 import com.mrss.app.model.Stats;
 import com.mrss.app.model.TranslationJob;
+import com.mrss.app.model.WebScrapingRule;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -37,12 +38,17 @@ public class FeedRepository {
     }
 
     public synchronized long addFeed(String url, ParsedFeed parsedFeed, Long categoryId, int fetchIntervalSeconds) {
-        return addFeed(url, parsedFeed, categoryId, fetchIntervalSeconds, false, "中文");
+        return addFeed(url, parsedFeed, categoryId, fetchIntervalSeconds, "off", "中文");
     }
 
     public synchronized long addFeed(String url, ParsedFeed parsedFeed, Long categoryId, int fetchIntervalSeconds, boolean translateEnabled, String translationLanguage) {
+        return addFeed(url, parsedFeed, categoryId, fetchIntervalSeconds, translateEnabled ? "ai" : "off", translationLanguage);
+    }
+
+    public synchronized long addFeed(String url, ParsedFeed parsedFeed, Long categoryId, int fetchIntervalSeconds, String translationMode, String translationLanguage) {
         SQLiteDatabase db = database.getWritableDatabase();
         long now = System.currentTimeMillis();
+        String normalizedMode = normalizeTranslationMode(translationMode);
         db.beginTransaction();
         try {
             Long existing = findFeedIdByUrl(db, url);
@@ -64,7 +70,8 @@ public class FeedRepository {
             values.put("fetch_interval", fetchIntervalSeconds);
             values.put("last_fetched_at", now);
             values.put("is_active", 1);
-            values.put("translate_enabled", translateEnabled ? 1 : 0);
+            values.put("translate_enabled", isTranslationEnabled(normalizedMode) ? 1 : 0);
+            values.put("translation_mode", normalizedMode);
             values.put("translation_language", normalizeLanguage(translationLanguage));
             values.put("created_at", now);
             long feedId = db.insertOrThrow("feeds", null, values);
@@ -250,7 +257,7 @@ public class FeedRepository {
         }
         String orderDirection = descending ? " DESC" : " ASC";
 
-        String sql = "SELECT a.*, f.title AS feed_title FROM articles a " +
+        String sql = "SELECT a.*, f.title AS feed_title, f.translation_mode AS feed_translation_mode FROM articles a " +
                 "JOIN feeds f ON f.id = a.feed_id " +
                 where +
                 " ORDER BY " + orderColumn + orderDirection + " " +
@@ -268,7 +275,7 @@ public class FeedRepository {
 
     public synchronized Article getArticle(long articleId) {
         SQLiteDatabase db = database.getReadableDatabase();
-        String sql = "SELECT a.*, f.title AS feed_title FROM articles a " +
+        String sql = "SELECT a.*, f.title AS feed_title, f.translation_mode AS feed_translation_mode FROM articles a " +
                 "JOIN feeds f ON f.id = a.feed_id " +
                 "WHERE a.id = ? LIMIT 1";
         try (Cursor cursor = db.rawQuery(sql, new String[]{String.valueOf(articleId)})) {
@@ -490,7 +497,12 @@ public class FeedRepository {
     }
 
     public synchronized void updateFeed(long feedId, String title, Long categoryId, int fetchIntervalSeconds, boolean active, boolean translateEnabled, String translationLanguage) {
+        updateFeed(feedId, title, categoryId, fetchIntervalSeconds, active, translateEnabled ? "ai" : "off", translationLanguage);
+    }
+
+    public synchronized void updateFeed(long feedId, String title, Long categoryId, int fetchIntervalSeconds, boolean active, String translationMode, String translationLanguage) {
         SQLiteDatabase db = database.getWritableDatabase();
+        String normalizedMode = normalizeTranslationMode(translationMode);
         ContentValues values = new ContentValues();
         values.put("title", truncate(firstNonEmpty(title, "Untitled Feed"), 255));
         if (categoryId == null) {
@@ -500,7 +512,8 @@ public class FeedRepository {
         }
         values.put("fetch_interval", fetchIntervalSeconds);
         values.put("is_active", active ? 1 : 0);
-        values.put("translate_enabled", translateEnabled ? 1 : 0);
+        values.put("translate_enabled", isTranslationEnabled(normalizedMode) ? 1 : 0);
+        values.put("translation_mode", normalizedMode);
         values.put("translation_language", normalizeLanguage(translationLanguage));
         values.put("updated_at", System.currentTimeMillis());
         db.update("feeds", values, "id = ?", new String[]{String.valueOf(feedId)});
@@ -509,6 +522,36 @@ public class FeedRepository {
     public synchronized void deleteFeed(long feedId) {
         SQLiteDatabase db = database.getWritableDatabase();
         db.delete("feeds", "id = ?", new String[]{String.valueOf(feedId)});
+    }
+
+    public synchronized List<WebScrapingRule> getWebScrapingRules() {
+        SQLiteDatabase db = database.getReadableDatabase();
+        List<WebScrapingRule> rules = new ArrayList<>();
+        try (Cursor cursor = db.rawQuery("SELECT * FROM web_scraping_rules ORDER BY created_at ASC, name COLLATE NOCASE ASC", null)) {
+            while (cursor.moveToNext()) {
+                rules.add(readWebScrapingRule(cursor));
+            }
+        }
+        return rules;
+    }
+
+    public synchronized long saveWebScrapingRule(WebScrapingRule rule) {
+        SQLiteDatabase db = database.getWritableDatabase();
+        long now = System.currentTimeMillis();
+        ContentValues values = webScrapingRuleValues(rule, now);
+        if (rule.id > 0) {
+            values.put("updated_at", now);
+            db.update("web_scraping_rules", values, "id = ?", new String[]{String.valueOf(rule.id)});
+            return rule.id;
+        }
+        values.put("created_at", now);
+        values.put("updated_at", now);
+        return db.insertOrThrow("web_scraping_rules", null, values);
+    }
+
+    public synchronized void deleteWebScrapingRule(long ruleId) {
+        SQLiteDatabase db = database.getWritableDatabase();
+        db.delete("web_scraping_rules", "id = ?", new String[]{String.valueOf(ruleId)});
     }
 
     public synchronized List<Feed> getFeedsForExport() {
@@ -534,6 +577,7 @@ public class FeedRepository {
         root.put("exported_at", System.currentTimeMillis());
         root.put("categories", tableToJson(db, "SELECT * FROM categories ORDER BY id ASC"));
         root.put("feeds", tableToJson(db, "SELECT * FROM feeds ORDER BY id ASC"));
+        root.put("web_scraping_rules", tableToJson(db, "SELECT * FROM web_scraping_rules ORDER BY id ASC"));
         root.put("articles", tableToJson(db, "SELECT * FROM articles ORDER BY id ASC"));
         return root.toString(2);
     }
@@ -545,8 +589,9 @@ public class FeedRepository {
         root.put("type", "mrss_subscriptions");
         root.put("exported_at", System.currentTimeMillis());
         root.put("categories", tableToJson(db, "SELECT id, name, description, position, created_at, updated_at FROM categories ORDER BY position ASC, name COLLATE NOCASE ASC"));
-        root.put("feeds", tableToJson(db, "SELECT id, category_id, url, title, description, site_url, icon_url, fetch_interval, is_active, translate_enabled, translation_language, position, created_at, updated_at FROM feeds ORDER BY position ASC, title COLLATE NOCASE ASC"));
+        root.put("feeds", tableToJson(db, "SELECT id, category_id, url, title, description, site_url, icon_url, fetch_interval, is_active, translate_enabled, translation_mode, translation_language, position, created_at, updated_at FROM feeds ORDER BY position ASC, title COLLATE NOCASE ASC"));
         root.put("keyword_subscriptions", tableToJson(db, "SELECT id, name, keyword, is_active, match_title, match_content, match_author, match_feed_title, created_at, updated_at FROM keyword_subscriptions ORDER BY created_at ASC"));
+        root.put("web_scraping_rules", tableToJson(db, "SELECT id, feed_id, name, type, list_url, base_url, item_selector, title_selector, link_selector, summary_selector, content_selector, author_selector, date_selector, cover_selector, next_page_selector, page_url_template, max_pages, request_headers, date_format, encoding, enabled, created_at, updated_at FROM web_scraping_rules ORDER BY created_at ASC, name COLLATE NOCASE ASC"));
         return root.toString(2);
     }
 
@@ -555,6 +600,7 @@ public class FeedRepository {
         JSONArray categories = root.optJSONArray("categories");
         JSONArray feeds = root.optJSONArray("feeds");
         JSONArray keywordSubscriptions = root.optJSONArray("keyword_subscriptions");
+        JSONArray webScrapingRules = root.optJSONArray("web_scraping_rules");
         if (categories == null || feeds == null) {
             throw new IllegalArgumentException("同步数据缺少 categories / feeds");
         }
@@ -613,7 +659,9 @@ public class FeedRepository {
                 values.put("icon_url", nullableString(feed, "icon_url"));
                 values.put("fetch_interval", feed.optInt("fetch_interval", 3600));
                 values.put("is_active", feed.optInt("is_active", 1));
-                values.put("translate_enabled", feed.optInt("translate_enabled", 0));
+                String translationMode = normalizeTranslationMode(feed.optString("translation_mode", feed.optInt("translate_enabled", 0) == 1 ? "ai" : "off"));
+                values.put("translate_enabled", isTranslationEnabled(translationMode) ? 1 : 0);
+                values.put("translation_mode", translationMode);
                 values.put("translation_language", normalizeLanguage(feed.optString("translation_language", "中文")));
                 values.put("position", feed.optInt("position", 0));
                 values.put("updated_at", now);
@@ -654,6 +702,32 @@ public class FeedRepository {
                     changed++;
                 }
             }
+            if (webScrapingRules != null) {
+                for (int i = 0; i < webScrapingRules.length(); i++) {
+                    JSONObject rule = webScrapingRules.getJSONObject(i);
+                    String listUrl = rule.optString("list_url", "").trim();
+                    if (listUrl.isEmpty()) {
+                        continue;
+                    }
+                    Long existingRuleId = findWebScrapingRuleIdByListUrl(db, listUrl);
+                    Long feedId = null;
+                    if (!rule.isNull("feed_id")) {
+                        String feedUrl = feedUrlByExportId(feeds, rule.optLong("feed_id"));
+                        if (feedUrl != null && !feedUrl.trim().isEmpty()) {
+                            feedId = findFeedIdByUrl(db, feedUrl.trim());
+                        }
+                    }
+                    ContentValues values = webScrapingRuleValues(rule, feedId, now);
+                    values.put("updated_at", now);
+                    if (existingRuleId == null) {
+                        values.put("created_at", rule.optLong("created_at", now));
+                        db.insertOrThrow("web_scraping_rules", null, values);
+                    } else {
+                        db.update("web_scraping_rules", values, "id = ?", new String[]{String.valueOf(existingRuleId)});
+                    }
+                    changed++;
+                }
+            }
             db.setTransactionSuccessful();
             return changed;
         } finally {
@@ -665,6 +739,7 @@ public class FeedRepository {
         JSONObject root = new JSONObject(json);
         JSONArray categories = root.optJSONArray("categories");
         JSONArray feeds = root.optJSONArray("feeds");
+        JSONArray webScrapingRules = root.optJSONArray("web_scraping_rules");
         JSONArray articles = root.optJSONArray("articles");
         if (categories == null || feeds == null || articles == null) {
             throw new IllegalArgumentException("备份文件缺少 categories / feeds / articles");
@@ -674,10 +749,14 @@ public class FeedRepository {
         db.beginTransaction();
         try {
             db.delete("articles", null, null);
+            db.delete("web_scraping_rules", null, null);
             db.delete("feeds", null, null);
             db.delete("categories", null, null);
             insertJsonRows(db, "categories", categories);
             insertJsonRows(db, "feeds", feeds);
+            if (webScrapingRules != null) {
+                insertJsonRows(db, "web_scraping_rules", webScrapingRules);
+            }
             insertJsonRows(db, "articles", articles);
             db.setTransactionSuccessful();
         } finally {
@@ -816,19 +895,26 @@ public class FeedRepository {
     }
 
     public synchronized List<TranslationJob> pendingTranslationJobs(int limit) {
+        return pendingTranslationJobs("ai", limit);
+    }
+
+    public synchronized List<TranslationJob> pendingTranslationJobs(String translationMode, int limit) {
         SQLiteDatabase db = database.getReadableDatabase();
-        String sql = "SELECT a.id AS article_id, a.feed_id, a.title, a.content, a.link, f.translation_language " +
+        String sql = "SELECT a.id AS article_id, a.feed_id, a.title, a.content, a.link, f.translation_language, f.translation_mode " +
                 "FROM articles a JOIN feeds f ON f.id = a.feed_id " +
                 "WHERE f.translate_enabled = 1 " +
+                "AND f.translation_mode = ? " +
                 "AND (a.translation_status IS NULL OR a.translation_status = '' OR a.translation_status = 'pending') " +
                 "AND (a.original_content IS NULL OR a.original_content = '') " +
                 "ORDER BY a.created_at DESC LIMIT ?";
         List<TranslationJob> jobs = new ArrayList<>();
-        try (Cursor cursor = db.rawQuery(sql, new String[]{String.valueOf(Math.max(1, limit))})) {
+        String normalizedMode = normalizeTranslationMode(translationMode);
+        try (Cursor cursor = db.rawQuery(sql, new String[]{normalizedMode, String.valueOf(Math.max(1, limit))})) {
             while (cursor.moveToNext()) {
                 TranslationJob job = new TranslationJob();
                 job.articleId = getLong(cursor, "article_id");
                 job.feedId = getLong(cursor, "feed_id");
+                job.translationMode = normalizeTranslationMode(getString(cursor, "translation_mode"));
                 job.title = getString(cursor, "title");
                 job.content = getString(cursor, "content");
                 job.link = getString(cursor, "link");
@@ -844,9 +930,21 @@ public class FeedRepository {
         String sql = "SELECT COUNT(*) " +
                 "FROM articles a JOIN feeds f ON f.id = a.feed_id " +
                 "WHERE f.translate_enabled = 1 " +
+                "AND f.translation_mode IN ('ai', 'standard') " +
                 "AND (a.translation_status IS NULL OR a.translation_status = '' OR a.translation_status = 'pending') " +
                 "AND (a.original_content IS NULL OR a.original_content = '')";
         return scalarInt(db, sql, null);
+    }
+
+    public synchronized int countPendingTranslationJobs(String translationMode) {
+        SQLiteDatabase db = database.getReadableDatabase();
+        String sql = "SELECT COUNT(*) " +
+                "FROM articles a JOIN feeds f ON f.id = a.feed_id " +
+                "WHERE f.translate_enabled = 1 " +
+                "AND f.translation_mode = ? " +
+                "AND (a.translation_status IS NULL OR a.translation_status = '' OR a.translation_status = 'pending') " +
+                "AND (a.original_content IS NULL OR a.original_content = '')";
+        return scalarInt(db, sql, new String[]{normalizeTranslationMode(translationMode)});
     }
 
     public synchronized int resetFailedTranslationsForFeed(long feedId) {
@@ -993,6 +1091,15 @@ public class FeedRepository {
         return null;
     }
 
+    private Long findWebScrapingRuleIdByListUrl(SQLiteDatabase db, String listUrl) {
+        try (Cursor cursor = db.rawQuery("SELECT id FROM web_scraping_rules WHERE list_url = ?", new String[]{listUrl})) {
+            if (cursor.moveToFirst()) {
+                return cursor.getLong(0);
+            }
+        }
+        return null;
+    }
+
     private Long getOrCreateCategory(SQLiteDatabase db, String name, long now) {
         Long existing = findCategoryIdByName(db, name);
         if (existing != null) {
@@ -1009,6 +1116,16 @@ public class FeedRepository {
             JSONObject category = categories.getJSONObject(i);
             if (category.optLong("id", -1) == exportId) {
                 return category.optString("name", null);
+            }
+        }
+        return null;
+    }
+
+    private static String feedUrlByExportId(JSONArray feeds, long exportId) throws Exception {
+        for (int i = 0; i < feeds.length(); i++) {
+            JSONObject feed = feeds.getJSONObject(i);
+            if (feed.optLong("id", -1) == exportId) {
+                return feed.optString("url", null);
             }
         }
         return null;
@@ -1041,11 +1158,105 @@ public class FeedRepository {
         feed.errorCount = getInt(cursor, "error_count");
         feed.active = getInt(cursor, "is_active") == 1;
         feed.translateEnabled = getInt(cursor, "translate_enabled") == 1;
+        feed.translationMode = normalizeTranslationMode(getString(cursor, "translation_mode"));
+        if (feed.translateEnabled && "off".equals(feed.translationMode)) {
+            feed.translationMode = "ai";
+        }
         feed.translationLanguage = normalizeLanguage(getString(cursor, "translation_language"));
         feed.position = getInt(cursor, "position");
         feed.articleCount = getInt(cursor, "article_count");
         feed.unreadCount = getInt(cursor, "unread_count");
         return feed;
+    }
+
+    private WebScrapingRule readWebScrapingRule(Cursor cursor) {
+        WebScrapingRule rule = new WebScrapingRule();
+        rule.id = getLong(cursor, "id");
+        int feedIdIndex = cursor.getColumnIndex("feed_id");
+        rule.feedId = feedIdIndex < 0 || cursor.isNull(feedIdIndex) ? null : cursor.getLong(feedIdIndex);
+        rule.name = getString(cursor, "name");
+        rule.type = normalizeWebScrapingRuleType(getString(cursor, "type"));
+        rule.listUrl = getString(cursor, "list_url");
+        rule.baseUrl = getString(cursor, "base_url");
+        rule.itemSelector = getString(cursor, "item_selector");
+        rule.titleSelector = getString(cursor, "title_selector");
+        rule.linkSelector = getString(cursor, "link_selector");
+        rule.summarySelector = getString(cursor, "summary_selector");
+        rule.contentSelector = getString(cursor, "content_selector");
+        rule.authorSelector = getString(cursor, "author_selector");
+        rule.dateSelector = getString(cursor, "date_selector");
+        rule.coverSelector = getString(cursor, "cover_selector");
+        rule.nextPageSelector = getString(cursor, "next_page_selector");
+        rule.pageUrlTemplate = getString(cursor, "page_url_template");
+        rule.maxPages = clampMaxPages(getInt(cursor, "max_pages"));
+        rule.requestHeaders = getString(cursor, "request_headers");
+        rule.dateFormat = getString(cursor, "date_format");
+        rule.encoding = getString(cursor, "encoding");
+        rule.enabled = getInt(cursor, "enabled") != 0;
+        rule.createdAt = getLong(cursor, "created_at");
+        rule.updatedAt = getLong(cursor, "updated_at");
+        return rule;
+    }
+
+    private ContentValues webScrapingRuleValues(WebScrapingRule rule, long now) {
+        ContentValues values = new ContentValues();
+        if (rule.feedId == null) {
+            values.putNull("feed_id");
+        } else {
+            values.put("feed_id", rule.feedId);
+        }
+        values.put("name", truncate(firstNonEmpty(rule.name, rule.listUrl, "网页订阅"), 255));
+        values.put("type", normalizeWebScrapingRuleType(rule.type));
+        values.put("list_url", truncate(firstNonEmpty(rule.listUrl, ""), 2048));
+        values.put("base_url", truncate(rule.baseUrl, 2048));
+        values.put("item_selector", truncate(firstNonEmpty(rule.itemSelector, ""), 1000));
+        values.put("title_selector", truncate(rule.titleSelector, 1000));
+        values.put("link_selector", truncate(rule.linkSelector, 1000));
+        values.put("summary_selector", truncate(rule.summarySelector, 1000));
+        values.put("content_selector", truncate(rule.contentSelector, 1000));
+        values.put("author_selector", truncate(rule.authorSelector, 1000));
+        values.put("date_selector", truncate(rule.dateSelector, 1000));
+        values.put("cover_selector", truncate(rule.coverSelector, 1000));
+        values.put("next_page_selector", truncate(rule.nextPageSelector, 1000));
+        values.put("page_url_template", truncate(rule.pageUrlTemplate, 2048));
+        values.put("max_pages", clampMaxPages(rule.maxPages));
+        values.put("request_headers", rule.requestHeaders);
+        values.put("date_format", truncate(rule.dateFormat, 200));
+        values.put("encoding", truncate(rule.encoding, 100));
+        values.put("enabled", rule.enabled ? 1 : 0);
+        values.put("updated_at", now);
+        return values;
+    }
+
+    private ContentValues webScrapingRuleValues(JSONObject rule, Long feedId, long now) {
+        ContentValues values = new ContentValues();
+        if (feedId == null) {
+            values.putNull("feed_id");
+        } else {
+            values.put("feed_id", feedId);
+        }
+        String listUrl = rule.optString("list_url", "").trim();
+        values.put("name", truncate(firstNonEmpty(rule.optString("name", null), listUrl, "网页订阅"), 255));
+        values.put("type", normalizeWebScrapingRuleType(rule.optString("type", "html")));
+        values.put("list_url", truncate(listUrl, 2048));
+        values.put("base_url", nullableString(rule, "base_url"));
+        values.put("item_selector", truncate(firstNonEmpty(rule.optString("item_selector", null), ""), 1000));
+        values.put("title_selector", nullableString(rule, "title_selector"));
+        values.put("link_selector", nullableString(rule, "link_selector"));
+        values.put("summary_selector", nullableString(rule, "summary_selector"));
+        values.put("content_selector", nullableString(rule, "content_selector"));
+        values.put("author_selector", nullableString(rule, "author_selector"));
+        values.put("date_selector", nullableString(rule, "date_selector"));
+        values.put("cover_selector", nullableString(rule, "cover_selector"));
+        values.put("next_page_selector", nullableString(rule, "next_page_selector"));
+        values.put("page_url_template", nullableString(rule, "page_url_template"));
+        values.put("max_pages", clampMaxPages(rule.optInt("max_pages", 1)));
+        values.put("request_headers", nullableString(rule, "request_headers"));
+        values.put("date_format", nullableString(rule, "date_format"));
+        values.put("encoding", nullableString(rule, "encoding"));
+        values.put("enabled", rule.optInt("enabled", 1) == 0 ? 0 : 1);
+        values.put("updated_at", now);
+        return values;
     }
 
     private Category readCategory(Cursor cursor) {
@@ -1085,6 +1296,7 @@ public class FeedRepository {
         article.content = getString(cursor, "content");
         article.originalTitle = getString(cursor, "original_title");
         article.originalContent = getString(cursor, "original_content");
+        article.feedTranslationMode = normalizeTranslationMode(getString(cursor, "feed_translation_mode"));
         article.translationLanguage = getString(cursor, "translation_language");
         article.translationStatus = getString(cursor, "translation_status");
         article.translationError = getString(cursor, "translation_error");
@@ -1201,6 +1413,31 @@ public class FeedRepository {
 
     private static String normalizeLanguage(String value) {
         return value == null || value.trim().isEmpty() ? "中文" : value.trim();
+    }
+
+    private static String normalizeTranslationMode(String value) {
+        if ("ai".equals(value) || "standard".equals(value)) {
+            return value;
+        }
+        return "off";
+    }
+
+    private static boolean isTranslationEnabled(String mode) {
+        return "ai".equals(mode) || "standard".equals(mode);
+    }
+
+    private static String normalizeWebScrapingRuleType(String value) {
+        if ("json".equals(value) || "html".equals(value)) {
+            return value;
+        }
+        return "html";
+    }
+
+    private static int clampMaxPages(int value) {
+        if (value < 1) {
+            return 1;
+        }
+        return Math.min(value, 20);
     }
 
     private static String getString(Cursor cursor, String name) {

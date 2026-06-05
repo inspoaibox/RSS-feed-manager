@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.article import Article, UserArticle
 from app.models.feed import Feed
+from app.models.keyword_subscription import KeywordSubscription
+from app.repositories.keyword_subscription_repository import build_keyword_conditions
 
 
 class ArticleRepository:
@@ -61,6 +63,7 @@ class ArticleRepository:
         user_id: int,
         feed_id: int | None = None,
         category_id: int | None = None,
+        keyword: KeywordSubscription | None = None,
         is_read: bool | None = None,
         is_favorite: bool | None = None,
         sort_by: str = "published_at",
@@ -91,6 +94,13 @@ class ArticleRepository:
         
         if category_id is not None:
             base_query = base_query.where(Feed.category_id == category_id)
+
+        if keyword is not None:
+            conditions = build_keyword_conditions(keyword)
+            if conditions:
+                base_query = base_query.where(or_(*conditions))
+            else:
+                base_query = base_query.where(False)
         
         if is_read is not None:
             if is_read:
@@ -196,7 +206,12 @@ class ArticleRepository:
                 Feed.user_id == user_id,
                 or_(
                     Article.title.ilike(search_pattern),
-                    Article.content.ilike(search_pattern)
+                    Article.content.ilike(search_pattern),
+                    Article.full_content.ilike(search_pattern),
+                    Article.summary.ilike(search_pattern),
+                    Article.translation.ilike(search_pattern),
+                    Article.author.ilike(search_pattern),
+                    Feed.title.ilike(search_pattern)
                 )
             )
         )
@@ -318,6 +333,37 @@ class ArticleRepository:
                 user_article.read_at = datetime.utcnow()
                 count += 1
         
+        await self.session.flush()
+        return count
+
+    async def mark_all_read_by_keyword(
+        self,
+        user_id: int,
+        keyword: KeywordSubscription
+    ) -> int:
+        """Mark all articles matching a keyword subscription as read."""
+        conditions = build_keyword_conditions(keyword)
+        if not conditions:
+            return 0
+
+        article_ids_result = await self.session.execute(
+            select(Article.id)
+            .join(Feed, Article.feed_id == Feed.id)
+            .where(Feed.user_id == user_id, or_(*conditions))
+        )
+        article_ids = [row[0] for row in article_ids_result.all()]
+
+        if not article_ids:
+            return 0
+
+        count = 0
+        for article_id in article_ids:
+            user_article = await self.get_or_create_user_article(user_id, article_id)
+            if not user_article.is_read:
+                user_article.is_read = True
+                user_article.read_at = datetime.utcnow()
+                count += 1
+
         await self.session.flush()
         return count
 
