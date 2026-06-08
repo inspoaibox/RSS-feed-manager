@@ -33,6 +33,8 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
   const [expandedCategories, setExpandedCategories] = useState<Set<number>>(new Set())
   const [newKeyword, setNewKeyword] = useState('')
   const [keywordMessage, setKeywordMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
+  const [keywordManagerOpen, setKeywordManagerOpen] = useState(false)
+  const [selectedKeywordIds, setSelectedKeywordIds] = useState<Set<number>>(new Set())
   const { siteName, setSiteName } = useSiteStore()
   const activeKeywordId = new URLSearchParams(location.search).get('keyword_id')
 
@@ -115,6 +117,30 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
       if (activeKeywordId === String(keywordId)) {
         navigate('/')
       }
+      setSelectedKeywordIds((prev) => {
+        const next = new Set(prev)
+        next.delete(keywordId)
+        return next
+      })
+    },
+  })
+
+  const deleteSelectedKeywordsMutation = useMutation({
+    mutationFn: async (keywordIds: number[]) => {
+      await Promise.all(keywordIds.map((keywordId) => api.delete(`/keywords/${keywordId}`)))
+      return keywordIds
+    },
+    onSuccess: (keywordIds) => {
+      queryClient.invalidateQueries({ queryKey: ['keywords'] })
+      if (activeKeywordId && keywordIds.includes(Number(activeKeywordId))) {
+        navigate('/')
+      }
+      setSelectedKeywordIds(new Set())
+    },
+    onError: (err: any) => {
+      const detail = err.response?.data?.detail
+      setKeywordMessage({ type: 'error', text: detail || '批量删除关键词失败' })
+      setTimeout(() => setKeywordMessage(null), 3000)
     },
   })
 
@@ -148,6 +174,28 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
     const keyword = newKeyword.trim()
     if (!keyword) return
     createKeywordMutation.mutate(keyword)
+  }
+
+  const toggleSelectedKeyword = (keywordId: number) => {
+    setSelectedKeywordIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(keywordId)) {
+        next.delete(keywordId)
+      } else {
+        next.add(keywordId)
+      }
+      return next
+    })
+  }
+
+  const allKeywordsSelected = keywordSubscriptions.length > 0 && selectedKeywordIds.size === keywordSubscriptions.length
+
+  const toggleAllKeywords = () => {
+    setSelectedKeywordIds(
+      allKeywordsSelected
+        ? new Set()
+        : new Set(keywordSubscriptions.map((keyword) => keyword.id))
+    )
   }
 
   // 检查当前路由是否匹配
@@ -212,139 +260,54 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
             )}
           </button>
 
-          {showFavoritesMenu && (
-            <button
-              onClick={() => navigate('/?favorite=true')}
-              className={clsx(
-                'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200',
-                isActive('/?favorite=true')
-                  ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 font-medium'
-                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+          {(showFavoritesMenu || showAiAnalysisMenu || showRecommendationsMenu) && (
+            <div className="grid grid-cols-2 gap-2">
+              {showFavoritesMenu && (
+                <button
+                  onClick={() => navigate('/?favorite=true')}
+                  className={clsx(
+                    'min-w-0 flex items-center justify-center gap-2 px-2 py-2.5 rounded-xl text-sm transition-all duration-200',
+                    isActive('/?favorite=true')
+                      ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 font-medium'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                  )}
+                >
+                  <Star className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">收藏</span>
+                </button>
               )}
-            >
-              <Star className="w-5 h-5" />
-              <span>收藏</span>
-            </button>
-          )}
 
-          {showAiAnalysisMenu && (
-            <button
-              onClick={() => navigate('/ai-analysis')}
-              className={clsx(
-                'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200',
-                location.pathname === '/ai-analysis'
-                  ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 font-medium'
-                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+              {showAiAnalysisMenu && (
+                <button
+                  onClick={() => navigate('/ai-analysis')}
+                  className={clsx(
+                    'min-w-0 flex items-center justify-center gap-2 px-2 py-2.5 rounded-xl text-sm transition-all duration-200',
+                    location.pathname === '/ai-analysis'
+                      ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 font-medium'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                  )}
+                >
+                  <Sparkles className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">AI 分析</span>
+                </button>
               )}
-            >
-              <Sparkles className="w-5 h-5" />
-              <span>AI 分析</span>
-            </button>
-          )}
 
-          {showRecommendationsMenu && (
-            <button
-              onClick={() => navigate('/recommendations')}
-              className={clsx(
-                'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200',
-                location.pathname === '/recommendations'
-                  ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 font-medium'
-                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+              {showRecommendationsMenu && (
+                <button
+                  onClick={() => navigate('/recommendations')}
+                  className={clsx(
+                    'min-w-0 flex items-center justify-center gap-2 px-2 py-2.5 rounded-xl text-sm transition-all duration-200',
+                    location.pathname === '/recommendations'
+                      ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 font-medium'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                  )}
+                >
+                  <Star className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">订阅推荐</span>
+                </button>
               )}
-            >
-              <Star className="w-5 h-5" />
-              <span>订阅推荐</span>
-            </button>
-          )}
-
-          {/* Keyword Subscriptions */}
-          <div className="pt-4">
-            <div className="px-3 py-2 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-              关键词订阅
             </div>
-            <form onSubmit={handleCreateKeyword} className="px-3 mb-2 flex items-center gap-2">
-              <div className="relative flex-1 min-w-0">
-                <Hash className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                <input
-                  type="text"
-                  value={newKeyword}
-                  onChange={(e) => setNewKeyword(e.target.value)}
-                  placeholder="关键词"
-                  maxLength={200}
-                  className="w-full pl-7 pr-2 py-1.5 text-sm border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-primary-500"
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={!newKeyword.trim() || createKeywordMutation.isPending}
-                className="p-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                title="添加关键词订阅"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            </form>
-            {keywordMessage && (
-              <div className={clsx(
-                'mx-3 mb-2 px-2 py-1 text-xs rounded-lg',
-                keywordMessage.type === 'success'
-                  ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300'
-                  : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300'
-              )}>
-                {keywordMessage.text}
-              </div>
-            )}
-            {keywordSubscriptions.length > 0 && (
-              <div className="px-3 flex flex-wrap gap-2">
-                {keywordSubscriptions.map((keyword) => {
-                  const keywordActive = activeKeywordId === String(keyword.id)
-                  const keywordCount = keyword.unread_count > 0 ? keyword.unread_count : keyword.article_count
-                  return (
-                    <div
-                      key={keyword.id}
-                      className={clsx(
-                        'group relative max-w-full',
-                        keywordActive
-                          ? 'z-10'
-                          : ''
-                      )}
-                    >
-                      <button
-                        onClick={() => navigate(`/?keyword_id=${keyword.id}`)}
-                        className={clsx(
-                          'max-w-full min-w-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-sm transition-all duration-200',
-                          keywordActive
-                            ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 font-medium ring-1 ring-primary-200 dark:ring-primary-800'
-                            : 'bg-gray-50 dark:bg-gray-700/50 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                        )}
-                        title={keyword.keyword}
-                      >
-                        <Hash className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span className="truncate max-w-28">{keyword.name || keyword.keyword}</span>
-                      </button>
-                      {keywordCount > 0 && (
-                        <span className={clsx(
-                          'absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 rounded-full text-[10px] font-semibold flex items-center justify-center pointer-events-none',
-                          keyword.unread_count > 0
-                            ? 'bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-200'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300'
-                        )}>
-                          {keywordCount > 99 ? '99+' : keywordCount}
-                        </span>
-                      )}
-                      <button
-                        onClick={() => deleteKeywordMutation.mutate(keyword.id)}
-                        disabled={deleteKeywordMutation.isPending}
-                        className="absolute -top-1.5 -right-1.5 p-1 rounded-full bg-white dark:bg-gray-800 text-gray-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:text-red-600 dark:hover:text-red-400 shadow-sm ring-1 ring-gray-200 dark:ring-gray-700 disabled:opacity-50"
-                        title="删除关键词订阅"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+          )}
 
           {/* Categories */}
           {categories.length > 0 && (
@@ -458,6 +421,89 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
               </div>
             </div>
           )}
+
+          {/* Keyword Subscriptions */}
+          <div className="pt-4">
+            <div className="px-3 py-2 flex items-center justify-between gap-2">
+              <div className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                关键词订阅
+              </div>
+              {keywordSubscriptions.length > 0 && (
+                <button
+                  onClick={() => setKeywordManagerOpen(true)}
+                  className="text-xs text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300"
+                >
+                  管理
+                </button>
+              )}
+            </div>
+            <form onSubmit={handleCreateKeyword} className="px-3 mb-2 flex items-center gap-2">
+              <div className="relative flex-1 min-w-0">
+                <Hash className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <input
+                  type="text"
+                  value={newKeyword}
+                  onChange={(e) => setNewKeyword(e.target.value)}
+                  placeholder="关键词"
+                  maxLength={200}
+                  className="w-full pl-7 pr-2 py-1.5 text-sm border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={!newKeyword.trim() || createKeywordMutation.isPending}
+                className="p-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="添加关键词订阅"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </form>
+            {keywordMessage && (
+              <div className={clsx(
+                'mx-3 mb-2 px-2 py-1 text-xs rounded-lg',
+                keywordMessage.type === 'success'
+                  ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                  : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+              )}>
+                {keywordMessage.text}
+              </div>
+            )}
+            {keywordSubscriptions.length > 0 && (
+              <div className="px-3 flex flex-wrap gap-2">
+                {keywordSubscriptions.map((keyword) => {
+                  const keywordActive = activeKeywordId === String(keyword.id)
+                  const keywordCount = keyword.unread_count > 0 ? keyword.unread_count : keyword.article_count
+                  return (
+                    <div key={keyword.id} className={clsx('relative max-w-full', keywordActive ? 'z-10' : '')}>
+                      <button
+                        onClick={() => navigate(`/?keyword_id=${keyword.id}`)}
+                        className={clsx(
+                          'max-w-full min-w-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-sm transition-all duration-200',
+                          keywordActive
+                            ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 font-medium ring-1 ring-primary-200 dark:ring-primary-800'
+                            : 'bg-gray-50 dark:bg-gray-700/50 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                        )}
+                        title={keyword.keyword}
+                      >
+                        <Hash className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span className="truncate max-w-28">{keyword.name || keyword.keyword}</span>
+                      </button>
+                      {keywordCount > 0 && (
+                        <span className={clsx(
+                          'absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 rounded-full text-[10px] font-semibold flex items-center justify-center pointer-events-none',
+                          keyword.unread_count > 0
+                            ? 'bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-200'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300'
+                        )}>
+                          {keywordCount > 99 ? '99+' : keywordCount}
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </nav>
 
         {/* Footer with user info */}
@@ -526,6 +572,111 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
           </div>
         </div>
       </aside>
+
+      {keywordManagerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-lg bg-white dark:bg-gray-800 shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-4 py-3">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white">管理关键词订阅</h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400">删除操作不会删除文章，只删除关键词筛选入口</p>
+              </div>
+              <button
+                onClick={() => setKeywordManagerOpen(false)}
+                className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+                title="关闭"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto px-4 py-3">
+              {keywordSubscriptions.length === 0 ? (
+                <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">暂无关键词订阅</div>
+              ) : (
+                <div className="space-y-2">
+                  <label className="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:text-gray-200">
+                    <input
+                      type="checkbox"
+                      checked={allKeywordsSelected}
+                      onChange={toggleAllKeywords}
+                      className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    />
+                    <span className="flex-1">全选</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">{selectedKeywordIds.size} / {keywordSubscriptions.length}</span>
+                  </label>
+
+                  {keywordSubscriptions.map((keyword) => {
+                    const keywordCount = keyword.unread_count > 0 ? keyword.unread_count : keyword.article_count
+                    return (
+                      <div
+                        key={keyword.id}
+                        className="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2 dark:border-gray-700"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedKeywordIds.has(keyword.id)}
+                          onChange={() => toggleSelectedKeyword(keyword.id)}
+                          className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                        />
+                        <button
+                          onClick={() => {
+                            navigate(`/?keyword_id=${keyword.id}`)
+                            setKeywordManagerOpen(false)
+                          }}
+                          className="min-w-0 flex-1 text-left"
+                          title={keyword.keyword}
+                        >
+                          <div className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-white">
+                            <Hash className="h-3.5 w-3.5 text-gray-400" />
+                            <span className="truncate">{keyword.name || keyword.keyword}</span>
+                          </div>
+                          <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                            {keywordCount} 篇文章，{keyword.unread_count} 未读
+                          </div>
+                        </button>
+                        <button
+                          onClick={() => deleteKeywordMutation.mutate(keyword.id)}
+                          disabled={deleteKeywordMutation.isPending || deleteSelectedKeywordsMutation.isPending}
+                          className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+                          title="删除"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between gap-3 border-t border-gray-200 dark:border-gray-700 px-4 py-3">
+              <button
+                onClick={() => setSelectedKeywordIds(new Set())}
+                disabled={selectedKeywordIds.size === 0 || deleteSelectedKeywordsMutation.isPending}
+                className="px-3 py-2 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50 dark:text-gray-300 dark:hover:text-white"
+              >
+                清空选择
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setKeywordManagerOpen(false)}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+                >
+                  关闭
+                </button>
+                <button
+                  onClick={() => deleteSelectedKeywordsMutation.mutate(Array.from(selectedKeywordIds))}
+                  disabled={selectedKeywordIds.size === 0 || deleteSelectedKeywordsMutation.isPending}
+                  className="rounded-lg bg-red-600 px-3 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  批量删除
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }
