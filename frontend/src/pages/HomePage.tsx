@@ -311,7 +311,7 @@ export default function HomePage() {
       {/* Article List */}
       <div className={clsx(
         'border-r dark:border-gray-700 bg-white dark:bg-gray-800 overflow-y-auto',
-        selectedArticle ? 'hidden md:block md:w-96' : 'w-full'
+        selectedArticle ? 'hidden md:block md:w-96' : 'w-full md:w-96'
       )} ref={articleListRef}>
         {/* Toolbar */}
         <div className="sticky top-0 bg-white dark:bg-gray-800 border-b dark:border-gray-700 p-3 space-y-2">
@@ -596,110 +596,123 @@ export default function HomePage() {
 
 
       {/* Article Detail */}
-      {selectedArticle && (
-        <div className="flex-1 overflow-y-auto bg-white dark:bg-gray-800">
-          <div className="sticky top-0 bg-white dark:bg-gray-800 border-b dark:border-gray-700 p-3 flex items-center gap-2">
-            <button
-              onClick={() => setSelectedArticle(null)}
-              className="md:hidden p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-gray-200"
-            >
-              ← 返回
-            </button>
-            <div className="ml-auto flex items-center gap-1">
-              <button
-                onClick={() => translateMutation.mutate(selectedArticle.id)}
-                disabled={translateMutation.isPending}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-purple-600 dark:text-purple-400 disabled:opacity-50"
-                title="翻译"
-              >
-                {translateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Languages className="w-4 h-4" />}
-              </button>
-              <button
-                onClick={() => summarizeMutation.mutate(selectedArticle.id)}
-                disabled={summarizeMutation.isPending}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-green-600 dark:text-green-400 disabled:opacity-50"
-                title="AI 整理"
-              >
-                {summarizeMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-              </button>
-              {selectedArticle.link && (
-                <a
-                  href={selectedArticle.link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-gray-300"
-                  title="打开原文"
+      <div className={clsx(
+        'flex-1 overflow-y-auto bg-white dark:bg-gray-800',
+        selectedArticle ? 'block' : 'hidden md:block'
+      )}>
+        {selectedArticle ? (
+          <>
+            <div className="sticky top-0 bg-white dark:bg-gray-800 border-b dark:border-gray-700 p-3 flex items-center gap-2">
+                <button
+                  onClick={() => setSelectedArticle(null)}
+                  className="md:hidden p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-gray-200"
                 >
-                  <ExternalLink className="w-4 h-4" />
-                </a>
-              )}
+                  ← 返回
+                </button>
+                <div className="ml-auto flex items-center gap-1">
+                  <button
+                    onClick={() => translateMutation.mutate(selectedArticle.id)}
+                    disabled={translateMutation.isPending}
+                    className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-purple-600 dark:text-purple-400 disabled:opacity-50"
+                    title="翻译"
+                  >
+                    {translateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Languages className="w-4 h-4" />}
+                  </button>
+                  <button
+                    onClick={() => summarizeMutation.mutate(selectedArticle.id)}
+                    disabled={summarizeMutation.isPending}
+                    className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-green-600 dark:text-green-400 disabled:opacity-50"
+                    title="AI 整理"
+                  >
+                    {summarizeMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                  </button>
+                  {selectedArticle.link && (
+                    <a
+                      href={selectedArticle.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-gray-300"
+                      title="打开原文"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                  )}
+                </div>
+            </div>
+            <article className="p-6 max-w-3xl mx-auto">
+                {(() => {
+                  const translatedData = parseTranslation(selectedArticle.translation)
+                  const showingTranslation = selectedArticle.translation && showTranslation
+                  
+                  return (
+                    <>
+                      <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
+                        {showingTranslation && translatedData.title ? translatedData.title : selectedArticle.title}
+                      </h1>
+                      <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 mb-6">
+                        <span>{new Date(selectedArticle.published_at).toLocaleString()}</span>
+                        {selectedArticle.author && <span>作者: {selectedArticle.author}</span>}
+                      </div>
+                      {selectedArticle.summary && (
+                        <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/30 rounded-lg">
+                          <h3 className="text-sm font-semibold text-green-700 dark:text-green-400 mb-2">AI 整理</h3>
+                          <div className="text-gray-700 dark:text-gray-300 prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap">
+                            {selectedArticle.summary}
+                          </div>
+                        </div>
+                      )}
+                      {selectedArticle.translation && (
+                        <div className="mb-4 flex gap-2">
+                          <button
+                            onClick={() => setShowTranslation(true)}
+                            className={clsx(
+                              'px-3 py-1 text-sm rounded',
+                              showTranslation ? 'bg-primary-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                            )}
+                          >
+                            译文
+                          </button>
+                          <button
+                            onClick={() => setShowTranslation(false)}
+                            className={clsx(
+                              'px-3 py-1 text-sm rounded',
+                              !showTranslation ? 'bg-primary-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                            )}
+                          >
+                            原文
+                          </button>
+                        </div>
+                      )}
+                      {showingTranslation ? (
+                        <div
+                          className="prose prose-sm dark:prose-invert max-w-none dark:text-gray-200"
+                          dangerouslySetInnerHTML={{
+                            __html: translatedData.content
+                          }}
+                        />
+                      ) : (
+                        <div
+                          className="prose prose-sm dark:prose-invert max-w-none dark:text-gray-200"
+                          dangerouslySetInnerHTML={{
+                            __html: selectedArticle.full_content || selectedArticle.content || ''
+                          }}
+                        />
+                      )}
+                    </>
+                  )
+                })()}
+            </article>
+          </>
+        ) : (
+          <div className="h-full flex items-center justify-center p-8 text-center">
+            <div>
+              <FileText className="w-12 h-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
+              <h2 className="text-base font-medium text-gray-700 dark:text-gray-200">选择一篇文章</h2>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">左侧列表会保持可见，内容将在这里打开</p>
             </div>
           </div>
-          <article className="p-6 max-w-3xl mx-auto">
-            {(() => {
-              const translatedData = parseTranslation(selectedArticle.translation)
-              const showingTranslation = selectedArticle.translation && showTranslation
-              
-              return (
-                <>
-                  <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-                    {showingTranslation && translatedData.title ? translatedData.title : selectedArticle.title}
-                  </h1>
-                  <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 mb-6">
-                    <span>{new Date(selectedArticle.published_at).toLocaleString()}</span>
-                    {selectedArticle.author && <span>作者: {selectedArticle.author}</span>}
-                  </div>
-                  {selectedArticle.summary && (
-                    <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/30 rounded-lg">
-                      <h3 className="text-sm font-semibold text-green-700 dark:text-green-400 mb-2">AI 整理</h3>
-                      <div className="text-gray-700 dark:text-gray-300 prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap">
-                        {selectedArticle.summary}
-                      </div>
-                    </div>
-                  )}
-                  {selectedArticle.translation && (
-                    <div className="mb-4 flex gap-2">
-                      <button
-                        onClick={() => setShowTranslation(true)}
-                        className={clsx(
-                          'px-3 py-1 text-sm rounded',
-                          showTranslation ? 'bg-primary-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                        )}
-                      >
-                        译文
-                      </button>
-                      <button
-                        onClick={() => setShowTranslation(false)}
-                        className={clsx(
-                          'px-3 py-1 text-sm rounded',
-                          !showTranslation ? 'bg-primary-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                        )}
-                      >
-                        原文
-                      </button>
-                    </div>
-                  )}
-                  {showingTranslation ? (
-                    <div
-                      className="prose prose-sm dark:prose-invert max-w-none dark:text-gray-200"
-                      dangerouslySetInnerHTML={{
-                        __html: translatedData.content
-                      }}
-                    />
-                  ) : (
-                    <div
-                      className="prose prose-sm dark:prose-invert max-w-none dark:text-gray-200"
-                      dangerouslySetInnerHTML={{
-                        __html: selectedArticle.full_content || selectedArticle.content || ''
-                      }}
-                    />
-                  )}
-                </>
-              )
-            })()}
-          </article>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }
