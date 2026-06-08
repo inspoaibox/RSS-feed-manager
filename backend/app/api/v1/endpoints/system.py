@@ -49,6 +49,9 @@ class SystemSettingsResponse(BaseModel):
     sync_intervals: list[SyncIntervalOption]
     default_sync_interval: int
     enable_feed_recommendations: bool
+    show_favorites_menu: bool
+    show_ai_analysis_menu: bool
+    show_recommendations_menu: bool
 
 
 class SystemSettingsUpdate(BaseModel):
@@ -59,6 +62,9 @@ class SystemSettingsUpdate(BaseModel):
     sync_intervals: list[SyncIntervalOption] | None = None
     default_sync_interval: int | None = None
     enable_feed_recommendations: bool | None = None
+    show_favorites_menu: bool | None = None
+    show_ai_analysis_menu: bool | None = None
+    show_recommendations_menu: bool | None = None
 
 
 class PublicSettingsResponse(BaseModel):
@@ -66,6 +72,9 @@ class PublicSettingsResponse(BaseModel):
     site_name: str
     sync_intervals: list[SyncIntervalOption]
     default_sync_interval: int
+    show_favorites_menu: bool
+    show_ai_analysis_menu: bool
+    show_recommendations_menu: bool
 
 
 class UserListResponse(BaseModel):
@@ -111,7 +120,10 @@ async def get_public_settings(db: AsyncSession = Depends(get_db)):
     return PublicSettingsResponse(
         site_name=site_name,
         sync_intervals=await get_sync_intervals(settings_repo),
-        default_sync_interval=default_interval
+        default_sync_interval=default_interval,
+        show_favorites_menu=await settings_repo.get_bool('show_favorites_menu', True),
+        show_ai_analysis_menu=await settings_repo.get_bool('show_ai_analysis_menu', True),
+        show_recommendations_menu=await settings_repo.get_bool('show_recommendations_menu', True),
     )
 
 
@@ -175,7 +187,10 @@ async def get_system_settings(
         oauth_linuxdo=await get_oauth_config(settings_repo, 'linuxdo'),
         sync_intervals=await get_sync_intervals(settings_repo),
         default_sync_interval=default_interval,
-        enable_feed_recommendations=await settings_repo.get_bool('enable_feed_recommendations', False)
+        enable_feed_recommendations=await settings_repo.get_bool('enable_feed_recommendations', False),
+        show_favorites_menu=await settings_repo.get_bool('show_favorites_menu', True),
+        show_ai_analysis_menu=await settings_repo.get_bool('show_ai_analysis_menu', True),
+        show_recommendations_menu=await settings_repo.get_bool('show_recommendations_menu', True),
     )
 
 
@@ -230,6 +245,27 @@ async def update_system_settings(
             'true' if data.enable_feed_recommendations else 'false',
             '是否开启订阅推荐功能'
         )
+
+    if data.show_favorites_menu is not None:
+        await settings_repo.set(
+            'show_favorites_menu',
+            'true' if data.show_favorites_menu else 'false',
+            '是否在左侧菜单显示收藏入口'
+        )
+
+    if data.show_ai_analysis_menu is not None:
+        await settings_repo.set(
+            'show_ai_analysis_menu',
+            'true' if data.show_ai_analysis_menu else 'false',
+            '是否在左侧菜单显示 AI 分析入口'
+        )
+
+    if data.show_recommendations_menu is not None:
+        await settings_repo.set(
+            'show_recommendations_menu',
+            'true' if data.show_recommendations_menu else 'false',
+            '是否在左侧菜单显示订阅推荐入口'
+        )
     
     await db.commit()
     
@@ -242,7 +278,10 @@ async def update_system_settings(
         oauth_linuxdo=await get_oauth_config(settings_repo, 'linuxdo'),
         sync_intervals=await get_sync_intervals(settings_repo),
         default_sync_interval=default_interval,
-        enable_feed_recommendations=await settings_repo.get_bool('enable_feed_recommendations', False)
+        enable_feed_recommendations=await settings_repo.get_bool('enable_feed_recommendations', False),
+        show_favorites_menu=await settings_repo.get_bool('show_favorites_menu', True),
+        show_ai_analysis_menu=await settings_repo.get_bool('show_ai_analysis_menu', True),
+        show_recommendations_menu=await settings_repo.get_bool('show_recommendations_menu', True),
     )
 
 

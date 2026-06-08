@@ -2942,6 +2942,9 @@ interface SystemSettings {
   sync_intervals: SyncIntervalOption[]
   default_sync_interval: number
   enable_feed_recommendations: boolean
+  show_favorites_menu: boolean
+  show_ai_analysis_menu: boolean
+  show_recommendations_menu: boolean
 }
 
 // 所有可选的同步间隔
@@ -3017,6 +3020,9 @@ function SystemTab() {
       sync_intervals?: SyncIntervalOption[]
       default_sync_interval?: number
       enable_feed_recommendations?: boolean
+      show_favorites_menu?: boolean
+      show_ai_analysis_menu?: boolean
+      show_recommendations_menu?: boolean
     }) => {
       const response = await api.put('/system/settings', data)
       return response.data
@@ -3137,6 +3143,57 @@ function SystemTab() {
           </div>
         </div>
       </div>
+
+          {/* 左侧菜单显示 */}
+          <div className="p-4 border dark:border-gray-700 rounded-lg">
+            <h3 className="font-medium mb-4 dark:text-white flex items-center gap-2">
+              <Shield className="w-5 h-5" />
+              左侧菜单显示
+            </h3>
+            <div className="space-y-4">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={settings?.show_favorites_menu ?? true}
+                  onChange={(e) => updateSettingsMutation.mutate({ show_favorites_menu: e.target.checked })}
+                  disabled={updateSettingsMutation.isPending}
+                  className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:opacity-50"
+                />
+                <div>
+                  <p className="font-medium dark:text-white">显示收藏入口</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">控制左侧菜单中的「收藏」按钮是否显示</p>
+                </div>
+              </label>
+
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={settings?.show_ai_analysis_menu ?? true}
+                  onChange={(e) => updateSettingsMutation.mutate({ show_ai_analysis_menu: e.target.checked })}
+                  disabled={updateSettingsMutation.isPending}
+                  className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:opacity-50"
+                />
+                <div>
+                  <p className="font-medium dark:text-white">显示 AI 分析入口</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">控制左侧菜单中的「AI 分析」按钮是否显示</p>
+                </div>
+              </label>
+
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={settings?.show_recommendations_menu ?? true}
+                  onChange={(e) => updateSettingsMutation.mutate({ show_recommendations_menu: e.target.checked })}
+                  disabled={updateSettingsMutation.isPending}
+                  className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:opacity-50"
+                />
+                <div>
+                  <p className="font-medium dark:text-white">显示订阅推荐入口</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">控制左侧菜单中的「订阅推荐」按钮是否显示</p>
+                </div>
+              </label>
+            </div>
+          </div>
 
           {/* 注册设置 */}
           <div className="p-4 border dark:border-gray-700 rounded-lg">
