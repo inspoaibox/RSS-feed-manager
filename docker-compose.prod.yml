@@ -36,9 +36,7 @@ services:
 
   # Backend API
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ghcr.io/inspoaibox/rss-feed-manager-backend:${RSS_MANAGER_IMAGE_TAG:-latest}
     container_name: rss_manager_backend
     restart: always
     expose:
@@ -60,9 +58,7 @@ services:
 
   # Celery Worker
   celery_worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ghcr.io/inspoaibox/rss-feed-manager-backend:${RSS_MANAGER_IMAGE_TAG:-latest}
     container_name: rss_manager_celery_worker
     restart: always
     command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=10
@@ -80,9 +76,7 @@ services:
 
   # Celery Beat (Scheduler)
   celery_beat:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ghcr.io/inspoaibox/rss-feed-manager-backend:${RSS_MANAGER_IMAGE_TAG:-latest}
     container_name: rss_manager_celery_beat
     restart: always
     command: celery -A app.tasks.celery_app beat --loglevel=info --scheduler celery.beat:PersistentScheduler
@@ -100,9 +94,7 @@ services:
 
   # Frontend
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    image: ghcr.io/inspoaibox/rss-feed-manager-frontend:${RSS_MANAGER_IMAGE_TAG:-latest}
     container_name: rss_manager_frontend
     restart: always
     ports:

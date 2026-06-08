@@ -1,36 +1,89 @@
-# GitHub + Docker 安装、构建、反向代理与更新完整说明
+# GitHub 构建镜像 + Docker Compose 部署完整说明
 
-本文档说明如何从 GitHub 仓库安装 RSS Feed Manager，并在服务器上使用 Docker Compose 构建、运行、反向代理、更新和维护。
+本文档说明如何从 GitHub 仓库安装 RSS Feed Manager，并使用 GitHub Actions 构建 Docker 镜像、发布到 GitHub Container Registry，再由服务器拉取镜像运行、反向代理和更新。
 
 项目地址：[https://github.com/inspoaibox/RSS-feed-manager](https://github.com/inspoaibox/RSS-feed-manager)
 
 ## 1. 部署架构
 
-生产环境推荐使用 `docker-compose.prod.yml` 一键启动所有服务。
+当前生产部署采用“GitHub 构建，服务器拉取镜像”的方式：
 
 ```text
-公网用户
+开发者 push 到 main
   |
-  | HTTPS / HTTP
   v
-服务器 Nginx / Caddy 反向代理
-  |
-  | http://127.0.0.1:5666
+GitHub Actions
+  |-- 构建 backend 镜像
+  |-- 构建 frontend 镜像
   v
-frontend 容器内置 Nginx
-  |-- 静态前端页面
-  |-- /api/ 代理到 backend:8000
+GitHub Container Registry: ghcr.io
   |
-  +--> backend 容器 FastAPI
-       |
-       +--> PostgreSQL + pgvector
-       +--> Redis
-       +--> Celery Worker / Beat
+  | docker compose pull
+  v
+服务器 Docker Compose
+  |-- postgres
+  |-- redis
+  |-- backend
+  |-- celery_worker
+  |-- celery_beat
+  |-- frontend
+  v
+Nginx / Caddy 反向代理到 127.0.0.1:5666
 ```
 
-外层反向代理只需要代理到宿主机 `5666` 端口。项目内部的前端 Nginx 已经负责把 `/api/` 转发给后端容器，不需要把后端 `8000` 端口暴露到公网。
+服务器不再默认执行 `docker compose ... up -d --build`。更新时应先等 GitHub Actions 构建成功，然后在服务器执行 `docker compose pull` 和 `docker compose up -d`。
 
-## 2. 准备服务器环境
+## 2. GitHub Actions 构建结果
+
+推送到 `main` 后，仓库的 GitHub Actions 会构建并发布两个镜像：
+
+```text
+ghcr.io/inspoaibox/rss-feed-manager-backend:latest
+ghcr.io/inspoaibox/rss-feed-manager-frontend:latest
+```
+
+同时也会发布按提交固定的标签：
+
+```text
+ghcr.io/inspoaibox/rss-feed-manager-backend:sha-完整提交SHA
+ghcr.io/inspoaibox/rss-feed-manager-frontend:sha-完整提交SHA
+```
+
+默认生产环境使用：
+
+```env
+RSS_MANAGER_IMAGE_TAG=latest
+```
+
+如果需要固定版本或回滚，可以把 `.env.production` 中的标签改为某次提交：
+
+```env
+RSS_MANAGER_IMAGE_TAG=sha-完整提交SHA
+```
+
+## 3. GHCR 镜像权限
+
+如果 GHCR 包是公开的，服务器可以直接拉取镜像：
+
+```bash
+docker pull ghcr.io/inspoaibox/rss-feed-manager-frontend:latest
+docker pull ghcr.io/inspoaibox/rss-feed-manager-backend:latest
+```
+
+如果服务器拉取时报错 `pull access denied`、`unauthorized` 或 `denied`，通常是 GHCR 包没有公开。处理方式二选一：
+
+1. 在 GitHub 仓库页面进入 `Packages`，把对应 container package 的 visibility 改为 `Public`
+2. 在服务器登录 GHCR 后再拉取私有镜像
+
+服务器登录 GHCR：
+
+```bash
+echo "你的GitHubToken" | docker login ghcr.io -u 你的GitHub用户名 --password-stdin
+```
+
+Token 至少需要 `read:packages` 权限。公开项目推荐把 package 设为公开，部署最省事。
+
+## 4. 准备服务器环境
 
 服务器需要安装：
 
@@ -47,21 +100,15 @@ docker --version
 docker compose version
 ```
 
-建议系统：
-
-- Ubuntu 22.04 / 24.04
-- Debian 12
-- 其他支持 Docker Compose v2 的 Linux 发行版
-
 如果是云服务器，请在安全组或防火墙中放行：
 
 - `80/tcp`：HTTP，用于访问或申请证书
 - `443/tcp`：HTTPS
 - `5666/tcp`：仅在不使用反向代理、直接通过 `IP:5666` 访问时需要放行
 
-使用反向代理后，建议只放行 `80` 和 `443`，不要把 `5666` 暴露到公网。
+使用反向代理后，建议只放行 `80` 和 `443`。
 
-## 3. 拉取项目代码
+## 5. 拉取项目代码
 
 首次安装：
 
@@ -77,7 +124,7 @@ cd RSS-feed-manager
 git pull origin main
 ```
 
-建议确认当前分支：
+确认当前分支：
 
 ```bash
 git branch --show-current
@@ -89,7 +136,7 @@ git branch --show-current
 main
 ```
 
-## 4. 配置生产环境变量
+## 6. 配置生产环境变量
 
 复制生产环境示例文件：
 
@@ -117,6 +164,7 @@ REDIS_PASSWORD=请改成强Redis密码
 SECRET_KEY=请改成至少32位随机字符串
 CORS_ORIGINS=["http://你的服务器IP:5666"]
 BASE_URL=http://你的服务器IP:5666
+RSS_MANAGER_IMAGE_TAG=latest
 ```
 
 生成 `SECRET_KEY`：
@@ -130,29 +178,30 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 ```env
 CORS_ORIGINS=["https://rss.example.com"]
 BASE_URL=https://rss.example.com
-```
-
-如果需要同时允许多个访问地址：
-
-```env
-CORS_ORIGINS=["https://rss.example.com","http://服务器IP:5666"]
+RSS_MANAGER_IMAGE_TAG=latest
 ```
 
 重要说明：
 
 - `POSTGRES_PASSWORD` 和 `REDIS_PASSWORD` 首次启动后会写入 Docker 数据卷。后续直接修改密码可能导致旧数据库连接失败，修改前请先备份数据。
 - `BASE_URL` 会影响 OAuth 回调等需要生成外部 URL 的功能，使用域名访问时应填写最终公网地址。
-- 公网部署时不要继续使用示例里的默认密码和默认密钥。
+- `RSS_MANAGER_IMAGE_TAG` 默认使用 GitHub Actions 发布的 `latest` 镜像。
 
-## 5. 构建并启动服务
+## 7. 启动生产服务
 
-首次构建并启动：
+首次启动前，建议先拉取镜像：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+docker compose -f docker-compose.prod.yml --env-file .env.production pull
 ```
 
-这个命令会构建并启动：
+启动服务：
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+```
+
+这个命令会启动：
 
 - `rss_manager_postgres`：PostgreSQL + pgvector 数据库
 - `rss_manager_redis`：Redis
@@ -186,7 +235,7 @@ docker exec -it rss_manager_backend alembic current
 docker exec -it rss_manager_backend alembic upgrade head
 ```
 
-## 6. 直接访问测试
+## 8. 直接访问测试
 
 如果暂时不配置反向代理，可以直接访问：
 
@@ -208,7 +257,57 @@ curl -I http://127.0.0.1:5666
 
 首次注册的用户会自动成为管理员。管理员可以在「设置」中关闭注册、配置 AI 渠道、调整同步间隔和通知。
 
-## 7. 使用 Nginx 反向代理
+## 9. 从服务器本地构建切换到 GitHub 构建镜像
+
+如果之前服务器上使用的是本地构建命令：
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+```
+
+切换到 GitHub 镜像版本时，按以下步骤操作：
+
+1. 先把代码提交并推送到 `main`
+2. 到 GitHub 仓库的 `Actions` 页面确认 `Build and Publish Images` 成功
+3. 在服务器拉取最新 compose 配置
+
+```bash
+cd RSS-feed-manager
+git pull origin main
+```
+
+4. 确认 `.env.production` 中有镜像标签
+
+```env
+RSS_MANAGER_IMAGE_TAG=latest
+```
+
+5. 拉取 GitHub 构建好的镜像
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.production pull
+```
+
+6. 用新镜像启动服务
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+```
+
+7. 检查当前容器使用的镜像
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.production images
+```
+
+正常应看到：
+
+```text
+ghcr.io/inspoaibox/rss-feed-manager-backend
+ghcr.io/inspoaibox/rss-feed-manager-frontend
+```
+
+## 10. 使用 Nginx 反向代理
 
 反向代理适合域名访问和 HTTPS 部署。假设你的域名是：
 
@@ -218,7 +317,7 @@ rss.example.com
 
 请先把域名 DNS 的 `A` 记录解析到服务器公网 IP。
 
-### 7.1 推荐：只让本机访问 5666 端口
+### 10.1 推荐：只让本机访问 5666 端口
 
 如果只通过 Nginx/Caddy 对外提供访问，可以把 `docker-compose.prod.yml` 中前端端口映射从：
 
@@ -234,15 +333,15 @@ ports:
   - "127.0.0.1:5666:80"
 ```
 
-然后重建启动：
+然后重启服务：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
 这样外部用户不能直接访问 `服务器IP:5666`，只能通过反向代理访问。
 
-### 7.2 Nginx HTTP 配置
+### 10.2 Nginx HTTP 配置
 
 创建站点配置：
 
@@ -288,7 +387,7 @@ sudo systemctl reload nginx
 http://rss.example.com
 ```
 
-### 7.3 Nginx HTTPS 配置
+### 10.3 Nginx HTTPS 配置
 
 如果使用 Certbot 申请证书：
 
@@ -317,13 +416,13 @@ CORS_ORIGINS=["https://rss.example.com"]
 BASE_URL=https://rss.example.com
 ```
 
-然后重建并重启服务：
+然后重启服务：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
-### 7.4 Nginx 子路径部署说明
+### 10.4 Nginx 子路径部署说明
 
 不推荐把项目部署到子路径，例如：
 
@@ -337,7 +436,7 @@ https://example.com/rss/
 https://rss.example.com
 ```
 
-## 8. 使用 Caddy 反向代理
+## 11. 使用 Caddy 反向代理
 
 Caddy 可以自动申请和续期 HTTPS 证书。安装 Caddy 后编辑：
 
@@ -367,13 +466,13 @@ CORS_ORIGINS=["https://rss.example.com"]
 BASE_URL=https://rss.example.com
 ```
 
-重建并重启：
+重启服务：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
-## 9. 更新到最新版本
+## 12. 更新到最新版本
 
 更新前建议先备份数据库：
 
@@ -381,12 +480,17 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d --bui
 docker exec rss_manager_postgres pg_dump -U rss_manager rss_manager > rss_manager_backup_$(date +%F_%H-%M-%S).sql
 ```
 
-拉取最新代码并重建：
+更新流程：
+
+1. 本地或 GitHub 上把代码合并到 `main`
+2. 等 GitHub Actions 的 `Build and Publish Images` 成功
+3. 在服务器执行：
 
 ```bash
 cd RSS-feed-manager
 git pull origin main
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+docker compose -f docker-compose.prod.yml --env-file .env.production pull
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
 检查服务状态：
@@ -405,55 +509,64 @@ docker exec -it rss_manager_backend alembic upgrade head
 
 更新完成后访问站点，确认可以登录、文章列表可以打开、订阅刷新功能正常。
 
-## 10. 只更新某一类服务
+## 13. 固定版本和回滚
 
-推荐大多数情况下直接重建所有服务：
+如果 `latest` 出现问题，可以回滚到某个已发布提交镜像。
 
-```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+先在 GitHub Actions 成功记录里找到提交 SHA，然后修改 `.env.production`：
+
+```env
+RSS_MANAGER_IMAGE_TAG=sha-完整提交SHA
 ```
 
-如果你明确只修改了前端：
+重新拉取并启动：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build frontend
+docker compose -f docker-compose.prod.yml --env-file .env.production pull
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
-如果你修改了后端 API：
+恢复跟随最新版本时，再改回：
+
+```env
+RSS_MANAGER_IMAGE_TAG=latest
+```
+
+## 14. 需要在服务器本地构建时
+
+正常生产部署不需要服务器本地构建。如果 GitHub Actions 暂时不可用，或者你想在服务器上临时验证本地源码，可以使用额外的 build override 文件：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build backend
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.prod.build.yml \
+  --env-file .env.production \
+  up -d --build
 ```
 
-如果你修改了 Celery 任务、RSS 抓取逻辑、定时任务逻辑，必须同时重建并重启：
+这会临时使用本地 `backend/Dockerfile` 和 `frontend/Dockerfile` 构建镜像。恢复 GitHub 镜像部署时，重新执行：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build backend celery_worker celery_beat
+docker compose -f docker-compose.prod.yml --env-file .env.production pull
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
-如果只重建后端后发现前端访问 API 异常，可以重启前端容器刷新容器内 Nginx 的上游解析：
+## 15. 修改配置后的重启方式
 
-```bash
-docker restart rss_manager_frontend
-```
-
-## 11. 修改配置后的重启方式
-
-修改 `.env.production` 后，推荐执行：
-
-```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
-```
-
-如果只修改了不影响镜像构建的环境变量，也可以：
+修改 `.env.production` 后：
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
-但为了减少配置未生效的排查成本，生产更新时推荐使用 `--build`。
+如果修改的是镜像标签：
 
-## 12. 数据备份和恢复
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.production pull
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+```
+
+## 16. 数据备份和恢复
 
 备份 PostgreSQL：
 
@@ -477,7 +590,7 @@ Get-Content rss_manager_backup.sql | docker exec -i rss_manager_postgres psql -U
 
 也可以在应用的「设置 -> 备份恢复」中导出或导入配置。
 
-## 13. 常用运维命令
+## 17. 常用运维命令
 
 查看全部日志：
 
@@ -501,6 +614,12 @@ docker logs -f rss_manager_celery_worker
 
 ```bash
 docker logs -f rss_manager_celery_beat
+```
+
+查看当前使用的镜像：
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.production images
 ```
 
 重启所有服务：
@@ -527,9 +646,34 @@ docker compose -f docker-compose.prod.yml --env-file .env.production down -v
 docker image prune
 ```
 
-## 14. 常见问题
+## 18. 常见问题
 
-### 14.1 端口 5666 被占用
+### 18.1 GitHub Actions 成功了，但服务器 pull 不到镜像
+
+先手动测试：
+
+```bash
+docker pull ghcr.io/inspoaibox/rss-feed-manager-frontend:latest
+docker pull ghcr.io/inspoaibox/rss-feed-manager-backend:latest
+```
+
+如果提示无权限，请检查 GHCR package 是否公开，或在服务器执行 `docker login ghcr.io`。
+
+### 18.2 服务器还是在本地构建
+
+确认你没有使用 `--build`，也没有额外加 `docker-compose.prod.build.yml`：
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+```
+
+确认 compose 配置中使用的是 `image`：
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.production config | grep ghcr.io
+```
+
+### 18.3 端口 5666 被占用
 
 查看占用：
 
@@ -550,7 +694,7 @@ ports:
 proxy_pass http://127.0.0.1:8080;
 ```
 
-### 14.2 容器启动失败
+### 18.4 容器启动失败
 
 查看服务状态和日志：
 
@@ -560,7 +704,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.production logs backen
 docker compose -f docker-compose.prod.yml --env-file .env.production logs frontend
 ```
 
-### 14.3 数据库连接失败
+### 18.5 数据库连接失败
 
 检查 PostgreSQL 是否健康：
 
@@ -575,7 +719,7 @@ docker logs --tail 100 rss_manager_postgres
 - 首次启动时数据库还未完成初始化
 - 修改过数据库密码但没有同步处理旧数据卷
 
-### 14.4 RSS 抓取或自定义规则不执行
+### 18.6 RSS 抓取或自定义规则不执行
 
 确认 Worker 和 Beat 正常：
 
@@ -585,13 +729,7 @@ docker logs -f rss_manager_celery_worker
 docker logs -f rss_manager_celery_beat
 ```
 
-如果修改过抓取相关代码，请重建：
-
-```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build backend celery_worker celery_beat
-```
-
-### 14.5 域名访问正常，但登录或 OAuth 回调异常
+### 18.7 域名访问正常，但登录或 OAuth 回调异常
 
 检查 `.env.production`：
 
@@ -603,10 +741,10 @@ BASE_URL=https://rss.example.com
 修改后重启：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
-### 14.6 Nginx 反向代理后接口 502
+### 18.8 Nginx 反向代理后接口 502
 
 先确认本机端口可访问：
 
@@ -623,12 +761,12 @@ sudo journalctl -u nginx --no-pager -n 100
 
 如果 `docker-compose.prod.yml` 里把端口改成了其他值，Nginx 的 `proxy_pass` 也必须同步修改。
 
-### 14.7 修改 `.env.production` 后不生效
+### 18.9 修改 `.env.production` 后不生效
 
 执行：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
 然后查看后端容器环境变量是否正确传入：
@@ -638,7 +776,7 @@ docker exec rss_manager_backend env | grep BASE_URL
 docker exec rss_manager_backend env | grep CORS_ORIGINS
 ```
 
-## 15. 卸载项目
+## 19. 卸载项目
 
 停止并删除容器，但保留数据卷：
 

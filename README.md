@@ -31,28 +31,32 @@
 
 ## 快速开始
 
-从 GitHub 拉取、Docker 构建、生产运行、Nginx/Caddy 反向代理、HTTPS 配置、更新和备份的完整流程见：[GitHub + Docker 安装、构建、反向代理与更新完整说明](docs/GITHUB_DOCKER_USAGE.md)。
+从 GitHub 拉取、GitHub Actions 构建镜像、服务器拉取运行、Nginx/Caddy 反向代理、HTTPS 配置、更新和备份的完整流程见：[GitHub 构建镜像 + Docker Compose 部署完整说明](docs/GITHUB_DOCKER_USAGE.md)。
 
 生产环境推荐流程：
 
 1. 从 GitHub 克隆项目
 2. 复制并修改 `.env.production`
-3. 使用 Docker Compose 构建并启动服务
-4. 通过 `http://服务器IP:5666` 测试访问
-5. 使用 Nginx 或 Caddy 反向代理到 `127.0.0.1:5666`
-6. 将 `.env.production` 中的 `CORS_ORIGINS` 和 `BASE_URL` 改为最终域名
-7. 后续通过 `git pull origin main` 和 `docker compose ... up -d --build` 更新
+3. 等 GitHub Actions 构建并发布 GHCR 镜像
+4. 在服务器使用 Docker Compose 拉取镜像并启动服务
+5. 通过 `http://服务器IP:5666` 测试访问
+6. 使用 Nginx 或 Caddy 反向代理到 `127.0.0.1:5666`
+7. 将 `.env.production` 中的 `CORS_ORIGINS` 和 `BASE_URL` 改为最终域名
+8. 后续通过 `git pull origin main`、`docker compose pull` 和 `docker compose up -d` 更新
 
 ### 方式一：生产环境部署（Docker 一键启动，推荐）
 
-只需安装 Docker，几条命令启动所有服务：
+只需安装 Docker，几条命令拉取 GitHub Actions 构建好的镜像并启动所有服务：
 
 ```bash
 # 1. 复制并编辑生产环境配置
 cp .env.production.example .env.production
 
-# 2. 构建并启动所有服务
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+# 2. 拉取 GitHub Container Registry 镜像
+docker compose -f docker-compose.prod.yml --env-file .env.production pull
+
+# 3. 启动所有服务
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
 后端容器启动时会自动执行数据库迁移。需要手动确认或重跑迁移时：
@@ -77,18 +81,18 @@ docker compose -f docker-compose.prod.yml down
 
 **更新代码后重新部署：**
 ```bash
-# 拉取最新代码后，重建并重启所有服务
+# 等 GitHub Actions 构建成功后，在服务器拉取最新配置和镜像
 git pull origin main
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+docker compose -f docker-compose.prod.yml --env-file .env.production pull
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 
 # 如需手动确认数据库迁移
 docker exec -it rss_manager_backend alembic upgrade head
 ```
 
-> ⚠️ 如果只重建单个服务（如 `--build backend`），需要同时重启 frontend，否则 nginx 会因 DNS 缓存连接失败：
+> 如果需要临时在服务器本地构建，可以使用 `docker-compose.prod.build.yml`：
 > ```bash
-> docker compose -f docker-compose.prod.yml up -d --build backend
-> docker restart rss_manager_frontend
+> docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d --build
 > ```
 
 **反向代理部署：**
@@ -239,15 +243,14 @@ AI 分析功能允许你使用自然语言查询订阅的文章内容，系统�
 - 首个注册的用户将自动成为管理员
 
 ### 更新部署
-- 修改后端代码（包括 Celery 任务）需要重建对应容器：
+- 修改代码后，先推送到 GitHub 并等待 Actions 构建镜像成功，再在服务器拉取最新镜像并重启：
   ```bash
-  # 重建所有服务（推荐）
-  docker compose -f docker-compose.prod.yml up -d --build
-  
-  # 或只重建特定服务
-  docker compose -f docker-compose.prod.yml up -d --build backend celery_worker celery_beat
+  git pull origin main
+  docker compose -f docker-compose.prod.yml --env-file .env.production pull
+  docker compose -f docker-compose.prod.yml --env-file .env.production up -d
   ```
-- 只重建 `backend frontend` 不会更新 Celery 定时任务
+- 如果修改了 Celery 任务、RSS 抓取逻辑或定时任务逻辑，也按同一套流程更新；`backend`、`celery_worker`、`celery_beat` 会使用同一个后端镜像。
+- 如需临时在服务器本地构建，可参考 [本地构建说明](docs/GITHUB_DOCKER_USAGE.md#14-需要在服务器本地构建时)。
 - **数据库结构变更时**，必须执行迁移：
   ```bash
   docker exec -it rss_manager_backend alembic upgrade head
@@ -260,10 +263,11 @@ AI 分析功能允许你使用自然语言查询订阅的文章内容，系统�
 docker exec rss_manager_postgres pg_dump -U rss_manager rss_manager > backup.sql
 
 # 2. 拉取最新代码
-git pull
+git pull origin main
 
-# 3. 重建所有服务（PostgreSQL 镜像已更换为支持 pgvector 的版本）
-docker compose -f docker-compose.prod.yml up -d --build
+# 3. 等 GitHub Actions 构建成功后，拉取镜像并启动
+docker compose -f docker-compose.prod.yml --env-file .env.production pull
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 
 # 4. 执行数据库迁移（添加 embedding 列和查询历史表）
 docker exec -it rss_manager_backend alembic upgrade head
