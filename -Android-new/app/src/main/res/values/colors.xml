@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="mrss_primary">#176B5B</color>
+    <color name="mrss_primary_dark">#0E3F37</color>
+    <color name="mrss_accent">#D69245</color>
+    <color name="mrss_background">#F7F8F5</color>
+    <color name="mrss_surface">#FFFFFF</color>
+    <color name="mrss_text">#1E2825</color>
+    <color name="ic_launcher_background">#176B5B</color>
+</resources>
