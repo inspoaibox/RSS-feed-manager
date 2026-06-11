@@ -222,17 +222,38 @@ async def fetch_feed_content_playwright(url: str, timeout: float = 60.0) -> str:
         from playwright.async_api import async_playwright
     except ImportError:
         raise FeedParserError("Playwright not installed. Run: pip install playwright && playwright install chromium")
-    
+
     response_body = None
-    
+
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-dev-shm-usage',
+                    '--no-sandbox'
+                ]
             )
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                viewport={'width': 1920, 'height': 1080},
+                locale='en-US',
+                timezone_id='America/New_York',
+                extra_http_headers={
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                }
+            )
+
+            # Add stealth scripts
+            await context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                window.chrome = {runtime: {}};
+            """)
+
             page = await context.new_page()
-            
+
             # 拦截响应获取原始内容
             async def handle_response(response):
                 nonlocal response_body
@@ -241,33 +262,48 @@ async def fetch_feed_content_playwright(url: str, timeout: float = 60.0) -> str:
                         response_body = await response.text()
                     except:
                         pass
-            
+
             page.on("response", handle_response)
-            
-            # Navigate and wait for content
-            response = await page.goto(url, wait_until="networkidle", timeout=timeout * 1000)
-            
+
+            # Navigate with longer timeout and load strategy
+            response = await page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
+
+            # Wait for potential Cloudflare challenge
+            await page.wait_for_timeout(5000)
+
             # 如果拦截没有获取到，尝试从响应直接获取
             if not response_body and response:
                 try:
                     response_body = await response.text()
                 except:
                     pass
-            
-            # 如果还是没有，等待一下再获取页面内容
+
+            # 如果还是没有，获取页面内容
             if not response_body:
-                await page.wait_for_timeout(3000)
                 response_body = await page.content()
-            
+
             await browser.close()
-            
+
             if not response_body:
                 raise FeedParserError(f"Failed to get content from: {url}")
-            
-            # Check if we got actual RSS/XML content or still a challenge page
-            if "Just a moment" in response_body or "challenge-platform" in response_body:
+
+            # Check multiple Cloudflare challenge patterns
+            challenge_patterns = [
+                "Just a moment",
+                "challenge-platform",
+                "cf-browser-verification",
+                "ray_id",
+                "cf_clearance",
+                "Checking your browser"
+            ]
+
+            # Only fail if we see challenge pattern AND no XML/RSS content
+            has_challenge = any(pattern in response_body for pattern in challenge_patterns)
+            has_feed = any(marker in response_body.lower() for marker in ['<rss', '<feed', '<?xml', '<atom'])
+
+            if has_challenge and not has_feed:
                 raise FeedParserError(f"Cloudflare challenge not bypassed: {url}")
-            
+
             return response_body
     except Exception as e:
         if "FeedParserError" in str(type(e)):
