@@ -13,7 +13,7 @@ class KeywordSubscriptionCreate(BaseModel):
     match_title: bool = True
     match_content: bool = True
     match_author: bool = False
-    match_feed_title: bool = True
+    match_feed_title: bool = False
 
 
 class KeywordSubscriptionUpdate(BaseModel):

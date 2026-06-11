@@ -16,6 +16,7 @@ def build_keyword_conditions(keyword: KeywordSubscription) -> list:
         return []
 
     pattern = f"%{keyword_text}%"
+    is_numeric_keyword = keyword_text.isdigit()
     conditions = []
 
     if keyword.match_title:
@@ -29,7 +30,7 @@ def build_keyword_conditions(keyword: KeywordSubscription) -> list:
         ])
     if keyword.match_author:
         conditions.append(Article.author.ilike(pattern))
-    if keyword.match_feed_title:
+    if keyword.match_feed_title and not is_numeric_keyword:
         conditions.append(Feed.title.ilike(pattern))
 
     return conditions or [Article.title.ilike(pattern)]
@@ -50,7 +51,7 @@ class KeywordSubscriptionRepository:
         match_title: bool = True,
         match_content: bool = True,
         match_author: bool = False,
-        match_feed_title: bool = True,
+        match_feed_title: bool = False,
     ) -> KeywordSubscription:
         """Create a keyword subscription."""
         result = await self.session.execute(

@@ -102,7 +102,7 @@ public sealed class Repository
                 match_title INTEGER NOT NULL DEFAULT 1,
                 match_content INTEGER NOT NULL DEFAULT 1,
                 match_author INTEGER NOT NULL DEFAULT 0,
-                match_feed_title INTEGER NOT NULL DEFAULT 1,
+                match_feed_title INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER
             );

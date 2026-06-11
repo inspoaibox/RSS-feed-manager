@@ -27,7 +27,7 @@ class KeywordSubscription(BaseModel):
     match_title: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     match_content: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     match_author: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    match_feed_title: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    match_feed_title: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     user: Mapped["User"] = relationship("User", back_populates="keyword_subscriptions")

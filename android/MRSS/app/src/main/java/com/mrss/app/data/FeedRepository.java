@@ -379,7 +379,7 @@ public class FeedRepository {
         if (keyword.matchAuthor == 1) {
             clauses.add("a.author LIKE ?");
         }
-        if (keyword.matchFeedTitle == 1) {
+        if (keyword.matchFeedTitle == 1 && !isDigitsOnly(keyword.keyword)) {
             clauses.add("f.title LIKE ?");
         }
         if (clauses.isEmpty()) {
@@ -449,7 +449,7 @@ public class FeedRepository {
         values.put("match_title", 1);
         values.put("match_content", 1);
         values.put("match_author", 0);
-        values.put("match_feed_title", 1);
+        values.put("match_feed_title", 0);
         values.put("created_at", now);
         values.put("updated_at", now);
         return db.insertOrThrow("keyword_subscriptions", null, values);
@@ -691,7 +691,7 @@ public class FeedRepository {
                     values.put("match_title", keyword.optInt("match_title", 1));
                     values.put("match_content", keyword.optInt("match_content", 1));
                     values.put("match_author", keyword.optInt("match_author", 0));
-                    values.put("match_feed_title", keyword.optInt("match_feed_title", 1));
+                    values.put("match_feed_title", keyword.optInt("match_feed_title", 0));
                     values.put("updated_at", now);
                     if (existingKeywordId == null) {
                         values.put("created_at", keyword.optLong("created_at", now));
@@ -1409,6 +1409,19 @@ public class FeedRepository {
             return value;
         }
         return value.substring(0, maxLength);
+    }
+
+    private static boolean isDigitsOnly(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return false;
+        }
+        String trimmed = value.trim();
+        for (int i = 0; i < trimmed.length(); i++) {
+            if (!Character.isDigit(trimmed.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String normalizeLanguage(String value) {

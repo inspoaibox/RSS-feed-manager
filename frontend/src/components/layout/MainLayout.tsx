@@ -90,6 +90,10 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
       const response = await api.post<KeywordSubscription>('/keywords', {
         keyword,
         name: keyword,
+        match_title: true,
+        match_content: true,
+        match_author: false,
+        match_feed_title: false,
       })
       return response.data
     },

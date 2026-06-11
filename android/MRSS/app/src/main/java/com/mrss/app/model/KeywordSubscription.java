@@ -8,7 +8,7 @@ public class KeywordSubscription {
     public int matchTitle = 1;
     public int matchContent = 1;
     public int matchAuthor = 0;
-    public int matchFeedTitle = 1;
+    public int matchFeedTitle = 0;
     public long createdAt;
     public long updatedAt;
 

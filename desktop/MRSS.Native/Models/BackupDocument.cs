@@ -139,7 +139,7 @@ public sealed class KeywordSubscriptionBackup
     public int MatchTitle { get; set; } = 1;
     public int MatchContent { get; set; } = 1;
     public int MatchAuthor { get; set; }
-    public int MatchFeedTitle { get; set; } = 1;
+    public int MatchFeedTitle { get; set; }
     public long CreatedAt { get; set; }
     public long? UpdatedAt { get; set; }
 }

@@ -29,7 +29,7 @@ def upgrade() -> None:
         sa.Column('match_title', sa.Boolean(), nullable=False, server_default='1'),
         sa.Column('match_content', sa.Boolean(), nullable=False, server_default='1'),
         sa.Column('match_author', sa.Boolean(), nullable=False, server_default='0'),
-        sa.Column('match_feed_title', sa.Boolean(), nullable=False, server_default='1'),
+        sa.Column('match_feed_title', sa.Boolean(), nullable=False, server_default='0'),
         sa.Column('position', sa.Integer(), nullable=False, server_default='0'),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
