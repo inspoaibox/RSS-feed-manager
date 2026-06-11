@@ -200,6 +200,7 @@ async def subscribe_to_recommendation(
         description=rec.description,
         icon_url=rec.icon_url,
         use_playwright=rec.use_playwright,
+        browser_engine="playwright" if rec.use_playwright else "http",
         is_active=True
     )
     db.add(feed)

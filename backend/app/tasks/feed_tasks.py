@@ -198,7 +198,11 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
         asyncio.set_event_loop(loop)
         try:
             parsed: Optional[ParsedFeed] = loop.run_until_complete(
-                parse_feed(feed.url, use_playwright=feed.use_playwright)
+                parse_feed(
+                    feed.url,
+                    use_playwright=feed.use_playwright,
+                    browser_engine=getattr(feed, "browser_engine", None),
+                )
             )
         finally:
             loop.close()

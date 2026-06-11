@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     # Feed settings
     DEFAULT_FETCH_INTERVAL: int = 3600  # 1 hour in seconds
     MAX_ARTICLES_PER_FEED: int = 1000
+    FEED_BROWSER_HEADLESS: bool = True
+    CLOAKBROWSER_USER_DATA_DIR: str | None = None
+    CLOAKBROWSER_PROXY: str | None = None
+    CLOAKBROWSER_GEOIP: bool = False
+    CLOAKBROWSER_HUMANIZE: bool = True
 
 
 @lru_cache

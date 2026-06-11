@@ -121,6 +121,12 @@ async def export_all(user_id: CurrentUserId, db: DbSession):
                 "category_name": next((c.name for c in categories if c.id == f.category_id), None),
                 "fetch_interval": f.fetch_interval,
                 "is_active": f.is_active,
+                "use_playwright": f.use_playwright,
+                "browser_engine": getattr(
+                    f,
+                    "browser_engine",
+                    "playwright" if f.use_playwright else "http",
+                ),
             }
             for f in feeds
         ],
@@ -228,6 +234,11 @@ async def import_all(
             category_id = None
             if feed_data.get("category_name"):
                 category_id = category_map.get(feed_data["category_name"])
+
+            browser_engine = feed_data.get(
+                "browser_engine",
+                "playwright" if feed_data.get("use_playwright", False) else "http",
+            )
             
             feed = Feed(
                 user_id=user_id,
@@ -236,6 +247,8 @@ async def import_all(
                 category_id=category_id,
                 fetch_interval=feed_data.get("fetch_interval", 3600),
                 is_active=feed_data.get("is_active", True),
+                use_playwright=feed_data.get("use_playwright", browser_engine != "http"),
+                browser_engine=browser_engine,
             )
             db.add(feed)
             feeds_imported += 1
@@ -415,6 +428,12 @@ async def generate_backup_data(db: DbSession, user_id: int) -> dict:
                 "category_name": next((c.name for c in categories if c.id == f.category_id), None),
                 "fetch_interval": f.fetch_interval,
                 "is_active": f.is_active,
+                "use_playwright": f.use_playwright,
+                "browser_engine": getattr(
+                    f,
+                    "browser_engine",
+                    "playwright" if f.use_playwright else "http",
+                ),
             }
             for f in feeds
         ],
@@ -738,6 +757,11 @@ async def restore_from_webdav(filename: str, user_id: CurrentUserId, db: DbSessi
                 category_id = None
                 if feed_data.get("category_name"):
                     category_id = category_map.get(feed_data["category_name"])
+
+                browser_engine = feed_data.get(
+                    "browser_engine",
+                    "playwright" if feed_data.get("use_playwright", False) else "http",
+                )
                 
                 feed = Feed(
                     user_id=user_id,
@@ -746,6 +770,8 @@ async def restore_from_webdav(filename: str, user_id: CurrentUserId, db: DbSessi
                     category_id=category_id,
                     fetch_interval=feed_data.get("fetch_interval", 3600),
                     is_active=feed_data.get("is_active", True),
+                    use_playwright=feed_data.get("use_playwright", browser_engine != "http"),
+                    browser_engine=browser_engine,
                 )
                 db.add(feed)
                 feeds_imported += 1

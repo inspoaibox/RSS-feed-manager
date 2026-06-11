@@ -1,11 +1,14 @@
 """RSS/Atom feed parser utilities."""
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 from typing import List
 
 import feedparser
 import httpx
 from feedparser import FeedParserDict
+
+FeedBrowserEngine = Literal["http", "playwright", "cloakbrowser"]
 
 
 @dataclass
@@ -32,6 +35,50 @@ class ParsedFeed:
 class FeedParserError(Exception):
     """Exception raised when feed parsing fails."""
     pass
+
+
+def normalize_browser_engine(
+    browser_engine: str | None = None,
+    use_playwright: bool = False,
+) -> FeedBrowserEngine:
+    """Resolve legacy use_playwright into the newer browser engine value."""
+    if browser_engine:
+        normalized = browser_engine.strip().lower()
+        if normalized in {"http", "playwright", "cloakbrowser"}:
+            return normalized  # type: ignore[return-value]
+        raise FeedParserError(f"Unsupported feed browser engine: {browser_engine}")
+    return "playwright" if use_playwright else "http"
+
+
+def is_browser_engine_enabled(browser_engine: str | None = None, use_playwright: bool = False) -> bool:
+    """Return whether the feed should use a browser-backed fetcher."""
+    return normalize_browser_engine(browser_engine, use_playwright) != "http"
+
+
+def _ensure_not_blocked_challenge(content: str, url: str, engine_name: str) -> str:
+    """Return content unless it is still a Cloudflare challenge page."""
+    if not content:
+        raise FeedParserError(f"Failed to get content from: {url}")
+
+    has_feed = any(marker in content.lower() for marker in ['<rss', '<feed', '<?xml', '<atom'])
+
+    if not has_feed:
+        blocking_patterns = [
+            "Just a moment",
+            "challenge-platform",
+            "cf-browser-verification",
+            "Checking your browser",
+            "Enable JavaScript and cookies to continue"
+        ]
+
+        if any(pattern in content for pattern in blocking_patterns):
+            preview = content[:500].replace('\n', ' ')
+            raise FeedParserError(
+                f"Cloudflare challenge not bypassed by {engine_name}: {url} "
+                f"(Preview: {preview}...)"
+            )
+
+    return content
 
 
 def _detect_encoding(content: bytes, content_type: str | None = None) -> str:
@@ -223,12 +270,14 @@ async def fetch_feed_content_playwright(url: str, timeout: float = 90.0) -> str:
     except ImportError:
         raise FeedParserError("Playwright not installed. Run: pip install playwright && playwright install chromium")
 
+    from app.core.config import settings
+
     response_body = None
 
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(
-                headless=True,
+                headless=settings.FEED_BROWSER_HEADLESS,
                 args=[
                     '--disable-blink-features=AutomationControlled',
                     '--disable-dev-shm-usage',
@@ -281,38 +330,146 @@ async def fetch_feed_content_playwright(url: str, timeout: float = 90.0) -> str:
 
             await browser.close()
 
-            if not response_body:
-                raise FeedParserError(f"Failed to get content from: {url}")
-
-            # Check if we have valid RSS/XML content
-            has_feed = any(marker in response_body.lower() for marker in ['<rss', '<feed', '<?xml', '<atom'])
-
-            # Only check for blocking challenge patterns if no feed detected
-            if not has_feed:
-                blocking_patterns = [
-                    "Just a moment",
-                    "challenge-platform",
-                    "cf-browser-verification",
-                    "Checking your browser",
-                    "Enable JavaScript and cookies to continue"
-                ]
-
-                if any(pattern in response_body for pattern in blocking_patterns):
-                    # Log first 500 chars for debugging
-                    preview = response_body[:500].replace('\n', ' ')
-                    raise FeedParserError(f"Cloudflare challenge not bypassed: {url} (Preview: {preview}...)")
-
-            return response_body
+            return _ensure_not_blocked_challenge(response_body, url, "Playwright")
     except Exception as e:
         if "FeedParserError" in str(type(e)):
             raise
         raise FeedParserError(f"Playwright error: {str(e)}")
 
 
-async def parse_feed(url: str, use_playwright: bool = False) -> ParsedFeed:
+async def fetch_feed_content_cloakbrowser(url: str, timeout: float = 90.0) -> str:
+    """Fetch feed content using CloakBrowser's browser backend."""
+    try:
+        import cloakbrowser
+    except ImportError:
+        raise FeedParserError("CloakBrowser not installed. Run: pip install cloakbrowser")
+
+    from app.core.config import settings
+
+    response_body = None
+    browser = None
+    context = None
+
+    async def _launch_context():
+        api = getattr(cloakbrowser, "CloakBrowser", cloakbrowser)
+        launch_context_async = getattr(api, "launch_context_async", None)
+        launch_persistent_context_async = getattr(api, "launch_persistent_context_async", None)
+
+        if not launch_context_async and not launch_persistent_context_async:
+            raise FeedParserError(
+                "CloakBrowser API not found. Expected launch_context_async()."
+            )
+
+        launch_kwargs = {
+            "headless": settings.FEED_BROWSER_HEADLESS,
+            "humanize": settings.CLOAKBROWSER_HUMANIZE,
+            "geoip": settings.CLOAKBROWSER_GEOIP,
+            "user_agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "viewport": {"width": 1920, "height": 1080},
+            "locale": "en-US",
+            "timezone": "America/New_York",
+            "extra_http_headers": {
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+        }
+        if settings.CLOAKBROWSER_PROXY:
+            launch_kwargs["proxy"] = settings.CLOAKBROWSER_PROXY
+
+        async def call_launcher(launcher, *args):
+            try:
+                return await launcher(*args, **launch_kwargs)
+            except TypeError:
+                fallback_kwargs = {"headless": settings.FEED_BROWSER_HEADLESS}
+                if settings.CLOAKBROWSER_PROXY:
+                    fallback_kwargs["proxy"] = settings.CLOAKBROWSER_PROXY
+                return await launcher(*args, **fallback_kwargs)
+
+        if settings.CLOAKBROWSER_USER_DATA_DIR:
+            if not launch_persistent_context_async:
+                raise FeedParserError(
+                    "CloakBrowser persistent context API not found. "
+                    "Disable CLOAKBROWSER_USER_DATA_DIR or upgrade CloakBrowser."
+                )
+            result = await call_launcher(
+                launch_persistent_context_async,
+                settings.CLOAKBROWSER_USER_DATA_DIR,
+            )
+        else:
+            result = await call_launcher(launch_context_async)
+
+        if isinstance(result, tuple):
+            if len(result) >= 2:
+                return result[0], result[1]
+            if len(result) == 1:
+                return None, result[0]
+
+        return None, result
+
+    try:
+        browser, context = await _launch_context()
+        page = await context.new_page()
+        try:
+            await page.set_viewport_size({"width": 1920, "height": 1080})
+        except Exception:
+            pass
+
+        async def handle_response(response):
+            nonlocal response_body
+            if response.url == url or response.url.rstrip('/') == url.rstrip('/'):
+                try:
+                    response_body = await response.text()
+                except Exception:
+                    pass
+
+        page.on("response", handle_response)
+        await page.set_extra_http_headers({
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        })
+
+        response = await page.goto(url, wait_until="networkidle", timeout=timeout * 1000)
+        if not response_body and response:
+            try:
+                response_body = await response.text()
+            except Exception:
+                pass
+
+        if not response_body:
+            response_body = await page.content()
+
+        return _ensure_not_blocked_challenge(response_body, url, "CloakBrowser")
+    except Exception as e:
+        if "FeedParserError" in str(type(e)):
+            raise
+        raise FeedParserError(f"CloakBrowser error: {str(e)}")
+    finally:
+        if context:
+            try:
+                await context.close()
+            except Exception:
+                pass
+        if browser:
+            try:
+                await browser.close()
+            except Exception:
+                pass
+
+
+async def parse_feed(
+    url: str,
+    use_playwright: bool = False,
+    browser_engine: str | None = None,
+) -> ParsedFeed:
     """Fetch and parse a feed from URL."""
-    if use_playwright:
+    engine = normalize_browser_engine(browser_engine, use_playwright)
+    if engine == "playwright":
         content = await fetch_feed_content_playwright(url)
+    elif engine == "cloakbrowser":
+        content = await fetch_feed_content_cloakbrowser(url)
     else:
         content = await fetch_feed_content(url)
     return parse_feed_content(content, url)

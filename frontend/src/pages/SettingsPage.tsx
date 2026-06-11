@@ -2,13 +2,23 @@ import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, FolderOpen, Languages, ChevronUp, ChevronDown, Search, Shield, Star } from 'lucide-react'
 import api from '@/services/api'
-import type { Category, Feed, AIProvider, AIModel, CustomRule } from '@/types'
+import type { Category, Feed, AIProvider, AIModel, CustomRule, FeedBrowserEngine } from '@/types'
 import { useThemeStore, type ThemeColor } from '@/stores/themeStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useSyncIntervals } from '@/hooks/useSyncIntervals'
 import NotificationManagement from '@/components/NotificationManagement'
 
 type Tab = 'feeds' | 'categories' | 'ai' | 'rules' | 'backup' | 'appearance' | 'system'
+
+const feedBrowserEngineLabels: Record<FeedBrowserEngine, string> = {
+  http: '普通抓取',
+  playwright: 'Playwright',
+  cloakbrowser: 'CloakBrowser',
+}
+
+const resolveFeedBrowserEngine = (feed: Feed): FeedBrowserEngine => {
+  return feed.browser_engine || (feed.use_playwright ? 'playwright' : 'http')
+}
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('feeds')
@@ -81,7 +91,7 @@ function FeedsTab() {
   const [newFeedUrl, setNewFeedUrl] = useState('')
   const [newFeedCategory, setNewFeedCategory] = useState<number | null>(null)
   const [newFeedInterval, setNewFeedInterval] = useState<number | null>(null)
-  const [newFeedPlaywright, setNewFeedPlaywright] = useState(false)
+  const [newFeedBrowserEngine, setNewFeedBrowserEngine] = useState<FeedBrowserEngine>('http')
 
   const [newFeedAutoSummarize, setNewFeedAutoSummarize] = useState(false)
   const [newFeedTargetLanguage, setNewFeedTargetLanguage] = useState('zh-CN')
@@ -94,11 +104,12 @@ function FeedsTab() {
     fetch_interval: number
     is_active: boolean
     use_playwright: boolean
+    browser_engine: FeedBrowserEngine
     auto_translate: boolean
     auto_summarize: boolean
     target_language: string
     translate_method: 'none' | 'ai' | 'google'
-  }>({ title: '', category_id: null, fetch_interval: 3600, is_active: true, use_playwright: false, auto_translate: false, auto_summarize: false, target_language: 'zh-CN', translate_method: 'none' })
+  }>({ title: '', category_id: null, fetch_interval: 3600, is_active: true, use_playwright: false, browser_engine: 'http', auto_translate: false, auto_summarize: false, target_language: 'zh-CN', translate_method: 'none' })
   
   // Filter states
   const [searchQuery, setSearchQuery] = useState('')
@@ -136,7 +147,8 @@ function FeedsTab() {
         url: newFeedUrl, 
         category_id: newFeedCategory,
         fetch_interval: newFeedInterval ?? defaultSyncInterval,
-        use_playwright: newFeedPlaywright,
+        use_playwright: newFeedBrowserEngine !== 'http',
+        browser_engine: newFeedBrowserEngine,
         auto_translate: newFeedTranslateMethod !== 'none',
         auto_summarize: newFeedAutoSummarize,
         target_language: newFeedTranslateMethod !== 'none' ? newFeedTargetLanguage : null,
@@ -152,7 +164,7 @@ function FeedsTab() {
       setNewFeedUrl('')
       setNewFeedCategory(null)
       setNewFeedInterval(3600)
-      setNewFeedPlaywright(false)
+      setNewFeedBrowserEngine('http')
       setNewFeedAutoSummarize(false)
       setNewFeedTargetLanguage('zh-CN')
       setNewFeedTranslateMethod('none')
@@ -313,6 +325,7 @@ function FeedsTab() {
       fetch_interval: feed.fetch_interval,
       is_active: feed.is_active,
       use_playwright: feed.use_playwright,
+      browser_engine: resolveFeedBrowserEngine(feed),
       auto_translate: feed.auto_translate,
       auto_summarize: feed.auto_summarize,
       target_language: feed.target_language || 'zh-CN',
@@ -480,15 +493,19 @@ function FeedsTab() {
               ))}
             </select>
           </div>
-          <label className="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded">
-            <input
-              type="checkbox"
-              checked={newFeedPlaywright}
-              onChange={(e) => setNewFeedPlaywright(e.target.checked)}
-            />
-            <span className="text-sm dark:text-yellow-200">使用浏览器模式 (Playwright)</span>
-            <span className="text-xs text-yellow-600 dark:text-yellow-400">适用于 Cloudflare 保护的网站</span>
-          </label>
+          <div className="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded">
+            <span className="text-sm dark:text-yellow-200">抓取方式</span>
+            <select
+              value={newFeedBrowserEngine}
+              onChange={(e) => setNewFeedBrowserEngine(e.target.value as FeedBrowserEngine)}
+              className="px-2 py-1 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-800 dark:text-white"
+            >
+              <option value="http">普通抓取</option>
+              <option value="playwright">浏览器模式 (Playwright)</option>
+              <option value="cloakbrowser">增强浏览器模式 (CloakBrowser)</option>
+            </select>
+            <span className="text-xs text-yellow-600 dark:text-yellow-400">CloakBrowser 作为独立增强方案</span>
+          </div>
           <div className="flex gap-2 flex-wrap items-center">
             <div className="flex items-center gap-2 p-2 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded">
               <span className="text-sm dark:text-blue-200">翻译方式:</span>
@@ -546,7 +563,7 @@ function FeedsTab() {
               {addFeedMutation.isPending ? '添加中...' : '添加'}
             </button>
             <button
-              onClick={() => { setShowAddForm(false); setNewFeedUrl(''); setNewFeedCategory(null); setNewFeedPlaywright(false); setNewFeedAutoSummarize(false); setNewFeedTranslateMethod('none') }}
+              onClick={() => { setShowAddForm(false); setNewFeedUrl(''); setNewFeedCategory(null); setNewFeedBrowserEngine('http'); setNewFeedAutoSummarize(false); setNewFeedTranslateMethod('none') }}
               className="px-4 py-2 border dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600 dark:text-gray-200"
             >
               取消
@@ -599,14 +616,25 @@ function FeedsTab() {
                     启用
                   </label>
                 </div>
-                <label className="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded text-sm dark:text-yellow-200">
-                  <input
-                    type="checkbox"
-                    checked={editData.use_playwright}
-                    onChange={(e) => setEditData({ ...editData, use_playwright: e.target.checked })}
-                  />
-                  浏览器模式 (Playwright)
-                </label>
+                <div className="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded text-sm dark:text-yellow-200">
+                  <span>抓取方式</span>
+                  <select
+                    value={editData.browser_engine}
+                    onChange={(e) => {
+                      const browserEngine = e.target.value as FeedBrowserEngine
+                      setEditData({
+                        ...editData,
+                        browser_engine: browserEngine,
+                        use_playwright: browserEngine !== 'http',
+                      })
+                    }}
+                    className="px-2 py-1 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-800 dark:text-white"
+                  >
+                    <option value="http">普通抓取</option>
+                    <option value="playwright">Playwright</option>
+                    <option value="cloakbrowser">CloakBrowser</option>
+                  </select>
+                </div>
                 <div className="flex gap-2 flex-wrap items-center">
                   <div className="flex items-center gap-2 p-2 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded text-sm">
                     <span className="dark:text-blue-200">翻译:</span>
@@ -705,8 +733,8 @@ function FeedsTab() {
                     <span className={feed.is_active ? 'text-green-500' : 'text-red-500'}>
                       {feed.is_active ? '已启用' : '已禁用'}
                     </span>
-                    {feed.use_playwright && (
-                      <span className="text-yellow-600 dark:text-yellow-400">🌐 浏览器模式</span>
+                    {resolveFeedBrowserEngine(feed) !== 'http' && (
+                      <span className="text-yellow-600 dark:text-yellow-400">🌐 {feedBrowserEngineLabels[resolveFeedBrowserEngine(feed)]}</span>
                     )}
                     {feed.translate_method === 'google' && (
                       <span className="text-blue-600 dark:text-blue-400">🌐 Google翻译</span>

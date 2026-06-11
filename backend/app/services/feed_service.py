@@ -11,7 +11,13 @@ from app.repositories.category_repository import CategoryRepository
 from app.repositories.feed_repository import FeedRepository
 from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.schemas.feed import FeedCreate, FeedReorder, FeedResponse, FeedUpdate, OPMLImportResult
-from app.utils.feed_parser import FeedParserError, ParsedFeed, parse_feed
+from app.utils.feed_parser import (
+    FeedParserError,
+    ParsedFeed,
+    is_browser_engine_enabled,
+    normalize_browser_engine,
+    parse_feed,
+)
 from app.utils.opml import OPMLFeed, OPMLParseError, generate_opml, parse_opml
 
 
@@ -75,9 +81,11 @@ class FeedService:
                     detail="Category not found"
                 )
         
+        browser_engine = data.resolved_browser_engine
+
         # Parse the feed
         try:
-            parsed = await parse_feed(data.url, use_playwright=data.use_playwright)
+            parsed = await parse_feed(data.url, browser_engine=browser_engine)
         except FeedParserError as e:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -97,7 +105,8 @@ class FeedService:
             icon_url=parsed.icon_url,
             category_id=data.category_id,
             fetch_interval=validated_interval,
-            use_playwright=data.use_playwright,
+            use_playwright=is_browser_engine_enabled(browser_engine),
+            browser_engine=browser_engine,
             auto_translate=data.auto_translate,
             auto_summarize=data.auto_summarize,
             target_language=data.target_language,
@@ -161,6 +170,17 @@ class FeedService:
                     )
         
         update_data = data.model_dump(exclude_unset=True)
+
+        if "browser_engine" in update_data:
+            update_data["browser_engine"] = normalize_browser_engine(update_data["browser_engine"])
+            update_data["use_playwright"] = is_browser_engine_enabled(
+                update_data["browser_engine"]
+            )
+        elif "use_playwright" in update_data:
+            update_data["browser_engine"] = normalize_browser_engine(
+                None,
+                update_data["use_playwright"],
+            )
         
         # Validate fetch interval if provided
         if 'fetch_interval' in update_data:
@@ -217,7 +237,11 @@ class FeedService:
         else:
             # Normal RSS feed refresh
             try:
-                parsed = await parse_feed(feed.url, use_playwright=feed.use_playwright)
+                parsed = await parse_feed(
+                    feed.url,
+                    use_playwright=feed.use_playwright,
+                    browser_engine=getattr(feed, "browser_engine", None),
+                )
                 await self.repo.update_fetch_status(feed, success=True)
                 # Save new articles
                 await self._save_articles(feed_id, parsed)
@@ -249,12 +273,16 @@ class FeedService:
         
         for feed in feeds:
             try:
-                parsed = await parse_feed(feed.url, use_playwright=feed.use_playwright)
+                parsed = await parse_feed(
+                    feed.url,
+                    use_playwright=feed.use_playwright,
+                    browser_engine=getattr(feed, "browser_engine", None),
+                )
                 await self.repo.update_fetch_status(feed, success=True)
                 count = await self._save_articles(feed.id, parsed)
                 new_articles += count
                 success += 1
-            except FeedParserError:
+            except FeedParserError as e:
                 await self.repo.update_fetch_status(feed, success=False, error=str(e))
                 failed += 1
             except Exception:
@@ -394,6 +422,11 @@ class FeedService:
             translate_method=getattr(feed, 'translate_method', 'none'),
             is_active=feed.is_active,
             use_playwright=feed.use_playwright,
+            browser_engine=getattr(
+                feed,
+                'browser_engine',
+                "playwright" if feed.use_playwright else "http",
+            ),
             position=feed.position,
             unread_count=unread_count,
             article_count=article_count

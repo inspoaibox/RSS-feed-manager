@@ -39,6 +39,7 @@ class Feed(BaseModel):
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_count: Mapped[int] = mapped_column(Integer, default=0)
     use_playwright: Mapped[bool] = mapped_column(Boolean, default=False)  # Use browser for Cloudflare sites
+    browser_engine: Mapped[str] = mapped_column(String(20), default="http")  # http, playwright, cloakbrowser
     
     # AI settings
     auto_translate: Mapped[bool] = mapped_column(Boolean, default=False)

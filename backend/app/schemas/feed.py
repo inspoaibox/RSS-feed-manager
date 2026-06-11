@@ -1,7 +1,10 @@
 """Feed schemas for request/response validation."""
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, HttpUrl
+
+FeedBrowserEngine = Literal["http", "playwright", "cloakbrowser"]
 
 
 class FeedCreate(BaseModel):
@@ -10,10 +13,17 @@ class FeedCreate(BaseModel):
     category_id: int | None = None
     fetch_interval: int = Field(default=3600, ge=60, le=86400)
     use_playwright: bool = False  # Use browser automation for Cloudflare protected sites
+    browser_engine: FeedBrowserEngine | None = None
     auto_translate: bool = False  # Auto translate articles using AI
     auto_summarize: bool = False  # Auto summarize articles using AI
     target_language: str | None = Field(None, max_length=10)  # Target language for translation
     translate_method: str = Field(default='none', pattern='^(none|ai|google)$')  # Translation method
+
+    @property
+    def resolved_browser_engine(self) -> FeedBrowserEngine:
+        if self.browser_engine:
+            return self.browser_engine
+        return "playwright" if self.use_playwright else "http"
 
 
 class FeedUpdate(BaseModel):
@@ -27,6 +37,7 @@ class FeedUpdate(BaseModel):
     translate_method: str | None = Field(None, pattern='^(none|ai|google)$')
     is_active: bool | None = None
     use_playwright: bool | None = None
+    browser_engine: FeedBrowserEngine | None = None
     position: int | None = None
 
 
@@ -52,6 +63,7 @@ class FeedResponse(BaseModel):
     translate_method: str = 'none'
     is_active: bool
     use_playwright: bool = False
+    browser_engine: FeedBrowserEngine = "http"
     position: int = 0
     unread_count: int = 0
     article_count: int = 0

@@ -35,6 +35,8 @@ export interface Category {
 }
 
 // Feed types
+export type FeedBrowserEngine = 'http' | 'playwright' | 'cloakbrowser'
+
 export interface Feed {
   id: number
   url: string
@@ -53,6 +55,7 @@ export interface Feed {
   target_language: string | null
   translate_method: 'none' | 'ai' | 'google'
   use_playwright: boolean
+  browser_engine: FeedBrowserEngine
   position: number
 }
 
