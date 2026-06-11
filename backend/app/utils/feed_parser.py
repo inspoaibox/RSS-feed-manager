@@ -265,22 +265,8 @@ async def fetch_feed_content_playwright(url: str, timeout: float = 90.0) -> str:
 
             page.on("response", handle_response)
 
-            # Navigate with longer timeout and load strategy
-            response = await page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
-
-            # Wait longer for Cloudflare challenge to complete
-            await page.wait_for_timeout(8000)
-
-            # Try to detect if challenge is still running
-            challenge_running = await page.evaluate("""() => {
-                return document.body.innerText.includes('Checking your browser') ||
-                       document.body.innerText.includes('Just a moment') ||
-                       document.title.includes('Just a moment');
-            }""")
-
-            # If challenge detected, wait a bit more
-            if challenge_running:
-                await page.wait_for_timeout(5000)
+            # Navigate and wait for network idle (Cloudflare redirect)
+            response = await page.goto(url, wait_until="networkidle", timeout=timeout * 1000)
 
             # 如果拦截没有获取到，尝试从响应直接获取
             if not response_body and response:
