@@ -216,7 +216,7 @@ def _parse_entry(entry: dict) -> ParsedArticle | None:
     )
 
 
-async def fetch_feed_content_playwright(url: str, timeout: float = 60.0) -> str:
+async def fetch_feed_content_playwright(url: str, timeout: float = 90.0) -> str:
     """Fetch feed content using Playwright browser automation (for Cloudflare protected sites)."""
     try:
         from playwright.async_api import async_playwright
@@ -268,8 +268,19 @@ async def fetch_feed_content_playwright(url: str, timeout: float = 60.0) -> str:
             # Navigate with longer timeout and load strategy
             response = await page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
 
-            # Wait for potential Cloudflare challenge
-            await page.wait_for_timeout(5000)
+            # Wait longer for Cloudflare challenge to complete
+            await page.wait_for_timeout(8000)
+
+            # Try to detect if challenge is still running
+            challenge_running = await page.evaluate("""() => {
+                return document.body.innerText.includes('Checking your browser') ||
+                       document.body.innerText.includes('Just a moment') ||
+                       document.title.includes('Just a moment');
+            }""")
+
+            # If challenge detected, wait a bit more
+            if challenge_running:
+                await page.wait_for_timeout(5000)
 
             # 如果拦截没有获取到，尝试从响应直接获取
             if not response_body and response:
@@ -287,22 +298,23 @@ async def fetch_feed_content_playwright(url: str, timeout: float = 60.0) -> str:
             if not response_body:
                 raise FeedParserError(f"Failed to get content from: {url}")
 
-            # Check multiple Cloudflare challenge patterns
-            challenge_patterns = [
-                "Just a moment",
-                "challenge-platform",
-                "cf-browser-verification",
-                "ray_id",
-                "cf_clearance",
-                "Checking your browser"
-            ]
-
-            # Only fail if we see challenge pattern AND no XML/RSS content
-            has_challenge = any(pattern in response_body for pattern in challenge_patterns)
+            # Check if we have valid RSS/XML content
             has_feed = any(marker in response_body.lower() for marker in ['<rss', '<feed', '<?xml', '<atom'])
 
-            if has_challenge and not has_feed:
-                raise FeedParserError(f"Cloudflare challenge not bypassed: {url}")
+            # Only check for blocking challenge patterns if no feed detected
+            if not has_feed:
+                blocking_patterns = [
+                    "Just a moment",
+                    "challenge-platform",
+                    "cf-browser-verification",
+                    "Checking your browser",
+                    "Enable JavaScript and cookies to continue"
+                ]
+
+                if any(pattern in response_body for pattern in blocking_patterns):
+                    # Log first 500 chars for debugging
+                    preview = response_body[:500].replace('\n', ' ')
+                    raise FeedParserError(f"Cloudflare challenge not bypassed: {url} (Preview: {preview}...)")
 
             return response_body
     except Exception as e:
