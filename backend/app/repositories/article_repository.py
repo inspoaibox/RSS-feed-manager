@@ -11,6 +11,25 @@ from app.models.keyword_subscription import KeywordSubscription
 from app.repositories.keyword_subscription_repository import build_keyword_conditions
 
 
+def build_article_search_conditions(query: str) -> list:
+    """Build AND search conditions from whitespace-separated terms."""
+    terms = query.strip().split()
+    fields = (
+        Article.title,
+        Article.content,
+        Article.full_content,
+        Article.summary,
+        Article.translation,
+        Article.author,
+        Feed.title,
+    )
+
+    return [
+        or_(*(field.ilike(f"%{term}%") for field in fields))
+        for term in terms
+    ]
+
+
 class ArticleRepository:
     """Repository for Article database operations."""
 
@@ -190,7 +209,7 @@ class ArticleRepository:
         page_size: int = 20
     ) -> Tuple[List[dict], int]:
         """Search articles by title and content."""
-        search_pattern = f"%{query}%"
+        search_conditions = build_article_search_conditions(query)
         
         base_query = (
             select(Article, UserArticle, Feed.title.label('feed_title'))
@@ -204,15 +223,7 @@ class ArticleRepository:
             )
             .where(
                 Feed.user_id == user_id,
-                or_(
-                    Article.title.ilike(search_pattern),
-                    Article.content.ilike(search_pattern),
-                    Article.full_content.ilike(search_pattern),
-                    Article.summary.ilike(search_pattern),
-                    Article.translation.ilike(search_pattern),
-                    Article.author.ilike(search_pattern),
-                    Feed.title.ilike(search_pattern)
-                )
+                and_(*search_conditions) if search_conditions else False
             )
         )
         
