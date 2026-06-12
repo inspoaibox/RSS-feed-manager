@@ -5,6 +5,7 @@ from fastapi import APIRouter, status
 
 from app.api.deps import CurrentUserId, DbSession
 from app.schemas.keyword_subscription import (
+    KeywordSubscriptionCountResponse,
     KeywordSubscriptionCreate,
     KeywordSubscriptionResponse,
     KeywordSubscriptionUpdate,
@@ -15,10 +16,14 @@ router = APIRouter()
 
 
 @router.get("", response_model=List[KeywordSubscriptionResponse])
-async def get_keyword_subscriptions(user_id: CurrentUserId, db: DbSession):
+async def get_keyword_subscriptions(
+    user_id: CurrentUserId,
+    db: DbSession,
+    include_counts: bool = True,
+):
     """Get all keyword subscriptions for the current user."""
     service = KeywordSubscriptionService(db)
-    return await service.get_all(user_id)
+    return await service.get_all(user_id, include_counts=include_counts)
 
 
 @router.post("", response_model=KeywordSubscriptionResponse, status_code=status.HTTP_201_CREATED)
@@ -30,6 +35,13 @@ async def create_keyword_subscription(
     """Create a keyword subscription."""
     service = KeywordSubscriptionService(db)
     return await service.create(user_id, data)
+
+
+@router.get("/counts", response_model=List[KeywordSubscriptionCountResponse])
+async def get_keyword_subscription_counts(user_id: CurrentUserId, db: DbSession):
+    """Get article counts for keyword subscriptions."""
+    service = KeywordSubscriptionService(db)
+    return await service.get_counts(user_id)
 
 
 @router.get("/{keyword_id}", response_model=KeywordSubscriptionResponse)

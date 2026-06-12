@@ -1,7 +1,7 @@
 """Keyword subscription repository."""
 from typing import Iterable, List
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, literal, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.article import Article, UserArticle
@@ -130,28 +130,32 @@ class KeywordSubscriptionRepository:
         subscriptions: Iterable[KeywordSubscription],
     ) -> dict[int, dict[str, int]]:
         """Get total and unread article counts for keyword subscriptions."""
-        import asyncio
-
         counts: dict[int, dict[str, int]] = {}
         sub_list = list(subscriptions)
 
         if not sub_list:
             return counts
 
-        async def get_counts_for_sub(subscription):
+        total_queries = []
+        unread_queries = []
+
+        for subscription in sub_list:
             conditions = build_keyword_conditions(subscription)
             if not conditions:
-                return subscription.id, 0, 0
+                counts[subscription.id] = {"article_count": 0, "unread_count": 0}
+                continue
 
-            total_result = await self.session.execute(
+            total_queries.append(
                 select(func.count(Article.id))
+                .add_columns(literal(subscription.id).label("sub_id"))
                 .select_from(Article)
                 .join(Feed, Article.feed_id == Feed.id)
                 .where(Feed.user_id == user_id, or_(*conditions))
             )
 
-            unread_result = await self.session.execute(
+            unread_queries.append(
                 select(func.count(Article.id))
+                .add_columns(literal(subscription.id).label("sub_id"))
                 .select_from(Article)
                 .join(Feed, Article.feed_id == Feed.id)
                 .outerjoin(
@@ -168,11 +172,20 @@ class KeywordSubscriptionRepository:
                 )
             )
 
-            return subscription.id, total_result.scalar() or 0, unread_result.scalar() or 0
+        if total_queries:
+            total_query = union_all(*total_queries) if len(total_queries) > 1 else total_queries[0]
+            total_result = await self.session.execute(total_query)
+            for row in total_result:
+                sub_id = row.sub_id
+                counts.setdefault(sub_id, {"article_count": 0, "unread_count": 0})
+                counts[sub_id]["article_count"] = row[0] or 0
 
-        results = await asyncio.gather(*[get_counts_for_sub(sub) for sub in sub_list])
-
-        for sub_id, total, unread in results:
-            counts[sub_id] = {"article_count": total, "unread_count": unread}
+        if unread_queries:
+            unread_query = union_all(*unread_queries) if len(unread_queries) > 1 else unread_queries[0]
+            unread_result = await self.session.execute(unread_query)
+            for row in unread_result:
+                sub_id = row.sub_id
+                counts.setdefault(sub_id, {"article_count": 0, "unread_count": 0})
+                counts[sub_id]["unread_count"] = row[0] or 0
 
         return counts

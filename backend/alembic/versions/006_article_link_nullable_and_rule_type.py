@@ -15,16 +15,21 @@ depends_on = None
 
 def upgrade() -> None:
     # Make article link nullable
-    op.alter_column('articles', 'link',
-                    existing_type=sa.String(2048),
-                    nullable=True)
+    with op.batch_alter_table('articles') as batch_op:
+        batch_op.alter_column('link',
+                              existing_type=sa.String(2048),
+                              nullable=True)
     
     # Add rule_type to custom_rules (default 'general')
-    op.add_column('custom_rules', sa.Column('rule_type', sa.String(20), nullable=False, server_default='general'))
+    bind = op.get_bind()
+    columns = {column['name'] for column in sa.inspect(bind).get_columns('custom_rules')}
+    if 'rule_type' not in columns:
+        op.add_column('custom_rules', sa.Column('rule_type', sa.String(20), nullable=False, server_default='general'))
 
 
 def downgrade() -> None:
     op.drop_column('custom_rules', 'rule_type')
-    op.alter_column('articles', 'link',
-                    existing_type=sa.String(2048),
-                    nullable=False)
+    with op.batch_alter_table('articles') as batch_op:
+        batch_op.alter_column('link',
+                              existing_type=sa.String(2048),
+                              nullable=False)

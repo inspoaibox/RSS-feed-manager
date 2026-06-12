@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Menu, X, Rss, FolderOpen, Star, Settings, LogOut, ChevronDown, ChevronRight, User, BarChart3, Sparkles, Bell, Hash, Plus, Trash2 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { useSiteStore } from '@/stores/siteStore'
 import api from '@/services/api'
-import type { Category, Feed, KeywordSubscription } from '@/types'
+import type { Category, Feed, KeywordSubscription, KeywordSubscriptionCount } from '@/types'
 import type { UnreadCountResponse } from '@/types/notification'
 import NotificationModal from '@/components/NotificationModal'
 import clsx from 'clsx'
@@ -79,11 +79,34 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
   const { data: keywordSubscriptions = [] } = useQuery({
     queryKey: ['keywords'],
     queryFn: async () => {
-      const response = await api.get<KeywordSubscription[]>('/keywords')
+      const response = await api.get<KeywordSubscription[]>('/keywords', {
+        params: { include_counts: false },
+      })
       return response.data
     },
     refetchInterval: 30000,
   })
+
+  const { data: keywordCounts = [] } = useQuery({
+    queryKey: ['keyword-counts'],
+    queryFn: async () => {
+      const response = await api.get<KeywordSubscriptionCount[]>('/keywords/counts')
+      return response.data
+    },
+    enabled: keywordSubscriptions.length > 0,
+    refetchInterval: 30000,
+  })
+
+  const keywordCountById = useMemo(() => {
+    return new Map(keywordCounts.map((count) => [count.id, count]))
+  }, [keywordCounts])
+
+  const keywordsWithCounts = useMemo(() => {
+    return keywordSubscriptions.map((keyword) => {
+      const counts = keywordCountById.get(keyword.id)
+      return counts ? { ...keyword, ...counts } : keyword
+    })
+  }, [keywordSubscriptions, keywordCountById])
 
   const createKeywordMutation = useMutation({
     mutationFn: async (keyword: string) => {
@@ -98,7 +121,14 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
       return response.data
     },
     onSuccess: (keyword) => {
+      queryClient.setQueryData<KeywordSubscription[]>(['keywords'], (current = []) => {
+        if (current.some((item) => item.id === keyword.id)) {
+          return current.map((item) => item.id === keyword.id ? keyword : item)
+        }
+        return [...current, keyword]
+      })
       queryClient.invalidateQueries({ queryKey: ['keywords'] })
+      queryClient.invalidateQueries({ queryKey: ['keyword-counts'] })
       setNewKeyword('')
       setKeywordMessage({ type: 'success', text: '关键词订阅已添加' })
       navigate(`/?keyword_id=${keyword.id}`)
@@ -117,7 +147,14 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
       return keywordId
     },
     onSuccess: (keywordId) => {
+      queryClient.setQueryData<KeywordSubscription[]>(['keywords'], (current = []) => {
+        return current.filter((keyword) => keyword.id !== keywordId)
+      })
+      queryClient.setQueryData<KeywordSubscriptionCount[]>(['keyword-counts'], (current = []) => {
+        return current.filter((count) => count.id !== keywordId)
+      })
       queryClient.invalidateQueries({ queryKey: ['keywords'] })
+      queryClient.invalidateQueries({ queryKey: ['keyword-counts'] })
       if (activeKeywordId === String(keywordId)) {
         navigate('/')
       }
@@ -135,7 +172,14 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
       return keywordIds
     },
     onSuccess: (keywordIds) => {
+      queryClient.setQueryData<KeywordSubscription[]>(['keywords'], (current = []) => {
+        return current.filter((keyword) => !keywordIds.includes(keyword.id))
+      })
+      queryClient.setQueryData<KeywordSubscriptionCount[]>(['keyword-counts'], (current = []) => {
+        return current.filter((count) => !keywordIds.includes(count.id))
+      })
       queryClient.invalidateQueries({ queryKey: ['keywords'] })
+      queryClient.invalidateQueries({ queryKey: ['keyword-counts'] })
       if (activeKeywordId && keywordIds.includes(Number(activeKeywordId))) {
         navigate('/')
       }
@@ -192,13 +236,13 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
     })
   }
 
-  const allKeywordsSelected = keywordSubscriptions.length > 0 && selectedKeywordIds.size === keywordSubscriptions.length
+  const allKeywordsSelected = keywordsWithCounts.length > 0 && selectedKeywordIds.size === keywordsWithCounts.length
 
   const toggleAllKeywords = () => {
     setSelectedKeywordIds(
       allKeywordsSelected
         ? new Set()
-        : new Set(keywordSubscriptions.map((keyword) => keyword.id))
+        : new Set(keywordsWithCounts.map((keyword) => keyword.id))
     )
   }
 
@@ -432,7 +476,7 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
               <div className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
                 关键词订阅
               </div>
-              {keywordSubscriptions.length > 0 && (
+              {keywordsWithCounts.length > 0 && (
                 <button
                   onClick={() => setKeywordManagerOpen(true)}
                   className="text-xs text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300"
@@ -472,9 +516,9 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
                 {keywordMessage.text}
               </div>
             )}
-            {keywordSubscriptions.length > 0 && (
+            {keywordsWithCounts.length > 0 && (
               <div className="px-3 flex flex-wrap gap-2">
-                {keywordSubscriptions.map((keyword) => {
+                {keywordsWithCounts.map((keyword) => {
                   const keywordActive = activeKeywordId === String(keyword.id)
                   const keywordCount = keyword.unread_count > 0 ? keyword.unread_count : keyword.article_count
                   return (
@@ -595,7 +639,7 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
             </div>
 
             <div className="max-h-[60vh] overflow-y-auto px-4 py-3">
-              {keywordSubscriptions.length === 0 ? (
+              {keywordsWithCounts.length === 0 ? (
                 <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">暂无关键词订阅</div>
               ) : (
                 <div className="space-y-2">
@@ -607,10 +651,10 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
                       className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                     />
                     <span className="flex-1">全选</span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">{selectedKeywordIds.size} / {keywordSubscriptions.length}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">{selectedKeywordIds.size} / {keywordsWithCounts.length}</span>
                   </label>
 
-                  {keywordSubscriptions.map((keyword) => {
+                  {keywordsWithCounts.map((keyword) => {
                     const keywordCount = keyword.unread_count > 0 ? keyword.unread_count : keyword.article_count
                     return (
                       <div

@@ -18,15 +18,17 @@ depends_on = None
 
 def upgrade() -> None:
     # Increase author field length to 500
-    op.alter_column('articles', 'author',
-                    existing_type=sa.String(255),
-                    type_=sa.String(500),
-                    existing_nullable=True)
+    with op.batch_alter_table('articles') as batch_op:
+        batch_op.alter_column('author',
+                              existing_type=sa.String(255),
+                              type_=sa.String(500),
+                              existing_nullable=True)
 
 
 def downgrade() -> None:
     # Revert to 255 (may truncate data)
-    op.alter_column('articles', 'author',
-                    existing_type=sa.String(500),
-                    type_=sa.String(255),
-                    existing_nullable=True)
+    with op.batch_alter_table('articles') as batch_op:
+        batch_op.alter_column('author',
+                              existing_type=sa.String(500),
+                              type_=sa.String(255),
+                              existing_nullable=True)

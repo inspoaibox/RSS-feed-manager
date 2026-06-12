@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.keyword_subscription import KeywordSubscription
 from app.repositories.keyword_subscription_repository import KeywordSubscriptionRepository
 from app.schemas.keyword_subscription import (
+    KeywordSubscriptionCountResponse,
     KeywordSubscriptionCreate,
     KeywordSubscriptionResponse,
     KeywordSubscriptionUpdate,
@@ -20,15 +21,32 @@ class KeywordSubscriptionService:
         self.session = session
         self.repo = KeywordSubscriptionRepository(session)
 
-    async def get_all(self, user_id: int) -> List[KeywordSubscriptionResponse]:
+    async def get_all(
+        self,
+        user_id: int,
+        include_counts: bool = True,
+    ) -> List[KeywordSubscriptionResponse]:
         """Get all keyword subscriptions for a user."""
         subscriptions = await self.repo.get_all_by_user(user_id)
-        counts = await self.repo.get_article_counts(user_id, subscriptions)
+        counts = await self.repo.get_article_counts(user_id, subscriptions) if include_counts else {}
         return [
             self._to_response(
                 subscription,
                 counts.get(subscription.id, {}).get("article_count", 0),
                 counts.get(subscription.id, {}).get("unread_count", 0),
+            )
+            for subscription in subscriptions
+        ]
+
+    async def get_counts(self, user_id: int) -> List[KeywordSubscriptionCountResponse]:
+        """Get article counts for all keyword subscriptions."""
+        subscriptions = await self.repo.get_all_by_user(user_id)
+        counts = await self.repo.get_article_counts(user_id, subscriptions)
+        return [
+            KeywordSubscriptionCountResponse(
+                id=subscription.id,
+                article_count=counts.get(subscription.id, {}).get("article_count", 0),
+                unread_count=counts.get(subscription.id, {}).get("unread_count", 0),
             )
             for subscription in subscriptions
         ]
@@ -74,12 +92,7 @@ class KeywordSubscriptionService:
             match_author=data.match_author,
             match_feed_title=data.match_feed_title,
         )
-        counts = await self.repo.get_article_counts(user_id, [subscription])
-        return self._to_response(
-            subscription,
-            counts.get(subscription.id, {}).get("article_count", 0),
-            counts.get(subscription.id, {}).get("unread_count", 0),
-        )
+        return self._to_response(subscription)
 
     async def update(
         self,
@@ -111,12 +124,7 @@ class KeywordSubscriptionService:
             update_data["name"] = update_data["name"].strip()
 
         subscription = await self.repo.update(subscription, **update_data)
-        counts = await self.repo.get_article_counts(user_id, [subscription])
-        return self._to_response(
-            subscription,
-            counts.get(subscription.id, {}).get("article_count", 0),
-            counts.get(subscription.id, {}).get("unread_count", 0),
-        )
+        return self._to_response(subscription)
 
     async def delete(self, user_id: int, keyword_id: int) -> None:
         """Delete a keyword subscription."""

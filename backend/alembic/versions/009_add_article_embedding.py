@@ -19,6 +19,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    if bind.dialect.name == 'sqlite':
+        columns = {column['name'] for column in sa.inspect(bind).get_columns('articles')}
+        if 'embedding' not in columns:
+            op.add_column('articles', sa.Column('embedding', sa.Text(), nullable=True))
+        return
+
     # 启用 pgvector 扩展
     op.execute('CREATE EXTENSION IF NOT EXISTS vector')
     
@@ -36,6 +43,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    if bind.dialect.name == 'sqlite':
+        op.drop_column('articles', 'embedding')
+        return
+
     # 删除向量索引
     op.execute('DROP INDEX IF EXISTS idx_articles_embedding')
     

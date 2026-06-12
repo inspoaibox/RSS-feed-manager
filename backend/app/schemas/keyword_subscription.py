@@ -48,3 +48,11 @@ class KeywordSubscriptionResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class KeywordSubscriptionCountResponse(BaseModel):
+    """Schema for keyword subscription article counts."""
+
+    id: int
+    article_count: int = 0
+    unread_count: int = 0

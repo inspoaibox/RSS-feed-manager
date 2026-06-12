@@ -76,6 +76,12 @@ export interface KeywordSubscription {
   updated_at: string | null
 }
 
+export interface KeywordSubscriptionCount {
+  id: number
+  article_count: number
+  unread_count: number
+}
+
 // Article types
 export interface Article {
   id: number

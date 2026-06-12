@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "concurrently -n backend,frontend -c blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:backend": "cd backend && venv\\Scripts\\python -m uvicorn app.main:app --reload --host 0.0.0.0",
+    "dev:backend": "cd backend && venv\\Scripts\\python -m alembic upgrade head && venv\\Scripts\\python -m uvicorn app.main:app --reload --host 0.0.0.0",
     "dev:frontend": "cd frontend && npm run dev",
     "dev:full": "concurrently -n backend,frontend,worker,beat -c blue,green,yellow,magenta \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run celery:worker\" \"npm run celery:beat\"",
     "celery:worker": "cd backend && venv\\Scripts\\celery -A app.tasks.celery_app worker --loglevel=info --pool=solo",
