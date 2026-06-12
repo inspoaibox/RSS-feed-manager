@@ -42,6 +42,8 @@ class MobileFeed(BaseModel):
     is_active: bool
     use_playwright: bool
     browser_engine: str = "http"
+    proxy_enabled: bool = False
+    proxy_url: str | None = None
     position: int
     unread_count: int = 0
     article_count: int = 0
@@ -157,6 +159,8 @@ def _feed_to_mobile(feed: Feed, counts: dict[str, int]) -> MobileFeed:
             "browser_engine",
             "playwright" if feed.use_playwright else "http",
         ),
+        proxy_enabled=getattr(feed, "proxy_enabled", False),
+        proxy_url=getattr(feed, "proxy_url", None),
         position=feed.position,
         unread_count=counts.get("unread_count", 0),
         article_count=counts.get("article_count", 0),

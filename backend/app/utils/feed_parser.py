@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 from typing import List
+from urllib.parse import unquote, urlparse, urlunparse
 
 import feedparser
 import httpx
@@ -118,7 +119,33 @@ def _detect_encoding(content: bytes, content_type: str | None = None) -> str:
     return 'utf-8'
 
 
-async def fetch_feed_content(url: str, timeout: float = 30.0) -> str:
+def _build_playwright_proxy(proxy_url: str | None) -> dict | None:
+    """Convert a proxy URL into Playwright's proxy configuration."""
+    if not proxy_url:
+        return None
+
+    parsed = urlparse(proxy_url)
+    if not parsed.scheme or not parsed.netloc:
+        return None
+
+    hostname = parsed.hostname or ""
+    port = f":{parsed.port}" if parsed.port else ""
+    server = urlunparse((parsed.scheme, f"{hostname}{port}", "", "", "", ""))
+    proxy_config = {"server": server}
+
+    if parsed.username:
+        proxy_config["username"] = unquote(parsed.username)
+    if parsed.password:
+        proxy_config["password"] = unquote(parsed.password)
+
+    return proxy_config
+
+
+async def fetch_feed_content(
+    url: str,
+    timeout: float = 30.0,
+    proxy_url: str | None = None,
+) -> str:
     """Fetch feed content from URL."""
     # 简化请求头，不请求压缩以避免解压问题
     headers = {
@@ -127,7 +154,7 @@ async def fetch_feed_content(url: str, timeout: float = 30.0) -> str:
         "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
     }
     
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(proxy=proxy_url) as client:
         try:
             response = await client.get(
                 url,
@@ -263,7 +290,11 @@ def _parse_entry(entry: dict) -> ParsedArticle | None:
     )
 
 
-async def fetch_feed_content_playwright(url: str, timeout: float = 90.0) -> str:
+async def fetch_feed_content_playwright(
+    url: str,
+    timeout: float = 90.0,
+    proxy_url: str | None = None,
+) -> str:
     """Fetch feed content using Playwright browser automation (for Cloudflare protected sites)."""
     try:
         from playwright.async_api import async_playwright
@@ -276,14 +307,19 @@ async def fetch_feed_content_playwright(url: str, timeout: float = 90.0) -> str:
 
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=settings.FEED_BROWSER_HEADLESS,
-                args=[
+            launch_kwargs = {
+                "headless": settings.FEED_BROWSER_HEADLESS,
+                "args": [
                     '--disable-blink-features=AutomationControlled',
                     '--disable-dev-shm-usage',
-                    '--no-sandbox'
-                ]
-            )
+                    '--no-sandbox',
+                ],
+            }
+            playwright_proxy = _build_playwright_proxy(proxy_url)
+            if playwright_proxy:
+                launch_kwargs["proxy"] = playwright_proxy
+
+            browser = await p.chromium.launch(**launch_kwargs)
             context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 viewport={'width': 1920, 'height': 1080},
@@ -337,7 +373,11 @@ async def fetch_feed_content_playwright(url: str, timeout: float = 90.0) -> str:
         raise FeedParserError(f"Playwright error: {str(e)}")
 
 
-async def fetch_feed_content_cloakbrowser(url: str, timeout: float = 90.0) -> str:
+async def fetch_feed_content_cloakbrowser(
+    url: str,
+    timeout: float = 90.0,
+    proxy_url: str | None = None,
+) -> str:
     """Fetch feed content using CloakBrowser's browser backend."""
     try:
         import cloakbrowser
@@ -376,16 +416,17 @@ async def fetch_feed_content_cloakbrowser(url: str, timeout: float = 90.0) -> st
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             },
         }
-        if settings.CLOAKBROWSER_PROXY:
-            launch_kwargs["proxy"] = settings.CLOAKBROWSER_PROXY
+        effective_proxy = proxy_url or settings.CLOAKBROWSER_PROXY
+        if effective_proxy:
+            launch_kwargs["proxy"] = effective_proxy
 
         async def call_launcher(launcher, *args):
             try:
                 return await launcher(*args, **launch_kwargs)
             except TypeError:
                 fallback_kwargs = {"headless": settings.FEED_BROWSER_HEADLESS}
-                if settings.CLOAKBROWSER_PROXY:
-                    fallback_kwargs["proxy"] = settings.CLOAKBROWSER_PROXY
+                if effective_proxy:
+                    fallback_kwargs["proxy"] = effective_proxy
                 return await launcher(*args, **fallback_kwargs)
 
         if settings.CLOAKBROWSER_USER_DATA_DIR:
@@ -463,13 +504,14 @@ async def parse_feed(
     url: str,
     use_playwright: bool = False,
     browser_engine: str | None = None,
+    proxy_url: str | None = None,
 ) -> ParsedFeed:
     """Fetch and parse a feed from URL."""
     engine = normalize_browser_engine(browser_engine, use_playwright)
     if engine == "playwright":
-        content = await fetch_feed_content_playwright(url)
+        content = await fetch_feed_content_playwright(url, proxy_url=proxy_url)
     elif engine == "cloakbrowser":
-        content = await fetch_feed_content_cloakbrowser(url)
+        content = await fetch_feed_content_cloakbrowser(url, proxy_url=proxy_url)
     else:
-        content = await fetch_feed_content(url)
+        content = await fetch_feed_content(url, proxy_url=proxy_url)
     return parse_feed_content(content, url)

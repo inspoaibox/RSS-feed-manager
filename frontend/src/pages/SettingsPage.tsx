@@ -92,6 +92,8 @@ function FeedsTab() {
   const [newFeedCategory, setNewFeedCategory] = useState<number | null>(null)
   const [newFeedInterval, setNewFeedInterval] = useState<number | null>(null)
   const [newFeedBrowserEngine, setNewFeedBrowserEngine] = useState<FeedBrowserEngine>('http')
+  const [newFeedProxyEnabled, setNewFeedProxyEnabled] = useState(false)
+  const [newFeedProxyUrl, setNewFeedProxyUrl] = useState('')
 
   const [newFeedAutoSummarize, setNewFeedAutoSummarize] = useState(false)
   const [newFeedTargetLanguage, setNewFeedTargetLanguage] = useState('zh-CN')
@@ -105,11 +107,13 @@ function FeedsTab() {
     is_active: boolean
     use_playwright: boolean
     browser_engine: FeedBrowserEngine
+    proxy_enabled: boolean
+    proxy_url: string
     auto_translate: boolean
     auto_summarize: boolean
     target_language: string
     translate_method: 'none' | 'ai' | 'google'
-  }>({ title: '', category_id: null, fetch_interval: 3600, is_active: true, use_playwright: false, browser_engine: 'http', auto_translate: false, auto_summarize: false, target_language: 'zh-CN', translate_method: 'none' })
+  }>({ title: '', category_id: null, fetch_interval: 3600, is_active: true, use_playwright: false, browser_engine: 'http', proxy_enabled: false, proxy_url: '', auto_translate: false, auto_summarize: false, target_language: 'zh-CN', translate_method: 'none' })
   
   // Filter states
   const [searchQuery, setSearchQuery] = useState('')
@@ -149,6 +153,8 @@ function FeedsTab() {
         fetch_interval: newFeedInterval ?? defaultSyncInterval,
         use_playwright: newFeedBrowserEngine !== 'http',
         browser_engine: newFeedBrowserEngine,
+        proxy_enabled: newFeedProxyEnabled,
+        proxy_url: newFeedProxyEnabled ? newFeedProxyUrl.trim() : null,
         auto_translate: newFeedTranslateMethod !== 'none',
         auto_summarize: newFeedAutoSummarize,
         target_language: newFeedTranslateMethod !== 'none' ? newFeedTargetLanguage : null,
@@ -165,6 +171,8 @@ function FeedsTab() {
       setNewFeedCategory(null)
       setNewFeedInterval(3600)
       setNewFeedBrowserEngine('http')
+      setNewFeedProxyEnabled(false)
+      setNewFeedProxyUrl('')
       setNewFeedAutoSummarize(false)
       setNewFeedTargetLanguage('zh-CN')
       setNewFeedTranslateMethod('none')
@@ -326,6 +334,8 @@ function FeedsTab() {
       is_active: feed.is_active,
       use_playwright: feed.use_playwright,
       browser_engine: resolveFeedBrowserEngine(feed),
+      proxy_enabled: feed.proxy_enabled,
+      proxy_url: feed.proxy_url || '',
       auto_translate: feed.auto_translate,
       auto_summarize: feed.auto_summarize,
       target_language: feed.target_language || 'zh-CN',
@@ -506,6 +516,24 @@ function FeedsTab() {
             </select>
             <span className="text-xs text-yellow-600 dark:text-yellow-400">CloakBrowser 作为独立增强方案</span>
           </div>
+          <div className="grid gap-2 p-2 bg-slate-50 dark:bg-gray-800 border border-slate-200 dark:border-gray-600 rounded">
+            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+              <input
+                type="checkbox"
+                checked={newFeedProxyEnabled}
+                onChange={(e) => setNewFeedProxyEnabled(e.target.checked)}
+              />
+              启用代理
+            </label>
+            <input
+              type="text"
+              value={newFeedProxyUrl}
+              onChange={(e) => setNewFeedProxyUrl(e.target.value)}
+              disabled={!newFeedProxyEnabled}
+              placeholder="http://user:pass@host:port 或 socks5://host:port"
+              className="w-full px-3 py-2 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 dark:text-white disabled:opacity-50"
+            />
+          </div>
           <div className="flex gap-2 flex-wrap items-center">
             <div className="flex items-center gap-2 p-2 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded">
               <span className="text-sm dark:text-blue-200">翻译方式:</span>
@@ -557,13 +585,13 @@ function FeedsTab() {
           <div className="flex gap-2">
             <button
               onClick={() => addFeedMutation.mutate()}
-              disabled={!newFeedUrl || addFeedMutation.isPending}
+              disabled={!newFeedUrl || (newFeedProxyEnabled && !newFeedProxyUrl.trim()) || addFeedMutation.isPending}
               className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
             >
               {addFeedMutation.isPending ? '添加中...' : '添加'}
             </button>
             <button
-              onClick={() => { setShowAddForm(false); setNewFeedUrl(''); setNewFeedCategory(null); setNewFeedBrowserEngine('http'); setNewFeedAutoSummarize(false); setNewFeedTranslateMethod('none') }}
+              onClick={() => { setShowAddForm(false); setNewFeedUrl(''); setNewFeedCategory(null); setNewFeedBrowserEngine('http'); setNewFeedProxyEnabled(false); setNewFeedProxyUrl(''); setNewFeedAutoSummarize(false); setNewFeedTranslateMethod('none') }}
               className="px-4 py-2 border dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600 dark:text-gray-200"
             >
               取消
@@ -635,6 +663,27 @@ function FeedsTab() {
                     <option value="cloakbrowser">CloakBrowser</option>
                   </select>
                 </div>
+                <div className="grid gap-2 p-2 bg-slate-50 dark:bg-gray-800 border border-slate-200 dark:border-gray-600 rounded text-sm">
+                  <label className="flex items-center gap-2 text-gray-700 dark:text-gray-200">
+                    <input
+                      type="checkbox"
+                      checked={editData.proxy_enabled}
+                      onChange={(e) => setEditData({
+                        ...editData,
+                        proxy_enabled: e.target.checked,
+                      })}
+                    />
+                    启用代理
+                  </label>
+                  <input
+                    type="text"
+                    value={editData.proxy_url}
+                    onChange={(e) => setEditData({ ...editData, proxy_url: e.target.value })}
+                    disabled={!editData.proxy_enabled}
+                    placeholder="http://user:pass@host:port 或 socks5://host:port"
+                    className="w-full px-3 py-2 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 dark:text-white disabled:opacity-50"
+                  />
+                </div>
                 <div className="flex gap-2 flex-wrap items-center">
                   <div className="flex items-center gap-2 p-2 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded text-sm">
                     <span className="dark:text-blue-200">翻译:</span>
@@ -686,7 +735,7 @@ function FeedsTab() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => updateFeedMutation.mutate({ id: feed.id, data: editData })}
-                    disabled={updateFeedMutation.isPending}
+                    disabled={updateFeedMutation.isPending || (editData.proxy_enabled && !editData.proxy_url.trim())}
                     className="p-2 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 rounded"
                   >
                     <Check className="w-4 h-4" />
@@ -735,6 +784,9 @@ function FeedsTab() {
                     </span>
                     {resolveFeedBrowserEngine(feed) !== 'http' && (
                       <span className="text-yellow-600 dark:text-yellow-400">🌐 {feedBrowserEngineLabels[resolveFeedBrowserEngine(feed)]}</span>
+                    )}
+                    {feed.proxy_enabled && (
+                      <span className="text-slate-600 dark:text-slate-300">代理</span>
                     )}
                     {feed.translate_method === 'google' && (
                       <span className="text-blue-600 dark:text-blue-400">🌐 Google翻译</span>

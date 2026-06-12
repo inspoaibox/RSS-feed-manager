@@ -1,6 +1,7 @@
 """Feed service for business logic."""
 import json
 from typing import List
+from urllib.parse import urlparse
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,6 +64,33 @@ class FeedService:
         # If requested is larger than all allowed, use the largest allowed
         return max(allowed)
 
+    def _normalize_proxy_config(
+        self,
+        proxy_enabled: bool | None,
+        proxy_url: str | None,
+    ) -> tuple[bool, str | None]:
+        """Normalize and validate per-feed proxy settings."""
+        enabled = bool(proxy_enabled)
+        normalized_url = proxy_url.strip() if proxy_url else None
+
+        if not enabled:
+            return False, None
+
+        if not normalized_url:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="启用代理时必须填写代理地址",
+            )
+
+        parsed = urlparse(normalized_url)
+        if parsed.scheme not in {"http", "https", "socks4", "socks5", "socks5h"} or not parsed.netloc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="代理地址格式无效，请使用 http://host:port 或 socks5://host:port",
+            )
+
+        return True, normalized_url
+
     async def create(self, user_id: int, data: FeedCreate) -> FeedResponse:
         """Create a new feed by parsing the URL."""
         # Check for duplicate URL
@@ -82,10 +110,18 @@ class FeedService:
                 )
         
         browser_engine = data.resolved_browser_engine
+        proxy_enabled, proxy_url = self._normalize_proxy_config(
+            data.proxy_enabled,
+            data.proxy_url,
+        )
 
         # Parse the feed
         try:
-            parsed = await parse_feed(data.url, browser_engine=browser_engine)
+            parsed = await parse_feed(
+                data.url,
+                browser_engine=browser_engine,
+                proxy_url=proxy_url if proxy_enabled else None,
+            )
         except FeedParserError as e:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -107,6 +143,8 @@ class FeedService:
             fetch_interval=validated_interval,
             use_playwright=is_browser_engine_enabled(browser_engine),
             browser_engine=browser_engine,
+            proxy_enabled=proxy_enabled,
+            proxy_url=proxy_url,
             auto_translate=data.auto_translate,
             auto_summarize=data.auto_summarize,
             target_language=data.target_language,
@@ -181,6 +219,14 @@ class FeedService:
                 None,
                 update_data["use_playwright"],
             )
+
+        if "proxy_enabled" in update_data or "proxy_url" in update_data:
+            proxy_enabled, proxy_url = self._normalize_proxy_config(
+                update_data.get("proxy_enabled", feed.proxy_enabled),
+                update_data.get("proxy_url", feed.proxy_url),
+            )
+            update_data["proxy_enabled"] = proxy_enabled
+            update_data["proxy_url"] = proxy_url
         
         # Validate fetch interval if provided
         if 'fetch_interval' in update_data:
@@ -241,6 +287,7 @@ class FeedService:
                     feed.url,
                     use_playwright=feed.use_playwright,
                     browser_engine=getattr(feed, "browser_engine", None),
+                    proxy_url=feed.proxy_url if feed.proxy_enabled else None,
                 )
                 await self.repo.update_fetch_status(feed, success=True)
                 # Save new articles
@@ -277,6 +324,7 @@ class FeedService:
                     feed.url,
                     use_playwright=feed.use_playwright,
                     browser_engine=getattr(feed, "browser_engine", None),
+                    proxy_url=feed.proxy_url if feed.proxy_enabled else None,
                 )
                 await self.repo.update_fetch_status(feed, success=True)
                 count = await self._save_articles(feed.id, parsed)
@@ -427,6 +475,8 @@ class FeedService:
                 'browser_engine',
                 "playwright" if feed.use_playwright else "http",
             ),
+            proxy_enabled=getattr(feed, 'proxy_enabled', False),
+            proxy_url=getattr(feed, 'proxy_url', None),
             position=feed.position,
             unread_count=unread_count,
             article_count=article_count

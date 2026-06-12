@@ -56,6 +56,8 @@ export interface Feed {
   translate_method: 'none' | 'ai' | 'google'
   use_playwright: boolean
   browser_engine: FeedBrowserEngine
+  proxy_enabled: boolean
+  proxy_url: string | null
   position: number
 }
 

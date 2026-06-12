@@ -202,6 +202,9 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
                     feed.url,
                     use_playwright=feed.use_playwright,
                     browser_engine=getattr(feed, "browser_engine", None),
+                    proxy_url=getattr(feed, "proxy_url", None)
+                    if getattr(feed, "proxy_enabled", False)
+                    else None,
                 )
             )
         finally:

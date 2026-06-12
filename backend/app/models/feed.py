@@ -40,6 +40,8 @@ class Feed(BaseModel):
     error_count: Mapped[int] = mapped_column(Integer, default=0)
     use_playwright: Mapped[bool] = mapped_column(Boolean, default=False)  # Use browser for Cloudflare sites
     browser_engine: Mapped[str] = mapped_column(String(20), default="http")  # http, playwright, cloakbrowser
+    proxy_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    proxy_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     
     # AI settings
     auto_translate: Mapped[bool] = mapped_column(Boolean, default=False)

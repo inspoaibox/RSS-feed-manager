@@ -14,6 +14,8 @@ class FeedCreate(BaseModel):
     fetch_interval: int = Field(default=3600, ge=60, le=86400)
     use_playwright: bool = False  # Use browser automation for Cloudflare protected sites
     browser_engine: FeedBrowserEngine | None = None
+    proxy_enabled: bool = False
+    proxy_url: str | None = Field(None, max_length=2048)
     auto_translate: bool = False  # Auto translate articles using AI
     auto_summarize: bool = False  # Auto summarize articles using AI
     target_language: str | None = Field(None, max_length=10)  # Target language for translation
@@ -38,6 +40,8 @@ class FeedUpdate(BaseModel):
     is_active: bool | None = None
     use_playwright: bool | None = None
     browser_engine: FeedBrowserEngine | None = None
+    proxy_enabled: bool | None = None
+    proxy_url: str | None = Field(None, max_length=2048)
     position: int | None = None
 
 
@@ -64,6 +68,8 @@ class FeedResponse(BaseModel):
     is_active: bool
     use_playwright: bool = False
     browser_engine: FeedBrowserEngine = "http"
+    proxy_enabled: bool = False
+    proxy_url: str | None = None
     position: int = 0
     unread_count: int = 0
     article_count: int = 0

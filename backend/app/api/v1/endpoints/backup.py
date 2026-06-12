@@ -127,6 +127,8 @@ async def export_all(user_id: CurrentUserId, db: DbSession):
                     "browser_engine",
                     "playwright" if f.use_playwright else "http",
                 ),
+                "proxy_enabled": getattr(f, "proxy_enabled", False),
+                "proxy_url": getattr(f, "proxy_url", None),
             }
             for f in feeds
         ],
@@ -249,6 +251,8 @@ async def import_all(
                 is_active=feed_data.get("is_active", True),
                 use_playwright=feed_data.get("use_playwright", browser_engine != "http"),
                 browser_engine=browser_engine,
+                proxy_enabled=feed_data.get("proxy_enabled", False),
+                proxy_url=feed_data.get("proxy_url") if feed_data.get("proxy_enabled", False) else None,
             )
             db.add(feed)
             feeds_imported += 1
@@ -434,6 +438,8 @@ async def generate_backup_data(db: DbSession, user_id: int) -> dict:
                     "browser_engine",
                     "playwright" if f.use_playwright else "http",
                 ),
+                "proxy_enabled": getattr(f, "proxy_enabled", False),
+                "proxy_url": getattr(f, "proxy_url", None),
             }
             for f in feeds
         ],
@@ -772,6 +778,8 @@ async def restore_from_webdav(filename: str, user_id: CurrentUserId, db: DbSessi
                     is_active=feed_data.get("is_active", True),
                     use_playwright=feed_data.get("use_playwright", browser_engine != "http"),
                     browser_engine=browser_engine,
+                    proxy_enabled=feed_data.get("proxy_enabled", False),
+                    proxy_url=feed_data.get("proxy_url") if feed_data.get("proxy_enabled", False) else None,
                 )
                 db.add(feed)
                 feeds_imported += 1
