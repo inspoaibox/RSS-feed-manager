@@ -526,7 +526,7 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
                       <button
                         onClick={() => navigate(`/?keyword_id=${keyword.id}`)}
                         className={clsx(
-                          'max-w-full min-w-0 flex items-center gap-0 px-2.5 py-1.5 rounded-full text-sm transition-all duration-200',
+                          'max-w-full min-w-0 flex items-center gap-0 px-2.5 py-1.5 rounded-full text-xs transition-all duration-200',
                           keywordActive
                             ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 font-medium ring-1 ring-primary-200 dark:ring-primary-800'
                             : 'bg-gray-50 dark:bg-gray-700/50 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
