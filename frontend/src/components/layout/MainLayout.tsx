@@ -526,7 +526,7 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
                       <button
                         onClick={() => navigate(`/?keyword_id=${keyword.id}`)}
                         className={clsx(
-                          'max-w-full min-w-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-sm transition-all duration-200',
+                          'max-w-full min-w-0 flex items-center gap-0 px-2.5 py-1.5 rounded-full text-sm transition-all duration-200',
                           keywordActive
                             ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 font-medium ring-1 ring-primary-200 dark:ring-primary-800'
                             : 'bg-gray-50 dark:bg-gray-700/50 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
@@ -538,7 +538,7 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
                       </button>
                       {keywordCount > 0 && (
                         <span className={clsx(
-                          'absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 rounded-full text-[10px] font-semibold flex items-center justify-center pointer-events-none',
+                          'absolute -top-1 -right-1 min-w-4 h-4 px-0.5 rounded-full text-[8px] leading-none font-semibold flex items-center justify-center pointer-events-none',
                           keyword.unread_count > 0
                             ? 'bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-200'
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300'
