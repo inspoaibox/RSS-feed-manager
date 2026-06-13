@@ -192,7 +192,14 @@ def dispatch_article_translation(article_id: int, target_language: str | None = 
             return False, "duplicate"
 
         kwargs = {"target_language": target_language} if target_language else {}
-        translate_article_task.apply_async(args=[article_id], kwargs=kwargs, task_id=owner)
+        from app.tasks.celery_app import celery_app
+
+        celery_app.send_task(
+            "app.tasks.feed_tasks.translate_article",
+            args=[article_id],
+            kwargs=kwargs,
+            task_id=owner,
+        )
         return True, None
     except Exception as exc:
         if lock_acquired and redis_client is not None:
