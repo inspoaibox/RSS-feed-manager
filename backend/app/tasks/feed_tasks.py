@@ -31,6 +31,7 @@ def get_sync_database_url() -> str:
 # Lazy initialization of database engine
 _sync_engine = None
 _SyncSessionLocal = None
+FEED_REFRESH_QUEUE_LOCK_TTL = int(os.environ.get("FEED_REFRESH_QUEUE_LOCK_TTL", "14400"))
 
 
 def get_sync_session():
@@ -40,6 +41,64 @@ def get_sync_session():
         _sync_engine = create_engine(get_sync_database_url())
         _SyncSessionLocal = sessionmaker(bind=_sync_engine)
     return _SyncSessionLocal()
+
+
+def get_redis_client():
+    """Get a Redis client for Celery coordination locks."""
+    import redis
+
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    return redis.from_url(redis_url)
+
+
+def _feed_refresh_slot_key(feed_id: int) -> str:
+    return f"refresh_feed_{feed_id}_queued_or_running"
+
+
+def _redis_value_matches(value, expected: str) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace") == expected
+    return str(value) == expected
+
+
+def _acquire_feed_refresh_slot(redis_client, feed_id: int, owner: str) -> bool:
+    return bool(
+        redis_client.set(
+            _feed_refresh_slot_key(feed_id),
+            owner,
+            nx=True,
+            ex=FEED_REFRESH_QUEUE_LOCK_TTL,
+        )
+    )
+
+
+def _refresh_feed_slot_for_worker(redis_client, feed_id: int, owner: str) -> bool:
+    key = _feed_refresh_slot_key(feed_id)
+    current_owner = redis_client.get(key)
+
+    if current_owner is None:
+        return _acquire_feed_refresh_slot(redis_client, feed_id, owner)
+
+    if _redis_value_matches(current_owner, owner):
+        redis_client.expire(key, FEED_REFRESH_QUEUE_LOCK_TTL)
+        return True
+
+    return False
+
+
+def _release_feed_refresh_slot(redis_client, feed_id: int, owner: str) -> None:
+    script = """
+    if redis.call("get", KEYS[1]) == ARGV[1] then
+        return redis.call("del", KEYS[1])
+    end
+    return 0
+    """
+    try:
+        redis_client.eval(script, 1, _feed_refresh_slot_key(feed_id), owner)
+    except Exception:
+        pass
 
 
 def _generate_article_embedding_sync(db: Session, article: Article, user_id: int) -> None:
@@ -679,12 +738,8 @@ def refresh_all_feeds() -> dict:
 @shared_task(name="app.tasks.feed_tasks.refresh_due_feeds", bind=True)
 def refresh_due_feeds(self) -> dict:
     """Dispatch feed refresh tasks for feeds that are due."""
-    import redis
-    import os
-    
     # Use Redis lock to prevent concurrent dispatch
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-    redis_client = redis.from_url(redis_url)
+    redis_client = get_redis_client()
     lock = redis_client.lock("refresh_due_feeds_dispatch_lock", timeout=60)
     
     if not lock.acquire(blocking=False):
@@ -701,6 +756,7 @@ def refresh_due_feeds(self) -> dict:
             
             dispatched = 0
             skipped = 0
+            skipped_queued = 0
             
             for feed in feeds:
                 # Check if feed is due for refresh
@@ -711,15 +767,32 @@ def refresh_due_feeds(self) -> dict:
                         skipped += 1
                         continue
                 
-                # Dispatch individual feed refresh task
-                refresh_single_feed.delay(feed.id)
+                owner = f"refresh_due_feeds:{self.request.id}:{feed.id}:{int(now.timestamp())}"
+                if not _acquire_feed_refresh_slot(redis_client, feed.id, owner):
+                    skipped_queued += 1
+                    continue
+
+                try:
+                    # Dispatch individual feed refresh task after reserving its queue slot.
+                    refresh_single_feed.delay(feed.id, owner)
+                except Exception:
+                    _release_feed_refresh_slot(redis_client, feed.id, owner)
+                    raise
                 dispatched += 1
             
+            if skipped_queued:
+                print(
+                    "[FeedRefreshDedup] "
+                    f"Skipped {skipped_queued} feeds already queued/running "
+                    f"during dispatch task {self.request.id}"
+                )
+
             return {
                 "success": True,
                 "feeds_checked": len(feeds),
                 "feeds_dispatched": dispatched,
-                "feeds_skipped": skipped
+                "feeds_skipped": skipped,
+                "feeds_skipped_queued": skipped_queued,
             }
     finally:
         try:
@@ -729,18 +802,19 @@ def refresh_due_feeds(self) -> dict:
 
 
 @shared_task(name="app.tasks.feed_tasks.refresh_single_feed", bind=True)
-def refresh_single_feed(self, feed_id: int) -> dict:
+def refresh_single_feed(self, feed_id: int, refresh_owner: str | None = None) -> dict:
     """Refresh a single feed - designed for parallel execution."""
-    import redis
-    import os
-    
-    # Per-feed lock to prevent duplicate processing
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-    redis_client = redis.from_url(redis_url)
-    lock = redis_client.lock(f"refresh_feed_{feed_id}_lock", timeout=120)
-    
-    if not lock.acquire(blocking=False):
-        return {"success": True, "feed_id": feed_id, "skipped": True, "reason": "already processing"}
+    redis_client = get_redis_client()
+    owner = refresh_owner or f"refresh_single_feed:{self.request.id}:{feed_id}"
+
+    if not _refresh_feed_slot_for_worker(redis_client, feed_id, owner):
+        print(f"[FeedRefreshDedup] Skipped feed {feed_id}: already queued or processing")
+        return {
+            "success": True,
+            "feed_id": feed_id,
+            "skipped": True,
+            "reason": "already queued or processing",
+        }
     
     try:
         with get_sync_session() as db:
@@ -771,10 +845,7 @@ def refresh_single_feed(self, feed_id: int) -> dict:
                     "error": str(e)
                 }
     finally:
-        try:
-            lock.release()
-        except Exception:
-            pass
+        _release_feed_refresh_slot(redis_client, feed_id, owner)
 
 
 
