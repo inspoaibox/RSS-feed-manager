@@ -159,6 +159,31 @@ export interface ArgosPackageTestResult {
   translation: string | null
 }
 
+export interface ArgosTranslationLog {
+  id: number
+  article_id: number | null
+  feed_id: number | null
+  feed_title: string | null
+  article_title: string | null
+  source_language: string
+  target_language: string
+  status: 'translating' | 'completed' | 'failed'
+  title_chars: number
+  content_chars: number
+  duration_ms: number | null
+  error: string | null
+  started_at: string
+  completed_at: string | null
+}
+
+export interface ArgosTranslationLogsResponse {
+  items: ArgosTranslationLog[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
 // Keyword subscription types
 export interface KeywordSubscription {
   id: number

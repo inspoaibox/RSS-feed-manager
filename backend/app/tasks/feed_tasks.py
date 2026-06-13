@@ -11,6 +11,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.article import Article
+from app.models.argos_translation_log import ArgosTranslationLog
 from app.models.feed import Feed
 from app.models.custom_rule import CustomRule
 from app.models.proxy_pool import ProxyPoolEntry
@@ -344,6 +345,69 @@ def _translation_has_title(translation: str | None) -> bool:
     return bool(data.get("title"))
 
 
+def _resolve_argos_languages(db: Session, feed: Feed, target_language: str) -> tuple[str, str]:
+    from app.models.user import User
+    from app.services.argos_translate_service import normalize_argos_language
+
+    user = db.execute(
+        select(User).where(User.id == feed.user_id)
+    ).scalar_one_or_none()
+    source_language = (
+        getattr(feed, "source_language", None)
+        or (user.argos_source_language if user else None)
+        or "en"
+    )
+    return (
+        normalize_argos_language(source_language, default="en"),
+        normalize_argos_language(target_language, default="zh"),
+    )
+
+
+def _create_argos_translation_log(
+    db: Session,
+    article: Article,
+    feed: Feed,
+    target_language: str,
+    started_at: datetime,
+) -> ArgosTranslationLog:
+    source_language, normalized_target = _resolve_argos_languages(db, feed, target_language)
+    log = ArgosTranslationLog(
+        user_id=feed.user_id,
+        feed_id=feed.id,
+        article_id=article.id,
+        feed_title=feed.title,
+        article_title=article.title,
+        source_language=source_language,
+        target_language=normalized_target,
+        status="translating",
+        title_chars=len(article.title or ""),
+        content_chars=len(article.content or ""),
+        started_at=started_at,
+    )
+    db.add(log)
+    db.flush()
+    return log
+
+
+def _finish_argos_translation_log(
+    log: ArgosTranslationLog | None,
+    status: str,
+    started_at: datetime,
+    completed_at: datetime,
+    error: str | None = None,
+) -> None:
+    if not log:
+        return
+
+    log.status = status
+    log.completed_at = completed_at
+    log.duration_ms = max(
+        0,
+        int((completed_at - started_at).total_seconds() * 1000),
+    )
+    log.error = error[:1000] if error else None
+
+
 def _perform_article_translation_sync(
     db: Session,
     article: Article,
@@ -498,12 +562,18 @@ def translate_article_task(self, article_id: int, target_language: str | None = 
                 _release_article_translation_slot(redis_client, article_id, owner)
             return {"success": False, "article_id": article_id, "error": article.translation_error}
 
+        argos_log: ArgosTranslationLog | None = None
         try:
+            started_at = datetime.utcnow()
             article.translation_status = "translating"
             article.translation_error = None
-            article.translation_started_at = datetime.utcnow()
+            article.translation_started_at = started_at
             article.translation_completed_at = None
             db.commit()
+
+            if translate_method == "argos":
+                argos_log = _create_argos_translation_log(db, article, feed, target)
+                db.commit()
 
             translation_data, method = _perform_article_translation_sync(
                 db,
@@ -511,10 +581,12 @@ def translate_article_task(self, article_id: int, target_language: str | None = 
                 feed,
                 target_language=target,
             )
+            completed_at = datetime.utcnow()
             article.translation = translation_data
             article.translation_status = "completed"
             article.translation_error = None
-            article.translation_completed_at = datetime.utcnow()
+            article.translation_completed_at = completed_at
+            _finish_argos_translation_log(argos_log, "completed", started_at, completed_at)
             db.commit()
             print(f"{method} translated article {article.id}: {article.title[:50]}...")
             return {
@@ -524,9 +596,11 @@ def translate_article_task(self, article_id: int, target_language: str | None = 
                 "status": "completed",
             }
         except Exception as exc:
+            completed_at = datetime.utcnow()
             article.translation_status = "failed"
             article.translation_error = str(exc)[:1000]
-            article.translation_completed_at = datetime.utcnow()
+            article.translation_completed_at = completed_at
+            _finish_argos_translation_log(argos_log, "failed", started_at, completed_at, str(exc))
             db.commit()
             print(f"Translate error for article {article_id}: {exc}")
             return {

@@ -1,7 +1,9 @@
 """AI API endpoints."""
+import math
 from typing import List
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import func, select
 
 from app.api.deps import CurrentUserId, DbSession
 from app.schemas.ai import (
@@ -16,6 +18,7 @@ from app.schemas.ai import (
     ArgosPackagesResponse,
     ArgosPackageTestRequest,
     ArgosPackageTestResponse,
+    ArgosTranslationLogsResponse,
     AnalyzeRequest,
     AnalyzeResponse,
     ArticleResult,
@@ -32,6 +35,7 @@ from app.schemas.google_translate_key import (
     GoogleTranslateKeyTestResponse,
     GoogleTranslateKeyUpdate,
 )
+from app.models.argos_translation_log import ArgosTranslationLog
 from app.services.ai_service import AIService
 from app.services.argos_translate_service import (
     ArgosTranslateError,
@@ -245,6 +249,39 @@ async def test_argos_package_endpoint(
         data.source_language,
         data.target_language,
         data.text,
+    )
+
+
+@router.get("/argos/translation-logs", response_model=ArgosTranslationLogsResponse)
+async def get_argos_translation_logs(
+    user_id: CurrentUserId,
+    db: DbSession,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    """Get local Argos translation execution logs."""
+    total = (
+        await db.execute(
+            select(func.count(ArgosTranslationLog.id)).where(
+                ArgosTranslationLog.user_id == user_id
+            )
+        )
+    ).scalar() or 0
+
+    result = await db.execute(
+        select(ArgosTranslationLog)
+        .where(ArgosTranslationLog.user_id == user_id)
+        .order_by(ArgosTranslationLog.started_at.desc(), ArgosTranslationLog.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+
+    return ArgosTranslationLogsResponse(
+        items=list(result.scalars().all()),
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=math.ceil(total / page_size) if total > 0 else 1,
     )
 
 

@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, FolderOpen, Languages, ChevronUp, ChevronDown, Search, Shield, Star } from 'lucide-react'
 import api from '@/services/api'
-import type { ArgosPackageInfo, ArgosPackagesResponse, ArgosPackageTestResult, Category, Feed, AIProvider, AIModel, CustomRule, FeedBrowserEngine, FeedProxyMode, GoogleTranslateKey, ProxyPoolEntry, ProxyPoolGroups, ProxyPoolImportResult, ProxyPoolTestResult, ProxyProtocol, TranslateMethod } from '@/types'
+import type { ArgosPackageInfo, ArgosPackagesResponse, ArgosPackageTestResult, ArgosTranslationLogsResponse, Category, Feed, AIProvider, AIModel, CustomRule, FeedBrowserEngine, FeedProxyMode, GoogleTranslateKey, ProxyPoolEntry, ProxyPoolGroups, ProxyPoolImportResult, ProxyPoolTestResult, ProxyProtocol, TranslateMethod } from '@/types'
 import { useThemeStore, type ThemeColor } from '@/stores/themeStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useSyncIntervals } from '@/hooks/useSyncIntervals'
@@ -75,6 +75,29 @@ const getApiErrorMessage = (error: unknown, fallback: string) => {
     }).join(', ')
   }
   return typeof detail === 'string' ? detail : fallback
+}
+
+const formatDurationMs = (durationMs: number | null) => {
+  if (durationMs === null || durationMs === undefined) return '-'
+  if (durationMs < 1000) return `${durationMs} ms`
+  return `${(durationMs / 1000).toFixed(2)} s`
+}
+
+const formatDateTime = (value: string | null | undefined) => {
+  return value ? new Date(value).toLocaleString('zh-CN') : '-'
+}
+
+const getArgosLogStatusLabel = (status: string) => {
+  if (status === 'completed') return '完成'
+  if (status === 'failed') return '失败'
+  if (status === 'translating') return '翻译中'
+  return status
+}
+
+const getArgosLogStatusClass = (status: string) => {
+  if (status === 'completed') return 'text-emerald-700 dark:text-emerald-300'
+  if (status === 'failed') return 'text-red-700 dark:text-red-300'
+  return 'text-blue-700 dark:text-blue-300'
 }
 
 export default function SettingsPage() {
@@ -1861,6 +1884,8 @@ function AITab() {
     limit_articles: '',
     limit_characters: '',
   })
+  const [argosLogPage, setArgosLogPage] = useState(1)
+  const argosLogPageSize = 10
 
   const { data: providers = [] } = useQuery({
     queryKey: ['ai-providers'],
@@ -1907,6 +1932,17 @@ function AITab() {
       return response.data
     },
     retry: false,
+  })
+
+  const { data: argosTranslationLogs, isLoading: argosLogsLoading } = useQuery<ArgosTranslationLogsResponse>({
+    queryKey: ['argos-translation-logs', argosLogPage],
+    queryFn: async () => {
+      const response = await api.get<ArgosTranslationLogsResponse>('/ai/argos/translation-logs', {
+        params: { page: argosLogPage, page_size: argosLogPageSize },
+      })
+      return response.data
+    },
+    refetchInterval: 10000,
   })
 
   const [embeddingConfig, setEmbeddingConfig] = useState<{
@@ -2219,6 +2255,9 @@ function AITab() {
   const activeGoogleKeyCount = googleTranslateKeys.filter((key) => key.is_active).length
   const installedArgosPackages = argosPackages?.installed || []
   const availableArgosPackages = argosPackages?.available || []
+  const argosLogs = argosTranslationLogs?.items || []
+  const argosLogTotal = argosTranslationLogs?.total || 0
+  const argosLogTotalPages = argosTranslationLogs?.total_pages || 1
   const visibleAvailableArgosPackages = availableArgosPackages
     .filter((pkg) => !pkg.installed)
     .slice(0, 12)
@@ -2535,6 +2574,99 @@ function AITab() {
                 {argosTestResult.translation && (
                   <div className="mt-1 text-gray-700 dark:text-gray-200 break-words">{argosTestResult.translation}</div>
                 )}
+              </div>
+            )}
+          </div>
+
+          <div className="border dark:border-gray-700 rounded bg-white dark:bg-gray-800 overflow-hidden">
+            <div className="px-3 py-2 bg-gray-50 dark:bg-gray-700 flex items-center gap-2">
+              <div className="text-sm font-medium dark:text-white">本地翻译记录</div>
+              <span className="text-xs text-gray-500 dark:text-gray-400">共 {argosLogTotal} 条</span>
+              <button
+                onClick={() => queryClient.invalidateQueries({ queryKey: ['argos-translation-logs'] })}
+                className="ml-auto p-1.5 text-gray-500 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-800 rounded"
+                title="刷新记录"
+              >
+                <RefreshCw className={`w-4 h-4 ${argosLogsLoading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[920px] text-sm">
+                <thead className="bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+                  <tr>
+                    <th className="p-3 text-left">文章</th>
+                    <th className="p-3 text-left">订阅源</th>
+                    <th className="p-3 text-left">语言</th>
+                    <th className="p-3 text-left">字符</th>
+                    <th className="p-3 text-left">耗时</th>
+                    <th className="p-3 text-left">状态</th>
+                    <th className="p-3 text-left">时间</th>
+                    <th className="p-3 text-left">错误</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y dark:divide-gray-700">
+                  {argosLogs.map((log) => (
+                    <tr key={log.id} className="dark:text-gray-100">
+                      <td className="p-3 max-w-[240px] truncate" title={log.article_title || ''}>
+                        {log.article_title || '-'}
+                      </td>
+                      <td className="p-3 max-w-[160px] truncate text-gray-600 dark:text-gray-300" title={log.feed_title || ''}>
+                        {log.feed_title || '-'}
+                      </td>
+                      <td className="p-3 text-gray-600 dark:text-gray-300">
+                        {log.source_language} → {log.target_language}
+                      </td>
+                      <td className="p-3 text-gray-600 dark:text-gray-300">
+                        {(log.title_chars + log.content_chars).toLocaleString()}
+                        <span className="text-xs text-gray-400 dark:text-gray-500 ml-1">
+                          ({log.title_chars}/{log.content_chars})
+                        </span>
+                      </td>
+                      <td className="p-3 font-mono text-gray-700 dark:text-gray-200">
+                        {formatDurationMs(log.duration_ms)}
+                      </td>
+                      <td className={`p-3 ${getArgosLogStatusClass(log.status)}`}>
+                        {getArgosLogStatusLabel(log.status)}
+                      </td>
+                      <td className="p-3 text-gray-500 dark:text-gray-400">
+                        <div>{formatDateTime(log.started_at)}</div>
+                        {log.completed_at && (
+                          <div className="text-xs">{formatDateTime(log.completed_at)}</div>
+                        )}
+                      </td>
+                      <td className="p-3 max-w-[220px] truncate text-gray-500 dark:text-gray-400" title={log.error || ''}>
+                        {log.error || '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!argosLogsLoading && argosLogs.length === 0 && (
+                <div className="p-4 text-center text-gray-500 dark:text-gray-400">暂无本地翻译记录</div>
+              )}
+              {argosLogsLoading && argosLogs.length === 0 && (
+                <div className="p-4 text-center text-gray-500 dark:text-gray-400">加载中...</div>
+              )}
+            </div>
+            {argosLogTotalPages > 1 && (
+              <div className="px-3 py-2 border-t dark:border-gray-700 flex items-center justify-end gap-2 text-sm">
+                <button
+                  onClick={() => setArgosLogPage((page) => Math.max(1, page - 1))}
+                  disabled={argosLogPage <= 1}
+                  className="px-2 py-1 border dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 dark:text-gray-200"
+                >
+                  上一页
+                </button>
+                <span className="text-gray-500 dark:text-gray-400">
+                  {argosLogPage} / {argosLogTotalPages}
+                </span>
+                <button
+                  onClick={() => setArgosLogPage((page) => Math.min(argosLogTotalPages, page + 1))}
+                  disabled={argosLogPage >= argosLogTotalPages}
+                  className="px-2 py-1 border dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 dark:text-gray-200"
+                >
+                  下一页
+                </button>
               </div>
             )}
           </div>

@@ -11,6 +11,7 @@ from app.models.recommended_feed import RecommendedFeed
 from app.models.keyword_subscription import KeywordSubscription
 from app.models.proxy_pool import ProxyPoolEntry
 from app.models.google_translate_key import GoogleTranslateKey
+from app.models.argos_translation_log import ArgosTranslationLog
 
 __all__ = [
     "User",
@@ -27,4 +28,5 @@ __all__ = [
     "KeywordSubscription",
     "ProxyPoolEntry",
     "GoogleTranslateKey",
+    "ArgosTranslationLog",
 ]

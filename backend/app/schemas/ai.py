@@ -1,4 +1,6 @@
 """AI schemas for request/response validation."""
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -117,6 +119,36 @@ class ArgosPackageTestResponse(BaseModel):
     success: bool
     message: str
     translation: str | None = None
+
+
+class ArgosTranslationLogResponse(BaseModel):
+    """Schema for one Argos local translation log entry."""
+    id: int
+    article_id: int | None
+    feed_id: int | None
+    feed_title: str | None
+    article_title: str | None
+    source_language: str
+    target_language: str
+    status: str
+    title_chars: int
+    content_chars: int
+    duration_ms: int | None
+    error: str | None
+    started_at: datetime
+    completed_at: datetime | None
+
+    class Config:
+        from_attributes = True
+
+
+class ArgosTranslationLogsResponse(BaseModel):
+    """Schema for paginated Argos local translation logs."""
+    items: list[ArgosTranslationLogResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
 
 
 # ============ Content Analysis Schemas ============
