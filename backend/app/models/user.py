@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from app.models.category import Category
     from app.models.custom_rule import CustomRule
     from app.models.feed import Feed
+    from app.models.google_translate_key import GoogleTranslateKey
     from app.models.keyword_subscription import KeywordSubscription
 
 
@@ -67,6 +68,9 @@ class User(BaseModel):
     )
     keyword_subscriptions: Mapped[List["KeywordSubscription"]] = relationship(
         "KeywordSubscription", back_populates="user", cascade="all, delete-orphan"
+    )
+    google_translate_keys: Mapped[List["GoogleTranslateKey"]] = relationship(
+        "GoogleTranslateKey", back_populates="user", cascade="all, delete-orphan"
     )
 
     def set_password(self, password: str) -> None:

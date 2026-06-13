@@ -59,6 +59,11 @@ const parseTranslation = (translation: string | null | undefined): { title: stri
   }
 }
 
+const getDisplayTitle = (article: Article): string => {
+  const translatedData = parseTranslation(article.translation)
+  return translatedData.title || article.title
+}
+
 const PAGE_SIZE = 30
 
 export default function HomePage() {
@@ -518,7 +523,7 @@ export default function HomePage() {
                           'text-sm truncate flex-1',
                           !article.is_read ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400'
                         )}>
-                          {article.title}
+                          {getDisplayTitle(article)}
                         </h3>
                       </div>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">

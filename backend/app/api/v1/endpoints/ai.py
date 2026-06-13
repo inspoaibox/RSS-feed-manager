@@ -21,9 +21,16 @@ from app.schemas.ai import (
     TranslateRequest,
     TranslateResponse,
 )
+from app.schemas.google_translate_key import (
+    GoogleTranslateKeyCreate,
+    GoogleTranslateKeyResponse,
+    GoogleTranslateKeyTestResponse,
+    GoogleTranslateKeyUpdate,
+)
 from app.services.ai_service import AIService
 from app.services.content_analysis_service import ContentAnalysisService
 from app.services.embedding_service import EmbeddingService
+from app.services.google_translate_key_service import GoogleTranslateKeyService
 from app.repositories.analysis_query_repository import AnalysisQueryRepository
 from app.repositories.ai_repository import AIProviderRepository
 from app.services.ai_client import create_ai_client
@@ -171,6 +178,63 @@ async def update_ai_settings(
     """Update AI prompt settings."""
     service = AIService(db)
     return await service.update_settings(user_id, data)
+
+
+@router.get("/google-translate-keys", response_model=List[GoogleTranslateKeyResponse])
+async def get_google_translate_keys(user_id: CurrentUserId, db: DbSession):
+    """Get paid Google Translate API keys for rotation."""
+    return await GoogleTranslateKeyService(db).list(user_id)
+
+
+@router.post(
+    "/google-translate-keys",
+    response_model=GoogleTranslateKeyResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_google_translate_key(
+    data: GoogleTranslateKeyCreate,
+    user_id: CurrentUserId,
+    db: DbSession,
+):
+    """Create a paid Google Translate API key."""
+    return await GoogleTranslateKeyService(db).create(user_id, data)
+
+
+@router.put("/google-translate-keys/{key_id}", response_model=GoogleTranslateKeyResponse)
+async def update_google_translate_key(
+    key_id: int,
+    data: GoogleTranslateKeyUpdate,
+    user_id: CurrentUserId,
+    db: DbSession,
+):
+    """Update a paid Google Translate API key."""
+    return await GoogleTranslateKeyService(db).update(user_id, key_id, data)
+
+
+@router.delete("/google-translate-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_google_translate_key(key_id: int, user_id: CurrentUserId, db: DbSession):
+    """Delete a paid Google Translate API key."""
+    await GoogleTranslateKeyService(db).delete(user_id, key_id)
+
+
+@router.post("/google-translate-keys/{key_id}/reset", response_model=GoogleTranslateKeyResponse)
+async def reset_google_translate_key_usage(
+    key_id: int,
+    user_id: CurrentUserId,
+    db: DbSession,
+):
+    """Reset usage counters for a paid Google Translate API key."""
+    return await GoogleTranslateKeyService(db).reset_usage(user_id, key_id)
+
+
+@router.post("/google-translate-keys/{key_id}/test", response_model=GoogleTranslateKeyTestResponse)
+async def test_google_translate_key(
+    key_id: int,
+    user_id: CurrentUserId,
+    db: DbSession,
+):
+    """Test a paid Google Translate API key."""
+    return await GoogleTranslateKeyService(db).test(user_id, key_id)
 
 
 # ============ Content Analysis Endpoints ============

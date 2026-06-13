@@ -5,6 +5,8 @@ from typing import Literal
 from pydantic import BaseModel, Field, HttpUrl
 
 FeedBrowserEngine = Literal["http", "playwright", "cloakbrowser"]
+FeedProxyMode = Literal["none", "single", "pool"]
+FeedProxyProtocol = Literal["http", "https", "socks4", "socks5", "socks5h"]
 
 
 class FeedCreate(BaseModel):
@@ -16,6 +18,9 @@ class FeedCreate(BaseModel):
     browser_engine: FeedBrowserEngine | None = None
     proxy_enabled: bool = False
     proxy_url: str | None = Field(None, max_length=2048)
+    proxy_mode: FeedProxyMode | None = None
+    proxy_pool_country: str | None = Field(None, max_length=20)
+    proxy_pool_protocol: FeedProxyProtocol | None = None
     auto_translate: bool = False  # Auto translate articles using AI
     auto_summarize: bool = False  # Auto summarize articles using AI
     target_language: str | None = Field(None, max_length=10)  # Target language for translation
@@ -42,6 +47,9 @@ class FeedUpdate(BaseModel):
     browser_engine: FeedBrowserEngine | None = None
     proxy_enabled: bool | None = None
     proxy_url: str | None = Field(None, max_length=2048)
+    proxy_mode: FeedProxyMode | None = None
+    proxy_pool_country: str | None = Field(None, max_length=20)
+    proxy_pool_protocol: FeedProxyProtocol | None = None
     position: int | None = None
 
 
@@ -70,6 +78,9 @@ class FeedResponse(BaseModel):
     browser_engine: FeedBrowserEngine = "http"
     proxy_enabled: bool = False
     proxy_url: str | None = None
+    proxy_mode: FeedProxyMode = "none"
+    proxy_pool_country: str | None = None
+    proxy_pool_protocol: FeedProxyProtocol | None = None
     position: int = 0
     unread_count: int = 0
     article_count: int = 0

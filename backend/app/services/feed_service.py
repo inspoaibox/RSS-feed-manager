@@ -10,6 +10,7 @@ from app.models.feed import Feed
 from app.repositories.article_repository import ArticleRepository
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.feed_repository import FeedRepository
+from app.repositories.proxy_pool_repository import ProxyPoolRepository
 from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.schemas.feed import FeedCreate, FeedReorder, FeedResponse, FeedUpdate, OPMLImportResult
 from app.utils.feed_parser import (
@@ -35,6 +36,7 @@ class FeedService:
         self.category_repo = CategoryRepository(session)
         self.article_repo = ArticleRepository(session)
         self.settings_repo = SystemSettingsRepository(session)
+        self.proxy_repo = ProxyPoolRepository(session)
 
     async def _get_allowed_intervals(self) -> list[int]:
         """Get allowed sync intervals from system settings."""
@@ -66,20 +68,46 @@ class FeedService:
 
     def _normalize_proxy_config(
         self,
+        proxy_mode: str | None,
         proxy_enabled: bool | None,
         proxy_url: str | None,
-    ) -> tuple[bool, str | None]:
+        proxy_pool_country: str | None = None,
+        proxy_pool_protocol: str | None = None,
+    ) -> tuple[str, bool, str | None, str | None, str | None]:
         """Normalize and validate per-feed proxy settings."""
-        enabled = bool(proxy_enabled)
-        normalized_url = proxy_url.strip() if proxy_url else None
+        mode = (proxy_mode or ("single" if proxy_enabled else "none")).strip().lower()
+        if mode not in {"none", "single", "pool"}:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="代理模式无效",
+            )
 
-        if not enabled:
-            return False, None
+        normalized_url = proxy_url.strip() if proxy_url else None
+        normalized_country = proxy_pool_country.strip().lower() if proxy_pool_country else None
+        normalized_protocol = proxy_pool_protocol.strip().lower() if proxy_pool_protocol else None
+
+        if normalized_protocol and normalized_protocol not in {
+            "http",
+            "https",
+            "socks4",
+            "socks5",
+            "socks5h",
+        }:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="代理池协议筛选无效",
+            )
+
+        if mode == "none":
+            return "none", False, None, None, None
+
+        if mode == "pool":
+            return "pool", True, None, normalized_country, normalized_protocol
 
         if not normalized_url:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="启用代理时必须填写代理地址",
+                detail="使用单个代理时必须填写代理地址",
             )
 
         parsed = urlparse(normalized_url)
@@ -89,7 +117,54 @@ class FeedService:
                 detail="代理地址格式无效，请使用 http://host:port 或 socks5://host:port",
             )
 
-        return True, normalized_url
+        return "single", True, normalized_url, None, None
+
+    async def _parse_feed_with_proxy(
+        self,
+        user_id: int,
+        url: str,
+        browser_engine: str | None,
+        proxy_mode: str,
+        proxy_url: str | None,
+        proxy_pool_country: str | None,
+        proxy_pool_protocol: str | None,
+        use_playwright: bool = False,
+    ) -> ParsedFeed:
+        """Parse a feed, rotating through proxy pool candidates when configured."""
+        if proxy_mode == "pool":
+            candidates = await self.proxy_repo.get_candidates(
+                user_id,
+                country=proxy_pool_country,
+                protocol=proxy_pool_protocol,
+            )
+            if not candidates:
+                raise FeedParserError("代理池没有可用代理")
+
+            last_error = ""
+            for proxy in candidates:
+                try:
+                    parsed = await parse_feed(
+                        url,
+                        use_playwright=use_playwright,
+                        browser_engine=browser_engine,
+                        proxy_url=proxy.proxy_url,
+                    )
+                    await self.proxy_repo.record_success(proxy)
+                    await self.session.commit()
+                    return parsed
+                except Exception as exc:
+                    last_error = str(exc)
+                    await self.proxy_repo.record_failure(proxy, last_error)
+                    await self.session.commit()
+
+            raise FeedParserError(f"代理池全部失败: {last_error or '未知错误'}")
+
+        return await parse_feed(
+            url,
+            use_playwright=use_playwright,
+            browser_engine=browser_engine,
+            proxy_url=proxy_url if proxy_mode == "single" else None,
+        )
 
     async def create(self, user_id: int, data: FeedCreate) -> FeedResponse:
         """Create a new feed by parsing the URL."""
@@ -110,17 +185,30 @@ class FeedService:
                 )
         
         browser_engine = data.resolved_browser_engine
-        proxy_enabled, proxy_url = self._normalize_proxy_config(
+        (
+            proxy_mode,
+            proxy_enabled,
+            proxy_url,
+            proxy_pool_country,
+            proxy_pool_protocol,
+        ) = self._normalize_proxy_config(
+            data.proxy_mode,
             data.proxy_enabled,
             data.proxy_url,
+            data.proxy_pool_country,
+            data.proxy_pool_protocol,
         )
 
         # Parse the feed
         try:
-            parsed = await parse_feed(
+            parsed = await self._parse_feed_with_proxy(
+                user_id,
                 data.url,
                 browser_engine=browser_engine,
-                proxy_url=proxy_url if proxy_enabled else None,
+                proxy_mode=proxy_mode,
+                proxy_url=proxy_url,
+                proxy_pool_country=proxy_pool_country,
+                proxy_pool_protocol=proxy_pool_protocol,
             )
         except FeedParserError as e:
             raise HTTPException(
@@ -145,6 +233,9 @@ class FeedService:
             browser_engine=browser_engine,
             proxy_enabled=proxy_enabled,
             proxy_url=proxy_url,
+            proxy_mode=proxy_mode,
+            proxy_pool_country=proxy_pool_country,
+            proxy_pool_protocol=proxy_pool_protocol,
             auto_translate=data.auto_translate,
             auto_summarize=data.auto_summarize,
             target_language=data.target_language,
@@ -152,7 +243,7 @@ class FeedService:
         )
         
         # Save articles from the feed
-        article_count = await self._save_articles(feed.id, parsed)
+        article_count = await self._save_articles(user_id, feed, parsed)
         
         return self._to_response(feed, article_count=article_count)
 
@@ -220,13 +311,34 @@ class FeedService:
                 update_data["use_playwright"],
             )
 
-        if "proxy_enabled" in update_data or "proxy_url" in update_data:
-            proxy_enabled, proxy_url = self._normalize_proxy_config(
+        if any(
+            key in update_data
+            for key in [
+                "proxy_mode",
+                "proxy_enabled",
+                "proxy_url",
+                "proxy_pool_country",
+                "proxy_pool_protocol",
+            ]
+        ):
+            (
+                proxy_mode,
+                proxy_enabled,
+                proxy_url,
+                proxy_pool_country,
+                proxy_pool_protocol,
+            ) = self._normalize_proxy_config(
+                update_data.get("proxy_mode", getattr(feed, "proxy_mode", None)),
                 update_data.get("proxy_enabled", feed.proxy_enabled),
                 update_data.get("proxy_url", feed.proxy_url),
+                update_data.get("proxy_pool_country", getattr(feed, "proxy_pool_country", None)),
+                update_data.get("proxy_pool_protocol", getattr(feed, "proxy_pool_protocol", None)),
             )
+            update_data["proxy_mode"] = proxy_mode
             update_data["proxy_enabled"] = proxy_enabled
             update_data["proxy_url"] = proxy_url
+            update_data["proxy_pool_country"] = proxy_pool_country
+            update_data["proxy_pool_protocol"] = proxy_pool_protocol
         
         # Validate fetch interval if provided
         if 'fetch_interval' in update_data:
@@ -283,15 +395,23 @@ class FeedService:
         else:
             # Normal RSS feed refresh
             try:
-                parsed = await parse_feed(
+                parsed = await self._parse_feed_with_proxy(
+                    user_id,
                     feed.url,
                     use_playwright=feed.use_playwright,
                     browser_engine=getattr(feed, "browser_engine", None),
-                    proxy_url=feed.proxy_url if feed.proxy_enabled else None,
+                    proxy_mode=getattr(
+                        feed,
+                        "proxy_mode",
+                        "single" if feed.proxy_enabled else "none",
+                    ),
+                    proxy_url=feed.proxy_url,
+                    proxy_pool_country=getattr(feed, "proxy_pool_country", None),
+                    proxy_pool_protocol=getattr(feed, "proxy_pool_protocol", None),
                 )
                 await self.repo.update_fetch_status(feed, success=True)
                 # Save new articles
-                await self._save_articles(feed_id, parsed)
+                await self._save_articles(user_id, feed, parsed)
             except FeedParserError as e:
                 await self.repo.update_fetch_status(feed, success=False, error=str(e))
                 raise HTTPException(
@@ -320,14 +440,22 @@ class FeedService:
         
         for feed in feeds:
             try:
-                parsed = await parse_feed(
+                parsed = await self._parse_feed_with_proxy(
+                    user_id,
                     feed.url,
                     use_playwright=feed.use_playwright,
                     browser_engine=getattr(feed, "browser_engine", None),
-                    proxy_url=feed.proxy_url if feed.proxy_enabled else None,
+                    proxy_mode=getattr(
+                        feed,
+                        "proxy_mode",
+                        "single" if feed.proxy_enabled else "none",
+                    ),
+                    proxy_url=feed.proxy_url,
+                    proxy_pool_country=getattr(feed, "proxy_pool_country", None),
+                    proxy_pool_protocol=getattr(feed, "proxy_pool_protocol", None),
                 )
                 await self.repo.update_fetch_status(feed, success=True)
-                count = await self._save_articles(feed.id, parsed)
+                count = await self._save_articles(user_id, feed, parsed)
                 new_articles += count
                 success += 1
             except FeedParserError as e:
@@ -420,17 +548,17 @@ class FeedService:
         
         return generate_opml(feed_data)
 
-    async def _save_articles(self, feed_id: int, parsed: ParsedFeed) -> int:
+    async def _save_articles(self, user_id: int, feed: Feed, parsed: ParsedFeed) -> int:
         """Save articles from parsed feed. Returns count of new articles."""
         count = 0
         for article in parsed.articles:
             # Check if article already exists
-            existing = await self.article_repo.get_by_guid(feed_id, article.guid)
+            existing = await self.article_repo.get_by_guid(feed.id, article.guid)
             if existing:
                 continue
             
-            await self.article_repo.create(
-                feed_id=feed_id,
+            saved_article = await self.article_repo.create(
+                feed_id=feed.id,
                 guid=article.guid,
                 title=article.title,
                 link=article.link,
@@ -438,9 +566,29 @@ class FeedService:
                 author=article.author,
                 published_at=article.published_at
             )
+            await self._auto_translate_article(user_id, feed, saved_article.id)
             count += 1
         
         return count
+
+    async def _auto_translate_article(self, user_id: int, feed: Feed, article_id: int) -> None:
+        """Translate a newly saved article when the feed has translation enabled."""
+        translate_method = getattr(feed, 'translate_method', None) or (
+            'ai' if feed.auto_translate else 'none'
+        )
+        if translate_method == 'none' or not feed.target_language:
+            return
+
+        try:
+            from app.services.article_service import ArticleService
+
+            await ArticleService(self.session).translate_article(
+                user_id,
+                article_id,
+                feed.target_language,
+            )
+        except Exception as e:
+            print(f"[FeedService] Auto translation failed for article {article_id}: {e}")
 
     async def reorder(self, user_id: int, data: FeedReorder) -> List[FeedResponse]:
         """Reorder feeds by updating their positions."""
@@ -477,6 +625,13 @@ class FeedService:
             ),
             proxy_enabled=getattr(feed, 'proxy_enabled', False),
             proxy_url=getattr(feed, 'proxy_url', None),
+            proxy_mode=getattr(
+                feed,
+                'proxy_mode',
+                "single" if getattr(feed, 'proxy_enabled', False) else "none",
+            ),
+            proxy_pool_country=getattr(feed, 'proxy_pool_country', None),
+            proxy_pool_protocol=getattr(feed, 'proxy_pool_protocol', None),
             position=feed.position,
             unread_count=unread_count,
             article_count=article_count

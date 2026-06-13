@@ -42,6 +42,9 @@ class Feed(BaseModel):
     browser_engine: Mapped[str] = mapped_column(String(20), default="http")  # http, playwright, cloakbrowser
     proxy_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     proxy_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    proxy_mode: Mapped[str] = mapped_column(String(20), default="none", nullable=False)  # none, single, pool
+    proxy_pool_country: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    proxy_pool_protocol: Mapped[str | None] = mapped_column(String(20), nullable=True)
     
     # AI settings
     auto_translate: Mapped[bool] = mapped_column(Boolean, default=False)

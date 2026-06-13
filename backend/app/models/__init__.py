@@ -9,6 +9,8 @@ from app.models.system_settings import SystemSettings
 from app.models.analysis_query import AnalysisQuery
 from app.models.recommended_feed import RecommendedFeed
 from app.models.keyword_subscription import KeywordSubscription
+from app.models.proxy_pool import ProxyPoolEntry
+from app.models.google_translate_key import GoogleTranslateKey
 
 __all__ = [
     "User",
@@ -23,4 +25,6 @@ __all__ = [
     "AnalysisQuery",
     "RecommendedFeed",
     "KeywordSubscription",
+    "ProxyPoolEntry",
+    "GoogleTranslateKey",
 ]

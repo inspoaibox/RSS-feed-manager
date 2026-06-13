@@ -30,6 +30,9 @@ class FeedRepository:
         browser_engine: str = "http",
         proxy_enabled: bool = False,
         proxy_url: str | None = None,
+        proxy_mode: str = "none",
+        proxy_pool_country: str | None = None,
+        proxy_pool_protocol: str | None = None,
         auto_translate: bool = False,
         auto_summarize: bool = False,
         target_language: str | None = None,
@@ -56,6 +59,9 @@ class FeedRepository:
             browser_engine=browser_engine,
             proxy_enabled=proxy_enabled,
             proxy_url=proxy_url,
+            proxy_mode=proxy_mode,
+            proxy_pool_country=proxy_pool_country,
+            proxy_pool_protocol=proxy_pool_protocol,
             auto_translate=auto_translate,
             auto_summarize=auto_summarize,
             target_language=target_language,
@@ -121,7 +127,13 @@ class FeedRepository:
 
     async def update(self, feed: Feed, **kwargs) -> Feed:
         """Update feed fields."""
-        nullable_fields = {"category_id", "target_language", "proxy_url"}
+        nullable_fields = {
+            "category_id",
+            "target_language",
+            "proxy_url",
+            "proxy_pool_country",
+            "proxy_pool_protocol",
+        }
         for key, value in kwargs.items():
             if hasattr(feed, key) and (value is not None or key in nullable_fields):
                 setattr(feed, key, value)

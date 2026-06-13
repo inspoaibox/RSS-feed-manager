@@ -129,6 +129,13 @@ async def export_all(user_id: CurrentUserId, db: DbSession):
                 ),
                 "proxy_enabled": getattr(f, "proxy_enabled", False),
                 "proxy_url": getattr(f, "proxy_url", None),
+                "proxy_mode": getattr(
+                    f,
+                    "proxy_mode",
+                    "single" if getattr(f, "proxy_enabled", False) else "none",
+                ),
+                "proxy_pool_country": getattr(f, "proxy_pool_country", None),
+                "proxy_pool_protocol": getattr(f, "proxy_pool_protocol", None),
             }
             for f in feeds
         ],
@@ -253,6 +260,12 @@ async def import_all(
                 browser_engine=browser_engine,
                 proxy_enabled=feed_data.get("proxy_enabled", False),
                 proxy_url=feed_data.get("proxy_url") if feed_data.get("proxy_enabled", False) else None,
+                proxy_mode=feed_data.get(
+                    "proxy_mode",
+                    "single" if feed_data.get("proxy_enabled", False) else "none",
+                ),
+                proxy_pool_country=feed_data.get("proxy_pool_country"),
+                proxy_pool_protocol=feed_data.get("proxy_pool_protocol"),
             )
             db.add(feed)
             feeds_imported += 1
@@ -440,6 +453,13 @@ async def generate_backup_data(db: DbSession, user_id: int) -> dict:
                 ),
                 "proxy_enabled": getattr(f, "proxy_enabled", False),
                 "proxy_url": getattr(f, "proxy_url", None),
+                "proxy_mode": getattr(
+                    f,
+                    "proxy_mode",
+                    "single" if getattr(f, "proxy_enabled", False) else "none",
+                ),
+                "proxy_pool_country": getattr(f, "proxy_pool_country", None),
+                "proxy_pool_protocol": getattr(f, "proxy_pool_protocol", None),
             }
             for f in feeds
         ],
@@ -780,6 +800,12 @@ async def restore_from_webdav(filename: str, user_id: CurrentUserId, db: DbSessi
                     browser_engine=browser_engine,
                     proxy_enabled=feed_data.get("proxy_enabled", False),
                     proxy_url=feed_data.get("proxy_url") if feed_data.get("proxy_enabled", False) else None,
+                    proxy_mode=feed_data.get(
+                        "proxy_mode",
+                        "single" if feed_data.get("proxy_enabled", False) else "none",
+                    ),
+                    proxy_pool_country=feed_data.get("proxy_pool_country"),
+                    proxy_pool_protocol=feed_data.get("proxy_pool_protocol"),
                 )
                 db.add(feed)
                 feeds_imported += 1

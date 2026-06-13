@@ -1,5 +1,6 @@
 """Feed-related background tasks."""
 import asyncio
+import json
 import os
 from datetime import datetime, timedelta
 from typing import Optional
@@ -11,8 +12,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.models.article import Article
 from app.models.feed import Feed
 from app.models.custom_rule import CustomRule
+from app.models.proxy_pool import ProxyPoolEntry
 from app.models.ai_provider import AIModel, AIProvider
-from app.utils.feed_parser import parse_feed, ParsedFeed
+from app.utils.feed_parser import FeedParserError, parse_feed, ParsedFeed
 
 
 # Create sync engine for Celery tasks
@@ -99,8 +101,10 @@ def _process_article_with_ai(db: Session, article: Article, feed: Feed) -> None:
     if translate_method == 'none' and not feed.auto_summarize:
         return
     
-    content = article.content or article.title
-    if not content:
+    title = article.title or ""
+    content = article.content or ""
+    content_for_ai = content or title
+    if not content_for_ai:
         return
     
     # Get user info
@@ -116,11 +120,22 @@ def _process_article_with_ai(db: Session, article: Article, feed: Feed) -> None:
         if translate_method == 'google' and feed.target_language:
             # Use Google Translate
             try:
-                from app.services.google_translate_service import GoogleTranslateService, GoogleTranslateError
-                google_api_key = user.google_translate_api_key if user else None
-                google_service = GoogleTranslateService(api_key=google_api_key)
-                translation = loop.run_until_complete(google_service.translate(content, feed.target_language))
-                article.translation = translation
+                from app.services.google_translate_key_service import (
+                    translate_google_article_sync,
+                )
+                from app.services.google_translate_service import GoogleTranslateError
+                translated_title, translated_content = translate_google_article_sync(
+                    db,
+                    feed.user_id,
+                    title,
+                    content,
+                    feed.target_language,
+                    loop,
+                )
+                article.translation = json.dumps(
+                    {"title": translated_title, "content": translated_content},
+                    ensure_ascii=False,
+                )
                 print(f"Google translated article {article.id}: {article.title[:50]}...")
             except GoogleTranslateError as e:
                 print(f"Google translate error for article {article.id}: {e}")
@@ -149,8 +164,20 @@ def _process_article_with_ai(db: Session, article: Article, feed: Feed) -> None:
                     try:
                         from app.services.ai_client import create_ai_client, AIClientError
                         client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
-                        translation = loop.run_until_complete(client.translate(content, feed.target_language, translate_prompt))
-                        article.translation = translation
+                        translated_title = (
+                            loop.run_until_complete(client.translate(title, feed.target_language, translate_prompt))
+                            if title
+                            else ""
+                        )
+                        translated_content = (
+                            loop.run_until_complete(client.translate(content, feed.target_language, translate_prompt))
+                            if content
+                            else ""
+                        )
+                        article.translation = json.dumps(
+                            {"title": translated_title, "content": translated_content},
+                            ensure_ascii=False,
+                        )
                     except AIClientError as e:
                         print(f"AI translate error for article {article.id}: {e}")
         
@@ -178,7 +205,7 @@ def _process_article_with_ai(db: Session, article: Article, feed: Feed) -> None:
                     try:
                         from app.services.ai_client import create_ai_client, AIClientError
                         client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
-                        summary = loop.run_until_complete(client.summarize(content, summarize_prompt))
+                        summary = loop.run_until_complete(client.summarize(content_for_ai, summarize_prompt))
                         article.summary = summary
                     except AIClientError as e:
                         print(f"AI summarize error for article {article.id}: {e}")
@@ -190,25 +217,114 @@ def _process_article_with_ai(db: Session, article: Article, feed: Feed) -> None:
         loop.close()
 
 
+def _translation_has_title(translation: str | None) -> bool:
+    """Return whether a stored translation already contains a translated title."""
+    if not translation:
+        return False
+    try:
+        data = json.loads(translation)
+    except (TypeError, json.JSONDecodeError):
+        return False
+    return bool(data.get("title"))
+
+
+def _record_proxy_success_sync(db: Session, proxy: ProxyPoolEntry) -> None:
+    proxy.fail_count = 0
+    proxy.is_active = True
+    proxy.last_error = None
+    proxy.last_used_at = datetime.utcnow()
+    proxy.last_tested_at = datetime.utcnow()
+    db.flush()
+
+
+def _record_proxy_failure_sync(db: Session, proxy: ProxyPoolEntry, error: str) -> None:
+    proxy.fail_count += 1
+    if proxy.fail_count >= 5:
+        proxy.is_active = False
+    proxy.last_error = error[:1000]
+    proxy.last_used_at = datetime.utcnow()
+    proxy.last_tested_at = datetime.utcnow()
+    db.flush()
+
+
+def _get_proxy_candidates_sync(db: Session, feed: Feed) -> list[ProxyPoolEntry]:
+    query = select(ProxyPoolEntry).where(
+        ProxyPoolEntry.user_id == feed.user_id,
+        ProxyPoolEntry.is_active == True,
+    )
+    country = getattr(feed, "proxy_pool_country", None)
+    protocol = getattr(feed, "proxy_pool_protocol", None)
+    if country:
+        query = query.where(ProxyPoolEntry.country == country)
+    if protocol:
+        query = query.where(ProxyPoolEntry.protocol == protocol)
+    query = query.order_by(
+        ProxyPoolEntry.fail_count,
+        ProxyPoolEntry.last_used_at.is_not(None),
+        ProxyPoolEntry.last_used_at,
+        ProxyPoolEntry.last_latency_ms.is_(None),
+        ProxyPoolEntry.last_latency_ms,
+        ProxyPoolEntry.id,
+    )
+    return list(db.execute(query).scalars().all())
+
+
+def _parse_feed_for_sync_refresh(db: Session, feed: Feed) -> ParsedFeed:
+    """Parse a feed for Celery refresh, rotating pool proxies when configured."""
+    proxy_mode = getattr(
+        feed,
+        "proxy_mode",
+        "single" if getattr(feed, "proxy_enabled", False) else "none",
+    )
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        if proxy_mode == "pool":
+            candidates = _get_proxy_candidates_sync(db, feed)
+            if not candidates:
+                raise FeedParserError("代理池没有可用代理")
+
+            last_error = ""
+            for proxy in candidates:
+                try:
+                    parsed = loop.run_until_complete(
+                        parse_feed(
+                            feed.url,
+                            use_playwright=feed.use_playwright,
+                            browser_engine=getattr(feed, "browser_engine", None),
+                            proxy_url=proxy.proxy_url,
+                        )
+                    )
+                    _record_proxy_success_sync(db, proxy)
+                    return parsed
+                except Exception as exc:
+                    last_error = str(exc)
+                    _record_proxy_failure_sync(db, proxy, last_error)
+
+            raise FeedParserError(f"代理池全部失败: {last_error or '未知错误'}")
+
+        proxy_url = (
+            getattr(feed, "proxy_url", None)
+            if proxy_mode == "single" and getattr(feed, "proxy_enabled", False)
+            else None
+        )
+        return loop.run_until_complete(
+            parse_feed(
+                feed.url,
+                use_playwright=feed.use_playwright,
+                browser_engine=getattr(feed, "browser_engine", None),
+                proxy_url=proxy_url,
+            )
+        )
+    finally:
+        loop.close()
+
+
 def _refresh_feed_sync(db: Session, feed: Feed) -> int:
     """Refresh a single feed and return number of new articles (sync version)."""
     try:
-        # Run async parse_feed in event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            parsed: Optional[ParsedFeed] = loop.run_until_complete(
-                parse_feed(
-                    feed.url,
-                    use_playwright=feed.use_playwright,
-                    browser_engine=getattr(feed, "browser_engine", None),
-                    proxy_url=getattr(feed, "proxy_url", None)
-                    if getattr(feed, "proxy_enabled", False)
-                    else None,
-                )
-            )
-        finally:
-            loop.close()
+        parsed: Optional[ParsedFeed] = _parse_feed_for_sync_refresh(db, feed)
         
         if not parsed:
             feed.last_error = "Failed to parse feed"
@@ -805,13 +921,17 @@ def translate_feed_articles(feed_id: int) -> dict:
             select(User).where(User.id == feed.user_id)
         ).scalar_one_or_none()
         
-        # Get untranslated articles
-        articles = db.execute(
+        # Get articles without translation, or legacy plain-text translations without a title.
+        candidate_articles = db.execute(
             select(Article).where(
-                Article.feed_id == feed_id,
-                Article.translation == None
+                Article.feed_id == feed_id
             )
         ).scalars().all()
+        articles = [
+            article
+            for article in candidate_articles
+            if not _translation_has_title(article.translation)
+        ]
         
         if not articles:
             return {"success": True, "translated": 0, "message": "No articles to translate"}
@@ -824,18 +944,30 @@ def translate_feed_articles(feed_id: int) -> dict:
         try:
             if translate_method == 'google':
                 # Use Google Translate
-                from app.services.google_translate_service import GoogleTranslateService, GoogleTranslateError
-                google_api_key = user.google_translate_api_key if user else None
-                google_service = GoogleTranslateService(api_key=google_api_key)
+                from app.services.google_translate_key_service import (
+                    translate_google_article_sync,
+                )
+                from app.services.google_translate_service import GoogleTranslateError
                 
                 for article in articles:
-                    content = article.content or article.title
-                    if not content:
+                    title = article.title or ""
+                    content = article.content or ""
+                    if not title and not content:
                         continue
                     
                     try:
-                        translation = loop.run_until_complete(google_service.translate(content, feed.target_language))
-                        article.translation = translation
+                        translated_title, translated_content = translate_google_article_sync(
+                            db,
+                            feed.user_id,
+                            title,
+                            content,
+                            feed.target_language,
+                            loop,
+                        )
+                        article.translation = json.dumps(
+                            {"title": translated_title, "content": translated_content},
+                            ensure_ascii=False,
+                        )
                         db.commit()
                         translated_count += 1
                         print(f"Google translated article {article.id}: {article.title[:50]}...")
@@ -873,13 +1005,26 @@ def translate_feed_articles(feed_id: int) -> dict:
                 client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
                 
                 for article in articles:
-                    content = article.content or article.title
-                    if not content:
+                    title = article.title or ""
+                    content = article.content or ""
+                    if not title and not content:
                         continue
                     
                     try:
-                        translation = loop.run_until_complete(client.translate(content, feed.target_language, translate_prompt))
-                        article.translation = translation
+                        translated_title = (
+                            loop.run_until_complete(client.translate(title, feed.target_language, translate_prompt))
+                            if title
+                            else ""
+                        )
+                        translated_content = (
+                            loop.run_until_complete(client.translate(content, feed.target_language, translate_prompt))
+                            if content
+                            else ""
+                        )
+                        article.translation = json.dumps(
+                            {"title": translated_title, "content": translated_content},
+                            ensure_ascii=False,
+                        )
                         db.commit()
                         translated_count += 1
                         print(f"AI translated article {article.id}: {article.title[:50]}...")

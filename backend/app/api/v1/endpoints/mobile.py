@@ -44,6 +44,9 @@ class MobileFeed(BaseModel):
     browser_engine: str = "http"
     proxy_enabled: bool = False
     proxy_url: str | None = None
+    proxy_mode: str = "none"
+    proxy_pool_country: str | None = None
+    proxy_pool_protocol: str | None = None
     position: int
     unread_count: int = 0
     article_count: int = 0
@@ -161,6 +164,13 @@ def _feed_to_mobile(feed: Feed, counts: dict[str, int]) -> MobileFeed:
         ),
         proxy_enabled=getattr(feed, "proxy_enabled", False),
         proxy_url=getattr(feed, "proxy_url", None),
+        proxy_mode=getattr(
+            feed,
+            "proxy_mode",
+            "single" if getattr(feed, "proxy_enabled", False) else "none",
+        ),
+        proxy_pool_country=getattr(feed, "proxy_pool_country", None),
+        proxy_pool_protocol=getattr(feed, "proxy_pool_protocol", None),
         position=feed.position,
         unread_count=counts.get("unread_count", 0),
         article_count=counts.get("article_count", 0),

@@ -2,13 +2,13 @@ import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, FolderOpen, Languages, ChevronUp, ChevronDown, Search, Shield, Star } from 'lucide-react'
 import api from '@/services/api'
-import type { Category, Feed, AIProvider, AIModel, CustomRule, FeedBrowserEngine } from '@/types'
+import type { Category, Feed, AIProvider, AIModel, CustomRule, FeedBrowserEngine, FeedProxyMode, GoogleTranslateKey, ProxyPoolEntry, ProxyPoolGroups, ProxyPoolImportResult, ProxyPoolTestResult, ProxyProtocol } from '@/types'
 import { useThemeStore, type ThemeColor } from '@/stores/themeStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useSyncIntervals } from '@/hooks/useSyncIntervals'
 import NotificationManagement from '@/components/NotificationManagement'
 
-type Tab = 'feeds' | 'categories' | 'ai' | 'rules' | 'backup' | 'appearance' | 'system'
+type Tab = 'feeds' | 'categories' | 'ai' | 'rules' | 'proxies' | 'backup' | 'appearance' | 'system'
 
 const feedBrowserEngineLabels: Record<FeedBrowserEngine, string> = {
   http: '普通抓取',
@@ -16,8 +16,28 @@ const feedBrowserEngineLabels: Record<FeedBrowserEngine, string> = {
   cloakbrowser: 'CloakBrowser',
 }
 
+const proxyProtocols: ProxyProtocol[] = ['http', 'https', 'socks4', 'socks5', 'socks5h']
+
 const resolveFeedBrowserEngine = (feed: Feed): FeedBrowserEngine => {
   return feed.browser_engine || (feed.use_playwright ? 'playwright' : 'http')
+}
+
+const resolveFeedProxyMode = (feed: Feed): FeedProxyMode => {
+  return feed.proxy_mode || (feed.proxy_enabled ? 'single' : 'none')
+}
+
+const getApiErrorMessage = (error: unknown, fallback: string) => {
+  const response = (error as { response?: { data?: { detail?: unknown } } } | null)?.response
+  const detail = response?.data?.detail
+  if (Array.isArray(detail)) {
+    return detail.map((item) => {
+      if (item && typeof item === 'object' && 'msg' in item) {
+        return String((item as { msg?: unknown }).msg)
+      }
+      return String(item)
+    }).join(', ')
+  }
+  return typeof detail === 'string' ? detail : fallback
 }
 
 export default function SettingsPage() {
@@ -30,6 +50,7 @@ export default function SettingsPage() {
     { id: 'categories', label: '分类' },
     { id: 'ai', label: 'AI 设置' },
     { id: 'rules', label: '自定义规则' },
+    { id: 'proxies', label: '代理池' },
     { id: 'backup', label: '备份恢复' },
     { id: 'appearance', label: '外观' },
     ...(isAdmin ? [{ id: 'system', label: '系统设置', icon: Shield }] : []),
@@ -46,6 +67,8 @@ export default function SettingsPage() {
         return <AITab />
       case 'rules':
         return <RulesTab />
+      case 'proxies':
+        return <ProxyPoolTab />
       case 'backup':
         return <BackupTab />
       case 'appearance':
@@ -92,8 +115,10 @@ function FeedsTab() {
   const [newFeedCategory, setNewFeedCategory] = useState<number | null>(null)
   const [newFeedInterval, setNewFeedInterval] = useState<number | null>(null)
   const [newFeedBrowserEngine, setNewFeedBrowserEngine] = useState<FeedBrowserEngine>('http')
-  const [newFeedProxyEnabled, setNewFeedProxyEnabled] = useState(false)
+  const [newFeedProxyMode, setNewFeedProxyMode] = useState<FeedProxyMode>('none')
   const [newFeedProxyUrl, setNewFeedProxyUrl] = useState('')
+  const [newFeedProxyPoolCountry, setNewFeedProxyPoolCountry] = useState('')
+  const [newFeedProxyPoolProtocol, setNewFeedProxyPoolProtocol] = useState('')
 
   const [newFeedAutoSummarize, setNewFeedAutoSummarize] = useState(false)
   const [newFeedTargetLanguage, setNewFeedTargetLanguage] = useState('zh-CN')
@@ -107,13 +132,16 @@ function FeedsTab() {
     is_active: boolean
     use_playwright: boolean
     browser_engine: FeedBrowserEngine
+    proxy_mode: FeedProxyMode
     proxy_enabled: boolean
     proxy_url: string
+    proxy_pool_country: string
+    proxy_pool_protocol: string
     auto_translate: boolean
     auto_summarize: boolean
     target_language: string
     translate_method: 'none' | 'ai' | 'google'
-  }>({ title: '', category_id: null, fetch_interval: 3600, is_active: true, use_playwright: false, browser_engine: 'http', proxy_enabled: false, proxy_url: '', auto_translate: false, auto_summarize: false, target_language: 'zh-CN', translate_method: 'none' })
+  }>({ title: '', category_id: null, fetch_interval: 3600, is_active: true, use_playwright: false, browser_engine: 'http', proxy_mode: 'none', proxy_enabled: false, proxy_url: '', proxy_pool_country: '', proxy_pool_protocol: '', auto_translate: false, auto_summarize: false, target_language: 'zh-CN', translate_method: 'none' })
   
   // Filter states
   const [searchQuery, setSearchQuery] = useState('')
@@ -131,6 +159,14 @@ function FeedsTab() {
     queryKey: ['categories'],
     queryFn: async () => {
       const response = await api.get<Category[]>('/categories')
+      return response.data
+    },
+  })
+
+  const { data: proxyGroups = { countries: [], protocols: [] } } = useQuery({
+    queryKey: ['proxy-groups'],
+    queryFn: async () => {
+      const response = await api.get<ProxyPoolGroups>('/proxies/groups')
       return response.data
     },
   })
@@ -153,8 +189,11 @@ function FeedsTab() {
         fetch_interval: newFeedInterval ?? defaultSyncInterval,
         use_playwright: newFeedBrowserEngine !== 'http',
         browser_engine: newFeedBrowserEngine,
-        proxy_enabled: newFeedProxyEnabled,
-        proxy_url: newFeedProxyEnabled ? newFeedProxyUrl.trim() : null,
+        proxy_mode: newFeedProxyMode,
+        proxy_enabled: newFeedProxyMode !== 'none',
+        proxy_url: newFeedProxyMode === 'single' ? newFeedProxyUrl.trim() : null,
+        proxy_pool_country: newFeedProxyMode === 'pool' && newFeedProxyPoolCountry ? newFeedProxyPoolCountry : null,
+        proxy_pool_protocol: newFeedProxyMode === 'pool' && newFeedProxyPoolProtocol ? newFeedProxyPoolProtocol : null,
         auto_translate: newFeedTranslateMethod !== 'none',
         auto_summarize: newFeedAutoSummarize,
         target_language: newFeedTranslateMethod !== 'none' ? newFeedTargetLanguage : null,
@@ -171,8 +210,10 @@ function FeedsTab() {
       setNewFeedCategory(null)
       setNewFeedInterval(3600)
       setNewFeedBrowserEngine('http')
-      setNewFeedProxyEnabled(false)
+      setNewFeedProxyMode('none')
       setNewFeedProxyUrl('')
+      setNewFeedProxyPoolCountry('')
+      setNewFeedProxyPoolProtocol('')
       setNewFeedAutoSummarize(false)
       setNewFeedTargetLanguage('zh-CN')
       setNewFeedTranslateMethod('none')
@@ -188,7 +229,13 @@ function FeedsTab() {
 
   const updateFeedMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number; data: typeof editData }) => {
-      const response = await api.put(`/feeds/${id}`, data)
+      const response = await api.put(`/feeds/${id}`, {
+        ...data,
+        proxy_enabled: data.proxy_mode !== 'none',
+        proxy_url: data.proxy_mode === 'single' ? data.proxy_url.trim() : null,
+        proxy_pool_country: data.proxy_mode === 'pool' && data.proxy_pool_country ? data.proxy_pool_country : null,
+        proxy_pool_protocol: data.proxy_mode === 'pool' && data.proxy_pool_protocol ? data.proxy_pool_protocol : null,
+      })
       return response.data
     },
     onSuccess: () => {
@@ -334,8 +381,11 @@ function FeedsTab() {
       is_active: feed.is_active,
       use_playwright: feed.use_playwright,
       browser_engine: resolveFeedBrowserEngine(feed),
-      proxy_enabled: feed.proxy_enabled,
+      proxy_mode: resolveFeedProxyMode(feed),
+      proxy_enabled: resolveFeedProxyMode(feed) !== 'none',
       proxy_url: feed.proxy_url || '',
+      proxy_pool_country: feed.proxy_pool_country || '',
+      proxy_pool_protocol: feed.proxy_pool_protocol || '',
       auto_translate: feed.auto_translate,
       auto_summarize: feed.auto_summarize,
       target_language: feed.target_language || 'zh-CN',
@@ -517,22 +567,51 @@ function FeedsTab() {
             <span className="text-xs text-yellow-600 dark:text-yellow-400">CloakBrowser 作为独立增强方案</span>
           </div>
           <div className="grid gap-2 p-2 bg-slate-50 dark:bg-gray-800 border border-slate-200 dark:border-gray-600 rounded">
-            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-700 dark:text-gray-200">代理配置</span>
+              <select
+                value={newFeedProxyMode}
+                onChange={(e) => setNewFeedProxyMode(e.target.value as FeedProxyMode)}
+                className="px-2 py-1 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 dark:text-white"
+              >
+                <option value="none">不使用代理</option>
+                <option value="single">单个代理</option>
+                <option value="pool">代理池轮询</option>
+              </select>
+            </div>
+            {newFeedProxyMode === 'single' && (
               <input
-                type="checkbox"
-                checked={newFeedProxyEnabled}
-                onChange={(e) => setNewFeedProxyEnabled(e.target.checked)}
+                type="text"
+                value={newFeedProxyUrl}
+                onChange={(e) => setNewFeedProxyUrl(e.target.value)}
+                placeholder="http://user:pass@host:port 或 socks5://host:port"
+                className="w-full px-3 py-2 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 dark:text-white"
               />
-              启用代理
-            </label>
-            <input
-              type="text"
-              value={newFeedProxyUrl}
-              onChange={(e) => setNewFeedProxyUrl(e.target.value)}
-              disabled={!newFeedProxyEnabled}
-              placeholder="http://user:pass@host:port 或 socks5://host:port"
-              className="w-full px-3 py-2 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 dark:text-white disabled:opacity-50"
-            />
+            )}
+            {newFeedProxyMode === 'pool' && (
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  value={newFeedProxyPoolCountry}
+                  onChange={(e) => setNewFeedProxyPoolCountry(e.target.value)}
+                  className="px-3 py-2 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 dark:text-white"
+                >
+                  <option value="">全部国家</option>
+                  {proxyGroups.countries.map((country) => (
+                    <option key={country} value={country}>{country.toUpperCase()}</option>
+                  ))}
+                </select>
+                <select
+                  value={newFeedProxyPoolProtocol}
+                  onChange={(e) => setNewFeedProxyPoolProtocol(e.target.value)}
+                  className="px-3 py-2 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 dark:text-white"
+                >
+                  <option value="">全部协议</option>
+                  {proxyProtocols.map((protocol) => (
+                    <option key={protocol} value={protocol}>{protocol}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
           <div className="flex gap-2 flex-wrap items-center">
             <div className="flex items-center gap-2 p-2 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded">
@@ -585,13 +664,24 @@ function FeedsTab() {
           <div className="flex gap-2">
             <button
               onClick={() => addFeedMutation.mutate()}
-              disabled={!newFeedUrl || (newFeedProxyEnabled && !newFeedProxyUrl.trim()) || addFeedMutation.isPending}
+              disabled={!newFeedUrl || (newFeedProxyMode === 'single' && !newFeedProxyUrl.trim()) || addFeedMutation.isPending}
               className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
             >
               {addFeedMutation.isPending ? '添加中...' : '添加'}
             </button>
             <button
-              onClick={() => { setShowAddForm(false); setNewFeedUrl(''); setNewFeedCategory(null); setNewFeedBrowserEngine('http'); setNewFeedProxyEnabled(false); setNewFeedProxyUrl(''); setNewFeedAutoSummarize(false); setNewFeedTranslateMethod('none') }}
+              onClick={() => {
+                setShowAddForm(false)
+                setNewFeedUrl('')
+                setNewFeedCategory(null)
+                setNewFeedBrowserEngine('http')
+                setNewFeedProxyMode('none')
+                setNewFeedProxyUrl('')
+                setNewFeedProxyPoolCountry('')
+                setNewFeedProxyPoolProtocol('')
+                setNewFeedAutoSummarize(false)
+                setNewFeedTranslateMethod('none')
+              }}
               className="px-4 py-2 border dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600 dark:text-gray-200"
             >
               取消
@@ -664,25 +754,58 @@ function FeedsTab() {
                   </select>
                 </div>
                 <div className="grid gap-2 p-2 bg-slate-50 dark:bg-gray-800 border border-slate-200 dark:border-gray-600 rounded text-sm">
-                  <label className="flex items-center gap-2 text-gray-700 dark:text-gray-200">
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-700 dark:text-gray-200">代理配置</span>
+                    <select
+                      value={editData.proxy_mode}
+                      onChange={(e) => {
+                        const mode = e.target.value as FeedProxyMode
+                        setEditData({
+                          ...editData,
+                          proxy_mode: mode,
+                          proxy_enabled: mode !== 'none',
+                        })
+                      }}
+                      className="px-2 py-1 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 dark:text-white"
+                    >
+                      <option value="none">不使用代理</option>
+                      <option value="single">单个代理</option>
+                      <option value="pool">代理池轮询</option>
+                    </select>
+                  </div>
+                  {editData.proxy_mode === 'single' && (
                     <input
-                      type="checkbox"
-                      checked={editData.proxy_enabled}
-                      onChange={(e) => setEditData({
-                        ...editData,
-                        proxy_enabled: e.target.checked,
-                      })}
+                      type="text"
+                      value={editData.proxy_url}
+                      onChange={(e) => setEditData({ ...editData, proxy_url: e.target.value })}
+                      placeholder="http://user:pass@host:port 或 socks5://host:port"
+                      className="w-full px-3 py-2 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 dark:text-white"
                     />
-                    启用代理
-                  </label>
-                  <input
-                    type="text"
-                    value={editData.proxy_url}
-                    onChange={(e) => setEditData({ ...editData, proxy_url: e.target.value })}
-                    disabled={!editData.proxy_enabled}
-                    placeholder="http://user:pass@host:port 或 socks5://host:port"
-                    className="w-full px-3 py-2 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 dark:text-white disabled:opacity-50"
-                  />
+                  )}
+                  {editData.proxy_mode === 'pool' && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        value={editData.proxy_pool_country}
+                        onChange={(e) => setEditData({ ...editData, proxy_pool_country: e.target.value })}
+                        className="px-3 py-2 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 dark:text-white"
+                      >
+                        <option value="">全部国家</option>
+                        {proxyGroups.countries.map((country) => (
+                          <option key={country} value={country}>{country.toUpperCase()}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={editData.proxy_pool_protocol}
+                        onChange={(e) => setEditData({ ...editData, proxy_pool_protocol: e.target.value })}
+                        className="px-3 py-2 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 dark:text-white"
+                      >
+                        <option value="">全部协议</option>
+                        {proxyProtocols.map((protocol) => (
+                          <option key={protocol} value={protocol}>{protocol}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-2 flex-wrap items-center">
                   <div className="flex items-center gap-2 p-2 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded text-sm">
@@ -735,7 +858,7 @@ function FeedsTab() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => updateFeedMutation.mutate({ id: feed.id, data: editData })}
-                    disabled={updateFeedMutation.isPending || (editData.proxy_enabled && !editData.proxy_url.trim())}
+                    disabled={updateFeedMutation.isPending || (editData.proxy_mode === 'single' && !editData.proxy_url.trim())}
                     className="p-2 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 rounded"
                   >
                     <Check className="w-4 h-4" />
@@ -785,8 +908,13 @@ function FeedsTab() {
                     {resolveFeedBrowserEngine(feed) !== 'http' && (
                       <span className="text-yellow-600 dark:text-yellow-400">🌐 {feedBrowserEngineLabels[resolveFeedBrowserEngine(feed)]}</span>
                     )}
-                    {feed.proxy_enabled && (
-                      <span className="text-slate-600 dark:text-slate-300">代理</span>
+                    {resolveFeedProxyMode(feed) === 'single' && (
+                      <span className="text-slate-600 dark:text-slate-300">单代理</span>
+                    )}
+                    {resolveFeedProxyMode(feed) === 'pool' && (
+                      <span className="text-slate-600 dark:text-slate-300">
+                        代理池{feed.proxy_pool_country ? `/${feed.proxy_pool_country.toUpperCase()}` : ''}{feed.proxy_pool_protocol ? `/${feed.proxy_pool_protocol}` : ''}
+                      </span>
                     )}
                     {feed.translate_method === 'google' && (
                       <span className="text-blue-600 dark:text-blue-400">🌐 Google翻译</span>
@@ -839,6 +967,472 @@ function FeedsTab() {
           <div className="p-4 text-center text-gray-500 dark:text-gray-400">
             {feeds.length === 0 ? '暂无订阅源' : '没有匹配的订阅源'}
           </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ProxyPoolTab() {
+  const queryClient = useQueryClient()
+  const [singleRaw, setSingleRaw] = useState('')
+  const [bulkRaw, setBulkRaw] = useState('')
+  const [defaultProtocol, setDefaultProtocol] = useState<ProxyProtocol>('http')
+  const [defaultCountry, setDefaultCountry] = useState('')
+  const [newProxiesActive, setNewProxiesActive] = useState(true)
+  const [filterCountry, setFilterCountry] = useState('')
+  const [filterProtocol, setFilterProtocol] = useState('')
+  const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>('all')
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
+  const [testUrl, setTestUrl] = useState('https://www.gstatic.com/generate_204')
+  const [testTimeout, setTestTimeout] = useState(10)
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [importErrors, setImportErrors] = useState<string[]>([])
+
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
+
+  const activeParam = filterActive === 'all' ? undefined : filterActive === 'active'
+  const { data: proxies = [] } = useQuery({
+    queryKey: ['proxies', filterCountry, filterProtocol, filterActive],
+    queryFn: async () => {
+      const response = await api.get<ProxyPoolEntry[]>('/proxies', {
+        params: {
+          country: filterCountry || undefined,
+          protocol: filterProtocol || undefined,
+          active: activeParam,
+        },
+      })
+      return response.data
+    },
+  })
+
+  const { data: proxyGroups = { countries: [], protocols: [] } } = useQuery({
+    queryKey: ['proxy-groups'],
+    queryFn: async () => {
+      const response = await api.get<ProxyPoolGroups>('/proxies/groups')
+      return response.data
+    },
+  })
+
+  const invalidateProxyData = () => {
+    queryClient.invalidateQueries({ queryKey: ['proxies'] })
+    queryClient.invalidateQueries({ queryKey: ['proxy-groups'] })
+    queryClient.invalidateQueries({ queryKey: ['feeds'] })
+  }
+
+  const showMessage = (type: 'success' | 'error', text: string) => {
+    setMessage({ type, text })
+    setTimeout(() => setMessage(null), 3000)
+  }
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const response = await api.post<ProxyPoolEntry>('/proxies', {
+        raw: singleRaw,
+        default_protocol: defaultProtocol,
+        country: defaultCountry || null,
+        is_active: newProxiesActive,
+      })
+      return response.data
+    },
+    onSuccess: () => {
+      invalidateProxyData()
+      setSingleRaw('')
+      setImportErrors([])
+      showMessage('success', '代理已添加')
+    },
+    onError: (err: unknown) => {
+      showMessage('error', getApiErrorMessage(err, '添加代理失败'))
+    },
+  })
+
+  const importMutation = useMutation({
+    mutationFn: async () => {
+      const response = await api.post<ProxyPoolImportResult>('/proxies/import', {
+        content: bulkRaw,
+        default_protocol: defaultProtocol,
+        default_country: defaultCountry || null,
+        is_active: newProxiesActive,
+      })
+      return response.data
+    },
+    onSuccess: (data) => {
+      invalidateProxyData()
+      setSelectedIds([])
+      setBulkRaw(data.errors.length ? bulkRaw : '')
+      setImportErrors(data.errors.slice(0, 8))
+      showMessage('success', `导入 ${data.imported} 个，跳过 ${data.skipped} 个，失败 ${data.errors.length} 个`)
+    },
+    onError: (err: unknown) => {
+      showMessage('error', getApiErrorMessage(err, '批量导入失败'))
+    },
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: Partial<Pick<ProxyPoolEntry, 'country' | 'is_active' | 'fail_count'>> }) => {
+      const response = await api.put<ProxyPoolEntry>(`/proxies/${id}`, data)
+      return response.data
+    },
+    onSuccess: () => {
+      invalidateProxyData()
+    },
+    onError: (err: unknown) => {
+      showMessage('error', getApiErrorMessage(err, '更新代理失败'))
+    },
+  })
+
+  const bulkUpdateMutation = useMutation({
+    mutationFn: async ({ ids, isActive }: { ids: number[]; isActive: boolean }) => {
+      await Promise.all(ids.map((id) => api.put(`/proxies/${id}`, { is_active: isActive })))
+    },
+    onSuccess: (_, variables) => {
+      invalidateProxyData()
+      setSelectedIds([])
+      showMessage('success', variables.isActive ? '已启用选中代理' : '已停用选中代理')
+    },
+    onError: (err: unknown) => {
+      showMessage('error', getApiErrorMessage(err, '批量更新失败'))
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`/proxies/${id}`)
+    },
+    onSuccess: (_, id) => {
+      invalidateProxyData()
+      setSelectedIds((current) => current.filter((item) => item !== id))
+      showMessage('success', '代理已删除')
+    },
+    onError: (err: unknown) => {
+      showMessage('error', getApiErrorMessage(err, '删除代理失败'))
+    },
+  })
+
+  const deleteSelectedMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      await Promise.all(ids.map((id) => api.delete(`/proxies/${id}`)))
+    },
+    onSuccess: () => {
+      invalidateProxyData()
+      setSelectedIds([])
+      showMessage('success', '选中代理已删除')
+    },
+    onError: (err: unknown) => {
+      showMessage('error', getApiErrorMessage(err, '批量删除失败'))
+    },
+  })
+
+  const testMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      const response = await api.post<ProxyPoolTestResult>('/proxies/test', {
+        ids,
+        test_url: testUrl,
+        timeout: testTimeout,
+      })
+      return response.data
+    },
+    onSuccess: (data) => {
+      invalidateProxyData()
+      showMessage('success', `测速完成：成功 ${data.success} 个，失败 ${data.failed} 个`)
+    },
+    onError: (err: unknown) => {
+      showMessage('error', getApiErrorMessage(err, '代理测速失败'))
+    },
+  })
+
+  const visibleIds = proxies.map((proxy) => proxy.id)
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedSet.has(id))
+  const activeCount = proxies.filter((proxy) => proxy.is_active).length
+  const inactiveCount = proxies.length - activeCount
+
+  const toggleSelected = (id: number) => {
+    setSelectedIds((current) => (
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+    ))
+  }
+
+  const toggleAllVisible = () => {
+    setSelectedIds((current) => {
+      if (allVisibleSelected) {
+        return current.filter((id) => !visibleIds.includes(id))
+      }
+      return Array.from(new Set([...current, ...visibleIds]))
+    })
+  }
+
+  const runTest = (ids: number[]) => {
+    if (ids.length === 0) {
+      showMessage('error', '没有可测速的代理')
+      return
+    }
+    testMutation.mutate(ids)
+  }
+
+  return (
+    <div className="space-y-4">
+      {message && (
+        <div className={`p-3 rounded ${message.type === 'success' ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400'}`}>
+          {message.text}
+        </div>
+      )}
+
+      <div className="p-4 border dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-800 space-y-3">
+        <div className="grid gap-2 md:grid-cols-[1fr_140px_120px_120px]">
+          <input
+            type="text"
+            value={singleRaw}
+            onChange={(e) => setSingleRaw(e.target.value)}
+            placeholder="http://user:pass@1.2.3.4:8080"
+            className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
+          />
+          <select
+            value={defaultProtocol}
+            onChange={(e) => setDefaultProtocol(e.target.value as ProxyProtocol)}
+            className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
+          >
+            {proxyProtocols.map((protocol) => (
+              <option key={protocol} value={protocol}>{protocol}</option>
+            ))}
+          </select>
+          <input
+            type="text"
+            value={defaultCountry}
+            onChange={(e) => setDefaultCountry(e.target.value)}
+            placeholder="国家"
+            className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
+          />
+          <button
+            onClick={() => createMutation.mutate()}
+            disabled={!singleRaw.trim() || createMutation.isPending}
+            className="flex items-center justify-center gap-1 px-3 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
+          >
+            <Plus className="w-4 h-4" /> 添加
+          </button>
+        </div>
+        <label className="inline-flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+          <input
+            type="checkbox"
+            checked={newProxiesActive}
+            onChange={(e) => setNewProxiesActive(e.target.checked)}
+          />
+          导入后启用
+        </label>
+        <textarea
+          value={bulkRaw}
+          onChange={(e) => setBulkRaw(e.target.value)}
+          placeholder={'http://user:pass@1.2.3.4:8080\n1.2.3.4:8080:user:pass\nusername,password,1.2.3.4,8080'}
+          rows={7}
+          className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white font-mono text-sm"
+        />
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => importMutation.mutate()}
+            disabled={!bulkRaw.trim() || importMutation.isPending}
+            className="flex items-center gap-1 px-3 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
+          >
+            <Upload className="w-4 h-4" /> 批量导入
+          </button>
+          <button
+            onClick={() => { setBulkRaw(''); setImportErrors([]) }}
+            disabled={!bulkRaw && importErrors.length === 0}
+            className="px-3 py-2 border dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:text-gray-200 disabled:opacity-50"
+          >
+            清空
+          </button>
+        </div>
+        {importErrors.length > 0 && (
+          <div className="p-3 bg-red-50 dark:bg-red-900/30 rounded text-sm text-red-700 dark:text-red-300 space-y-1">
+            {importErrors.map((error) => (
+              <div key={error} className="truncate">{error}</div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="p-3 border dark:border-gray-700 rounded bg-white dark:bg-gray-800 space-y-3">
+        <div className="flex gap-2 flex-wrap items-center">
+          <select
+            value={filterCountry}
+            onChange={(e) => { setFilterCountry(e.target.value); setSelectedIds([]) }}
+            className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
+          >
+            <option value="">全部国家</option>
+            {proxyGroups.countries.map((country) => (
+              <option key={country} value={country}>{country.toUpperCase()}</option>
+            ))}
+          </select>
+          <select
+            value={filterProtocol}
+            onChange={(e) => { setFilterProtocol(e.target.value); setSelectedIds([]) }}
+            className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
+          >
+            <option value="">全部协议</option>
+            {proxyProtocols.map((protocol) => (
+              <option key={protocol} value={protocol}>{protocol}</option>
+            ))}
+          </select>
+          <select
+            value={filterActive}
+            onChange={(e) => { setFilterActive(e.target.value as 'all' | 'active' | 'inactive'); setSelectedIds([]) }}
+            className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
+          >
+            <option value="all">全部状态</option>
+            <option value="active">已启用</option>
+            <option value="inactive">已停用</option>
+          </select>
+          <input
+            type="text"
+            value={testUrl}
+            onChange={(e) => setTestUrl(e.target.value)}
+            className="min-w-[220px] flex-1 px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
+          />
+          <input
+            type="number"
+            min={1}
+            max={60}
+            value={testTimeout}
+            onChange={(e) => setTestTimeout(Math.max(1, Math.min(60, parseInt(e.target.value) || 10)))}
+            className="w-24 px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
+          />
+        </div>
+        <div className="flex gap-2 flex-wrap items-center text-sm">
+          <span className="text-gray-500 dark:text-gray-400">共 {proxies.length} 个，启用 {activeCount} 个，停用 {inactiveCount} 个</span>
+          <button
+            onClick={() => runTest(selectedIds)}
+            disabled={selectedIds.length === 0 || testMutation.isPending}
+            className="flex items-center gap-1 px-3 py-1.5 border dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${testMutation.isPending ? 'animate-spin' : ''}`} /> 测试选中
+          </button>
+          <button
+            onClick={() => runTest(visibleIds)}
+            disabled={visibleIds.length === 0 || testMutation.isPending}
+            className="flex items-center gap-1 px-3 py-1.5 border dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${testMutation.isPending ? 'animate-spin' : ''}`} /> 测试筛选
+          </button>
+          <button
+            onClick={() => bulkUpdateMutation.mutate({ ids: selectedIds, isActive: true })}
+            disabled={selectedIds.length === 0 || bulkUpdateMutation.isPending}
+            className="px-3 py-1.5 border dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 disabled:opacity-50"
+          >
+            启用选中
+          </button>
+          <button
+            onClick={() => bulkUpdateMutation.mutate({ ids: selectedIds, isActive: false })}
+            disabled={selectedIds.length === 0 || bulkUpdateMutation.isPending}
+            className="px-3 py-1.5 border dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 disabled:opacity-50"
+          >
+            停用选中
+          </button>
+          <button
+            onClick={() => deleteSelectedMutation.mutate(selectedIds)}
+            disabled={selectedIds.length === 0 || deleteSelectedMutation.isPending}
+            className="px-3 py-1.5 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded hover:bg-red-50 dark:hover:bg-red-900/30 disabled:opacity-50"
+          >
+            删除选中
+          </button>
+        </div>
+      </div>
+
+      <div className="border dark:border-gray-700 rounded overflow-x-auto">
+        <table className="w-full min-w-[900px] text-sm">
+          <thead className="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+            <tr>
+              <th className="w-10 p-3 text-left">
+                <input
+                  type="checkbox"
+                  checked={allVisibleSelected}
+                  onChange={toggleAllVisible}
+                />
+              </th>
+              <th className="p-3 text-left">代理</th>
+              <th className="p-3 text-left">分组</th>
+              <th className="p-3 text-left">状态</th>
+              <th className="p-3 text-left">延迟</th>
+              <th className="p-3 text-left">失败</th>
+              <th className="p-3 text-left">错误</th>
+              <th className="p-3 text-right">操作</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y dark:divide-gray-700">
+            {proxies.map((proxy) => (
+              <tr key={proxy.id} className="dark:text-gray-100">
+                <td className="p-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedSet.has(proxy.id)}
+                    onChange={() => toggleSelected(proxy.id)}
+                  />
+                </td>
+                <td className="p-3">
+                  <div className="font-medium">{proxy.host}:{proxy.port}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[320px]">
+                    {proxy.username ? `${proxy.username}@` : ''}{proxy.protocol}://{proxy.host}:{proxy.port}
+                  </div>
+                </td>
+                <td className="p-3">
+                  <div className="flex gap-1 flex-wrap">
+                    <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700">{proxy.protocol}</span>
+                    <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700">{proxy.country ? proxy.country.toUpperCase() : '未分组'}</span>
+                    <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700">{proxy.source_format}</span>
+                  </div>
+                </td>
+                <td className="p-3">
+                  <span className={proxy.is_active ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
+                    {proxy.is_active ? '启用' : '停用'}
+                  </span>
+                </td>
+                <td className="p-3 text-gray-600 dark:text-gray-300">
+                  {proxy.last_latency_ms === null ? '-' : `${proxy.last_latency_ms}ms`}
+                </td>
+                <td className="p-3 text-gray-600 dark:text-gray-300">{proxy.fail_count}/5</td>
+                <td className="p-3 max-w-[220px] truncate text-gray-500 dark:text-gray-400" title={proxy.last_error || ''}>
+                  {proxy.last_error || '-'}
+                </td>
+                <td className="p-3">
+                  <div className="flex justify-end gap-1">
+                    <button
+                      onClick={() => runTest([proxy.id])}
+                      disabled={testMutation.isPending}
+                      className="p-2 text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded disabled:opacity-50"
+                      title="测速"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${testMutation.isPending ? 'animate-spin' : ''}`} />
+                    </button>
+                    <button
+                      onClick={() => updateMutation.mutate({ id: proxy.id, data: { is_active: !proxy.is_active } })}
+                      disabled={updateMutation.isPending}
+                      className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50"
+                      title={proxy.is_active ? '停用' : '启用'}
+                    >
+                      {proxy.is_active ? <X className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+                    </button>
+                    <button
+                      onClick={() => updateMutation.mutate({ id: proxy.id, data: { fail_count: 0, is_active: true } })}
+                      disabled={updateMutation.isPending}
+                      className="p-2 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 rounded disabled:opacity-50"
+                      title="重置失败"
+                    >
+                      <Check className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => deleteMutation.mutate(proxy.id)}
+                      disabled={deleteMutation.isPending}
+                      className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded disabled:opacity-50"
+                      title="删除"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {proxies.length === 0 && (
+          <div className="p-4 text-center text-gray-500 dark:text-gray-400">暂无代理</div>
         )}
       </div>
     </div>
@@ -1045,6 +1639,23 @@ function AITab() {
     translate: '',
     summarize: '',
   })
+  const [newGoogleKey, setNewGoogleKey] = useState({
+    name: '',
+    api_key: '',
+    is_active: true,
+    limit_days: '',
+    limit_articles: '',
+    limit_characters: '',
+  })
+  const [editingGoogleKeyId, setEditingGoogleKeyId] = useState<number | null>(null)
+  const [googleKeyEdit, setGoogleKeyEdit] = useState({
+    name: '',
+    api_key: '',
+    is_active: true,
+    limit_days: '',
+    limit_articles: '',
+    limit_characters: '',
+  })
 
   const { data: providers = [] } = useQuery({
     queryKey: ['ai-providers'],
@@ -1065,7 +1676,15 @@ function AITab() {
   const { data: settings } = useQuery({
     queryKey: ['ai-settings'],
     queryFn: async () => {
-      const response = await api.get<{ translate_prompt: string; summarize_prompt: string; embedding_provider_id: number | null; embedding_model: string | null; google_translate_api_key: string | null }>('/ai/settings')
+      const response = await api.get<{ translate_prompt: string; summarize_prompt: string; embedding_provider_id: number | null; embedding_model: string | null }>('/ai/settings')
+      return response.data
+    },
+  })
+
+  const { data: googleTranslateKeys = [] } = useQuery({
+    queryKey: ['google-translate-keys'],
+    queryFn: async () => {
+      const response = await api.get<GoogleTranslateKey[]>('/ai/google-translate-keys')
       return response.data
     },
   })
@@ -1074,7 +1693,15 @@ function AITab() {
     provider_id: number | null
     model: string
   }>({ provider_id: null, model: '' })
-  const [googleApiKey, setGoogleApiKey] = useState('')
+
+  const buildGoogleKeyPayload = (form: typeof newGoogleKey, includeApiKey: boolean) => ({
+    name: form.name.trim(),
+    ...(includeApiKey && form.api_key.trim() ? { api_key: form.api_key.trim() } : {}),
+    is_active: form.is_active,
+    limit_days: form.limit_days ? parseInt(form.limit_days) : null,
+    limit_articles: form.limit_articles ? parseInt(form.limit_articles) : null,
+    limit_characters: form.limit_characters ? parseInt(form.limit_characters) : null,
+  })
 
   // Initialize prompts and embedding config when settings load
   if (settings && !prompts.translate && !prompts.summarize) {
@@ -1093,14 +1720,6 @@ function AITab() {
       })
     }
   }
-  
-  // Initialize Google API key when settings load
-  const [googleApiKeyInitialized, setGoogleApiKeyInitialized] = useState(false)
-  if (settings && !googleApiKeyInitialized) {
-    setGoogleApiKey(settings.google_translate_api_key || '')
-    setGoogleApiKeyInitialized(true)
-  }
-
   const addProviderMutation = useMutation({
     mutationFn: async () => {
       await api.post('/ai/providers', newProvider)
@@ -1188,23 +1807,100 @@ function AITab() {
     },
   })
 
-  const saveGoogleApiKeyMutation = useMutation({
+  const addGoogleKeyMutation = useMutation({
     mutationFn: async () => {
-      await api.put('/ai/settings', {
-        google_translate_api_key: googleApiKey || null,
-      })
+      await api.post('/ai/google-translate-keys', buildGoogleKeyPayload(newGoogleKey, true))
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['ai-settings'] })
-      setMessage({ type: 'success', text: 'Google API Key 已保存' })
+      queryClient.invalidateQueries({ queryKey: ['google-translate-keys'] })
+      setNewGoogleKey({
+        name: '',
+        api_key: '',
+        is_active: true,
+        limit_days: '',
+        limit_articles: '',
+        limit_characters: '',
+      })
+      setMessage({ type: 'success', text: 'Google API Key 已添加' })
       setTimeout(() => setMessage(null), 3000)
     },
-    onError: (err: any) => {
-      setMessage({ type: 'error', text: err.response?.data?.detail || '保存失败' })
+    onError: (err: unknown) => {
+      setMessage({ type: 'error', text: getApiErrorMessage(err, '添加失败') })
+    },
+  })
+
+  const updateGoogleKeyMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: typeof googleKeyEdit }) => {
+      await api.put(`/ai/google-translate-keys/${id}`, buildGoogleKeyPayload(data, true))
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['google-translate-keys'] })
+      setEditingGoogleKeyId(null)
+      setMessage({ type: 'success', text: 'Google API Key 已更新' })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: unknown) => {
+      setMessage({ type: 'error', text: getApiErrorMessage(err, '更新失败') })
+    },
+  })
+
+  const deleteGoogleKeyMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`/ai/google-translate-keys/${id}`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['google-translate-keys'] })
+      setMessage({ type: 'success', text: 'Google API Key 已删除' })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: unknown) => {
+      setMessage({ type: 'error', text: getApiErrorMessage(err, '删除失败') })
+    },
+  })
+
+  const resetGoogleKeyMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await api.post(`/ai/google-translate-keys/${id}/reset`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['google-translate-keys'] })
+      setMessage({ type: 'success', text: 'Google API Key 用量已重置' })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: unknown) => {
+      setMessage({ type: 'error', text: getApiErrorMessage(err, '重置失败') })
+    },
+  })
+
+  const testGoogleKeyMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const response = await api.post<{ success: boolean; message: string }>(`/ai/google-translate-keys/${id}/test`)
+      return response.data
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['google-translate-keys'] })
+      setMessage({ type: data.success ? 'success' : 'error', text: data.message })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: unknown) => {
+      setMessage({ type: 'error', text: getApiErrorMessage(err, '测试失败') })
     },
   })
 
   const defaultModel = models.find(m => m.is_default)
+  const activeGoogleKeyCount = googleTranslateKeys.filter((key) => key.is_active).length
+
+  const startGoogleKeyEdit = (key: GoogleTranslateKey) => {
+    setEditingGoogleKeyId(key.id)
+    setGoogleKeyEdit({
+      name: key.name,
+      api_key: '',
+      is_active: key.is_active,
+      limit_days: key.limit_days?.toString() || '',
+      limit_articles: key.limit_articles?.toString() || '',
+      limit_characters: key.limit_characters?.toString() || '',
+    })
+  }
 
   return (
     <div className="space-y-6">
@@ -1285,35 +1981,259 @@ function AITab() {
         </div>
       </div>
 
-      {/* Google Translate API Key */}
+      {/* Google Translate API Keys */}
       <div className="p-4 border dark:border-gray-700 rounded bg-yellow-50 dark:bg-yellow-900/30">
         <h2 className="text-lg font-semibold mb-3 dark:text-white flex items-center gap-2">
           <Languages className="w-5 h-5" /> Google 翻译设置
         </h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-          免费的 Google 翻译接口存在请求频率限制，建议配置自己的 Google Cloud Translation API Key 以获得更稳定的翻译服务。
+          可配置多个 Google Cloud Translation API Key，并按天数、文章数或字符数达到阈值后自动切换。未配置付费 Key 时仍使用免费接口。
         </p>
         <div className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Google Translate API Key</label>
+          <div className="grid gap-2 md:grid-cols-[1fr_1fr_90px_110px_130px_130px]">
+            <input
+              type="text"
+              value={newGoogleKey.name}
+              onChange={(e) => setNewGoogleKey({ ...newGoogleKey, name: e.target.value })}
+              placeholder="名称"
+              className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+            />
             <input
               type="password"
-              value={googleApiKey}
-              onChange={(e) => setGoogleApiKey(e.target.value)}
-              placeholder="留空则使用免费接口（有限制）"
-              className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+              value={newGoogleKey.api_key}
+              onChange={(e) => setNewGoogleKey({ ...newGoogleKey, api_key: e.target.value })}
+              placeholder="Google Translate API Key"
+              className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
             />
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-              获取 API Key: <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="text-primary-500 hover:underline">Google Cloud Console</a>
-            </p>
+            <input
+              type="number"
+              min={1}
+              value={newGoogleKey.limit_days}
+              onChange={(e) => setNewGoogleKey({ ...newGoogleKey, limit_days: e.target.value })}
+              placeholder="天数"
+              className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+            />
+            <input
+              type="number"
+              min={1}
+              value={newGoogleKey.limit_articles}
+              onChange={(e) => setNewGoogleKey({ ...newGoogleKey, limit_articles: e.target.value })}
+              placeholder="文章数"
+              className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+            />
+            <input
+              type="number"
+              min={1}
+              value={newGoogleKey.limit_characters}
+              onChange={(e) => setNewGoogleKey({ ...newGoogleKey, limit_characters: e.target.value })}
+              placeholder="字符数"
+              className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+            />
+            <button
+              onClick={() => addGoogleKeyMutation.mutate()}
+              disabled={!newGoogleKey.name.trim() || !newGoogleKey.api_key.trim() || addGoogleKeyMutation.isPending}
+              className="flex items-center justify-center gap-1 px-3 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700 disabled:opacity-50"
+            >
+              <Plus className="w-4 h-4" /> 添加
+            </button>
           </div>
-          <button
-            onClick={() => saveGoogleApiKeyMutation.mutate()}
-            disabled={saveGoogleApiKeyMutation.isPending}
-            className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700 disabled:opacity-50"
-          >
-            保存 Google API Key
-          </button>
+          <label className="inline-flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+            <input
+              type="checkbox"
+              checked={newGoogleKey.is_active}
+              onChange={(e) => setNewGoogleKey({ ...newGoogleKey, is_active: e.target.checked })}
+            />
+            添加后启用
+          </label>
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            获取 API Key: <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="text-primary-500 hover:underline">Google Cloud Console</a>。当前共 {googleTranslateKeys.length} 个 Key，启用 {activeGoogleKeyCount} 个。
+          </div>
+
+          <div className="overflow-x-auto border dark:border-gray-700 rounded bg-white dark:bg-gray-800">
+            <table className="w-full min-w-[960px] text-sm">
+              <thead className="bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+                <tr>
+                  <th className="p-3 text-left">Key</th>
+                  <th className="p-3 text-left">切换阈值</th>
+                  <th className="p-3 text-left">当前用量</th>
+                  <th className="p-3 text-left">状态</th>
+                  <th className="p-3 text-left">最近错误</th>
+                  <th className="p-3 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y dark:divide-gray-700">
+                {googleTranslateKeys.map((key) => (
+                  <tr key={key.id} className="dark:text-gray-100">
+                    {editingGoogleKeyId === key.id ? (
+                      <>
+                        <td className="p-3 space-y-2">
+                          <input
+                            type="text"
+                            value={googleKeyEdit.name}
+                            onChange={(e) => setGoogleKeyEdit({ ...googleKeyEdit, name: e.target.value })}
+                            className="w-full px-2 py-1 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
+                          />
+                          <input
+                            type="password"
+                            value={googleKeyEdit.api_key}
+                            onChange={(e) => setGoogleKeyEdit({ ...googleKeyEdit, api_key: e.target.value })}
+                            placeholder="新 Key，留空不变"
+                            className="w-full px-2 py-1 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
+                          />
+                        </td>
+                        <td className="p-3">
+                          <div className="grid grid-cols-3 gap-2">
+                            <input
+                              type="number"
+                              min={1}
+                              value={googleKeyEdit.limit_days}
+                              onChange={(e) => setGoogleKeyEdit({ ...googleKeyEdit, limit_days: e.target.value })}
+                              placeholder="天"
+                              className="px-2 py-1 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
+                            />
+                            <input
+                              type="number"
+                              min={1}
+                              value={googleKeyEdit.limit_articles}
+                              onChange={(e) => setGoogleKeyEdit({ ...googleKeyEdit, limit_articles: e.target.value })}
+                              placeholder="文章"
+                              className="px-2 py-1 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
+                            />
+                            <input
+                              type="number"
+                              min={1}
+                              value={googleKeyEdit.limit_characters}
+                              onChange={(e) => setGoogleKeyEdit({ ...googleKeyEdit, limit_characters: e.target.value })}
+                              placeholder="字符"
+                              className="px-2 py-1 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
+                            />
+                          </div>
+                        </td>
+                        <td className="p-3 text-gray-500 dark:text-gray-400">保存后生效</td>
+                        <td className="p-3">
+                          <label className="inline-flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={googleKeyEdit.is_active}
+                              onChange={(e) => setGoogleKeyEdit({ ...googleKeyEdit, is_active: e.target.checked })}
+                            />
+                            启用
+                          </label>
+                        </td>
+                        <td className="p-3 text-gray-500 dark:text-gray-400">-</td>
+                        <td className="p-3">
+                          <div className="flex justify-end gap-1">
+                            <button
+                              onClick={() => updateGoogleKeyMutation.mutate({ id: key.id, data: googleKeyEdit })}
+                              disabled={!googleKeyEdit.name.trim() || updateGoogleKeyMutation.isPending}
+                              className="p-2 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 rounded disabled:opacity-50"
+                              title="保存"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setEditingGoogleKeyId(null)}
+                              className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                              title="取消"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="p-3">
+                          <div className="font-medium">{key.name}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">{key.masked_api_key}</div>
+                        </td>
+                        <td className="p-3 text-gray-600 dark:text-gray-300">
+                          <div>天数: {key.limit_days ?? '不限'}</div>
+                          <div>文章: {key.limit_articles ?? '不限'}</div>
+                          <div>字符: {key.limit_characters ?? '不限'}</div>
+                        </td>
+                        <td className="p-3 text-gray-600 dark:text-gray-300">
+                          <div>{key.usage_article_count} 篇</div>
+                          <div>{key.usage_character_count.toLocaleString()} 字符</div>
+                          <div className="text-xs text-gray-400 dark:text-gray-500">
+                            {key.usage_started_at ? new Date(key.usage_started_at).toLocaleDateString('zh-CN') : '未开始'}
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <div className={key.is_active ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
+                            {key.is_active ? '启用' : '停用'}
+                          </div>
+                          {key.is_exhausted && (
+                            <div className="text-xs text-yellow-600 dark:text-yellow-400">已达阈值</div>
+                          )}
+                          <div className="text-xs text-gray-400 dark:text-gray-500">失败 {key.fail_count}/5</div>
+                        </td>
+                        <td className="p-3 max-w-[220px] truncate text-gray-500 dark:text-gray-400" title={key.last_error || ''}>
+                          {key.last_error || '-'}
+                        </td>
+                        <td className="p-3">
+                          <div className="flex justify-end gap-1">
+                            <button
+                              onClick={() => testGoogleKeyMutation.mutate(key.id)}
+                              disabled={testGoogleKeyMutation.isPending}
+                              className="p-2 text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded disabled:opacity-50"
+                              title="测试"
+                            >
+                              <RefreshCw className={`w-4 h-4 ${testGoogleKeyMutation.isPending ? 'animate-spin' : ''}`} />
+                            </button>
+                            <button
+                              onClick={() => startGoogleKeyEdit(key)}
+                              className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                              title="编辑"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => resetGoogleKeyMutation.mutate(key.id)}
+                              disabled={resetGoogleKeyMutation.isPending}
+                              className="p-2 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 rounded disabled:opacity-50"
+                              title="重置用量"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => updateGoogleKeyMutation.mutate({
+                                id: key.id,
+                                data: {
+                                  name: key.name,
+                                  api_key: '',
+                                  is_active: !key.is_active,
+                                  limit_days: key.limit_days?.toString() || '',
+                                  limit_articles: key.limit_articles?.toString() || '',
+                                  limit_characters: key.limit_characters?.toString() || '',
+                                },
+                              })}
+                              disabled={updateGoogleKeyMutation.isPending}
+                              className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50"
+                              title={key.is_active ? '停用' : '启用'}
+                            >
+                              {key.is_active ? <X className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+                            </button>
+                            <button
+                              onClick={() => deleteGoogleKeyMutation.mutate(key.id)}
+                              disabled={deleteGoogleKeyMutation.isPending}
+                              className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded disabled:opacity-50"
+                              title="删除"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {googleTranslateKeys.length === 0 && (
+              <div className="p-4 text-center text-gray-500 dark:text-gray-400">暂无付费 API Key，将使用免费接口</div>
+            )}
+          </div>
         </div>
       </div>
 

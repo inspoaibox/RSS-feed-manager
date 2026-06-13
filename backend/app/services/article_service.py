@@ -281,15 +281,18 @@ class ArticleService:
         if translate_method == 'google':
             # Use Google Translate
             print(f"[Translate] Using Google Translate for article {article_id}")
-            from app.services.google_translate_service import GoogleTranslateService, GoogleTranslateError
-            google_api_key = user.google_translate_api_key if user else None
-            google_service = GoogleTranslateService(api_key=google_api_key)
+            from app.services.google_translate_key_service import GoogleTranslateKeyService
+            from app.services.google_translate_service import GoogleTranslateError
             
             try:
-                if title:
-                    translated_title = await google_service.translate(title, target_language)
-                if content_text:
-                    translated_content = await google_service.translate(content_text, target_language)
+                translated_title, translated_content = await GoogleTranslateKeyService(
+                    self.session
+                ).translate_article(
+                    user_id,
+                    title,
+                    content_text,
+                    target_language,
+                )
             except GoogleTranslateError as e:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

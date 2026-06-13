@@ -36,6 +36,8 @@ export interface Category {
 
 // Feed types
 export type FeedBrowserEngine = 'http' | 'playwright' | 'cloakbrowser'
+export type FeedProxyMode = 'none' | 'single' | 'pool'
+export type ProxyProtocol = 'http' | 'https' | 'socks4' | 'socks5' | 'socks5h'
 
 export interface Feed {
   id: number
@@ -58,7 +60,78 @@ export interface Feed {
   browser_engine: FeedBrowserEngine
   proxy_enabled: boolean
   proxy_url: string | null
+  proxy_mode: FeedProxyMode
+  proxy_pool_country: string | null
+  proxy_pool_protocol: ProxyProtocol | null
   position: number
+}
+
+export interface ProxyPoolEntry {
+  id: number
+  protocol: ProxyProtocol
+  host: string
+  port: number
+  username: string | null
+  password: string | null
+  country: string | null
+  source_format: string
+  proxy_url: string
+  is_active: boolean
+  fail_count: number
+  last_used_at: string | null
+  last_tested_at: string | null
+  last_latency_ms: number | null
+  last_error: string | null
+  created_at: string
+  updated_at: string | null
+}
+
+export interface ProxyPoolGroups {
+  countries: string[]
+  protocols: ProxyProtocol[]
+}
+
+export interface ProxyPoolImportResult {
+  imported: number
+  skipped: number
+  errors: string[]
+  items: ProxyPoolEntry[]
+}
+
+export interface ProxyPoolTestItem {
+  id: number
+  success: boolean
+  latency_ms: number | null
+  error: string | null
+  is_active: boolean
+  fail_count: number
+}
+
+export interface ProxyPoolTestResult {
+  total: number
+  success: number
+  failed: number
+  results: ProxyPoolTestItem[]
+}
+
+export interface GoogleTranslateKey {
+  id: number
+  name: string
+  masked_api_key: string
+  is_active: boolean
+  position: number
+  limit_days: number | null
+  limit_articles: number | null
+  limit_characters: number | null
+  usage_started_at: string | null
+  usage_article_count: number
+  usage_character_count: number
+  last_used_at: string | null
+  last_error: string | null
+  fail_count: number
+  is_exhausted: boolean
+  created_at: string
+  updated_at: string | null
 }
 
 // Keyword subscription types
