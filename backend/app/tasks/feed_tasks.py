@@ -579,7 +579,7 @@ def translate_article_task(self, article_id: int, target_language: str | None = 
             db.commit()
 
             if translate_method == "argos":
-                argos_log = _create_argos_translation_log(db, article, feed, target)
+                argos_log = _create_argos_translation_log(db, article, feed, target, started_at)
                 db.commit()
 
             translation_data, method = _perform_article_translation_sync(
