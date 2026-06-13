@@ -48,6 +48,10 @@ services:
       - DEBUG=false
       - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:5666"]}
       - BASE_URL=${BASE_URL:-https://rss.8y.cx}
+      - XDG_DATA_HOME=/data
+      - ARGOS_PACKAGES_DIR=/data/argos-translate/packages
+    volumes:
+      - argos_data:/data/argos-translate
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,6 +70,10 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rss_manager}:${POSTGRES_PASSWORD:-rss_manager_prod_2024}@postgres:5432/${POSTGRES_DB:-rss_manager}
       - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_prod_2024}@redis:6379/0
       - SECRET_KEY=${SECRET_KEY:-rss_manager_secret_key_2024_production}
+      - XDG_DATA_HOME=/data
+      - ARGOS_PACKAGES_DIR=/data/argos-translate/packages
+    volumes:
+      - argos_data:/data/argos-translate
     depends_on:
       postgres:
         condition: service_healthy
@@ -107,6 +115,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  argos_data:
 
 networks:
   rss_network:

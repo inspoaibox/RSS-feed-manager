@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, FolderOpen, Languages, ChevronUp, ChevronDown, Search, Shield, Star } from 'lucide-react'
+import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, FolderOpen, Languages, ChevronUp, ChevronDown, Search, Shield, Star, History } from 'lucide-react'
 import api from '@/services/api'
 import type { ArgosPackageInfo, ArgosPackagesResponse, ArgosPackageTestResult, ArgosTranslationLogsResponse, Category, Feed, AIProvider, AIModel, CustomRule, FeedBrowserEngine, FeedProxyMode, GoogleTranslateKey, ProxyPoolEntry, ProxyPoolGroups, ProxyPoolImportResult, ProxyPoolTestResult, ProxyProtocol, TranslateMethod } from '@/types'
 import { useThemeStore, type ThemeColor } from '@/stores/themeStore'
@@ -1885,6 +1885,7 @@ function AITab() {
     limit_characters: '',
   })
   const [argosLogPage, setArgosLogPage] = useState(1)
+  const [showArgosLogsModal, setShowArgosLogsModal] = useState(false)
   const argosLogPageSize = 10
 
   const { data: providers = [] } = useQuery({
@@ -1942,7 +1943,8 @@ function AITab() {
       })
       return response.data
     },
-    refetchInterval: 10000,
+    enabled: showArgosLogsModal,
+    refetchInterval: showArgosLogsModal ? 10000 : false,
   })
 
   const [embeddingConfig, setEmbeddingConfig] = useState<{
@@ -2171,6 +2173,22 @@ function AITab() {
     },
   })
 
+  const clearArgosLogsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await api.delete<{ success: boolean; deleted: number }>('/ai/argos/translation-logs')
+      return response.data
+    },
+    onSuccess: (data) => {
+      setArgosLogPage(1)
+      queryClient.invalidateQueries({ queryKey: ['argos-translation-logs'] })
+      setMessage({ type: 'success', text: `已清除 ${data.deleted} 条本地翻译记录` })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: unknown) => {
+      setMessage({ type: 'error', text: getApiErrorMessage(err, '清除本地翻译记录失败') })
+    },
+  })
+
   const addGoogleKeyMutation = useMutation({
     mutationFn: async () => {
       await api.post('/ai/google-translate-keys', buildGoogleKeyPayload(newGoogleKey, true))
@@ -2393,6 +2411,16 @@ function AITab() {
               <RefreshCw className={`w-4 h-4 ${refreshArgosPackagesMutation.isPending ? 'animate-spin' : ''}`} />
               刷新语言包
             </button>
+            <button
+              onClick={() => {
+                setArgosLogPage(1)
+                setShowArgosLogsModal(true)
+              }}
+              className="flex items-center gap-1 px-3 py-2 border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900/50"
+            >
+              <History className="w-4 h-4" />
+              翻译记录
+            </button>
           </div>
 
           <div className="flex flex-wrap gap-2 text-xs text-gray-600 dark:text-gray-300">
@@ -2578,98 +2606,121 @@ function AITab() {
             )}
           </div>
 
-          <div className="border dark:border-gray-700 rounded bg-white dark:bg-gray-800 overflow-hidden">
-            <div className="px-3 py-2 bg-gray-50 dark:bg-gray-700 flex items-center gap-2">
-              <div className="text-sm font-medium dark:text-white">本地翻译记录</div>
-              <span className="text-xs text-gray-500 dark:text-gray-400">共 {argosLogTotal} 条</span>
-              <button
-                onClick={() => queryClient.invalidateQueries({ queryKey: ['argos-translation-logs'] })}
-                className="ml-auto p-1.5 text-gray-500 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-800 rounded"
-                title="刷新记录"
-              >
-                <RefreshCw className={`w-4 h-4 ${argosLogsLoading ? 'animate-spin' : ''}`} />
-              </button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[920px] text-sm">
-                <thead className="bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
-                  <tr>
-                    <th className="p-3 text-left">文章</th>
-                    <th className="p-3 text-left">订阅源</th>
-                    <th className="p-3 text-left">语言</th>
-                    <th className="p-3 text-left">字符</th>
-                    <th className="p-3 text-left">耗时</th>
-                    <th className="p-3 text-left">状态</th>
-                    <th className="p-3 text-left">时间</th>
-                    <th className="p-3 text-left">错误</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y dark:divide-gray-700">
-                  {argosLogs.map((log) => (
-                    <tr key={log.id} className="dark:text-gray-100">
-                      <td className="p-3 max-w-[240px] truncate" title={log.article_title || ''}>
-                        {log.article_title || '-'}
-                      </td>
-                      <td className="p-3 max-w-[160px] truncate text-gray-600 dark:text-gray-300" title={log.feed_title || ''}>
-                        {log.feed_title || '-'}
-                      </td>
-                      <td className="p-3 text-gray-600 dark:text-gray-300">
-                        {log.source_language} → {log.target_language}
-                      </td>
-                      <td className="p-3 text-gray-600 dark:text-gray-300">
-                        {(log.title_chars + log.content_chars).toLocaleString()}
-                        <span className="text-xs text-gray-400 dark:text-gray-500 ml-1">
-                          ({log.title_chars}/{log.content_chars})
-                        </span>
-                      </td>
-                      <td className="p-3 font-mono text-gray-700 dark:text-gray-200">
-                        {formatDurationMs(log.duration_ms)}
-                      </td>
-                      <td className={`p-3 ${getArgosLogStatusClass(log.status)}`}>
-                        {getArgosLogStatusLabel(log.status)}
-                      </td>
-                      <td className="p-3 text-gray-500 dark:text-gray-400">
-                        <div>{formatDateTime(log.started_at)}</div>
-                        {log.completed_at && (
-                          <div className="text-xs">{formatDateTime(log.completed_at)}</div>
-                        )}
-                      </td>
-                      <td className="p-3 max-w-[220px] truncate text-gray-500 dark:text-gray-400" title={log.error || ''}>
-                        {log.error || '-'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!argosLogsLoading && argosLogs.length === 0 && (
-                <div className="p-4 text-center text-gray-500 dark:text-gray-400">暂无本地翻译记录</div>
-              )}
-              {argosLogsLoading && argosLogs.length === 0 && (
-                <div className="p-4 text-center text-gray-500 dark:text-gray-400">加载中...</div>
-              )}
-            </div>
-            {argosLogTotalPages > 1 && (
-              <div className="px-3 py-2 border-t dark:border-gray-700 flex items-center justify-end gap-2 text-sm">
-                <button
-                  onClick={() => setArgosLogPage((page) => Math.max(1, page - 1))}
-                  disabled={argosLogPage <= 1}
-                  className="px-2 py-1 border dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 dark:text-gray-200"
-                >
-                  上一页
-                </button>
-                <span className="text-gray-500 dark:text-gray-400">
-                  {argosLogPage} / {argosLogTotalPages}
-                </span>
-                <button
-                  onClick={() => setArgosLogPage((page) => Math.min(argosLogTotalPages, page + 1))}
-                  disabled={argosLogPage >= argosLogTotalPages}
-                  className="px-2 py-1 border dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 dark:text-gray-200"
-                >
-                  下一页
-                </button>
+          {showArgosLogsModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+              <div className="w-full max-w-6xl max-h-[85vh] bg-white dark:bg-gray-900 border dark:border-gray-700 rounded shadow-xl flex flex-col overflow-hidden">
+                <div className="px-4 py-3 border-b dark:border-gray-700 flex flex-wrap items-center gap-2">
+                  <div className="text-base font-medium dark:text-white">本地翻译记录</div>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">共 {argosLogTotal} 条</span>
+                  <button
+                    onClick={() => queryClient.invalidateQueries({ queryKey: ['argos-translation-logs'] })}
+                    className="ml-auto p-1.5 text-gray-500 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                    title="刷新记录"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${argosLogsLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (window.confirm('确定清除所有本地翻译记录？')) {
+                        clearArgosLogsMutation.mutate()
+                      }
+                    }}
+                    disabled={clearArgosLogsMutation.isPending || argosLogTotal === 0}
+                    className="flex items-center gap-1 px-2 py-1.5 text-sm text-red-600 dark:text-red-300 border border-red-200 dark:border-red-800 rounded hover:bg-red-50 dark:hover:bg-red-900/30 disabled:opacity-50"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    清除
+                  </button>
+                  <button
+                    onClick={() => setShowArgosLogsModal(false)}
+                    className="p-1.5 text-gray-500 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                    title="关闭"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-auto">
+                  <table className="w-full min-w-[920px] text-sm">
+                    <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+                      <tr>
+                        <th className="p-3 text-left">文章</th>
+                        <th className="p-3 text-left">订阅源</th>
+                        <th className="p-3 text-left">语言</th>
+                        <th className="p-3 text-left">字符</th>
+                        <th className="p-3 text-left">耗时</th>
+                        <th className="p-3 text-left">状态</th>
+                        <th className="p-3 text-left">时间</th>
+                        <th className="p-3 text-left">错误</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y dark:divide-gray-700">
+                      {argosLogs.map((log) => (
+                        <tr key={log.id} className="dark:text-gray-100">
+                          <td className="p-3 max-w-[240px] truncate" title={log.article_title || ''}>
+                            {log.article_title || '-'}
+                          </td>
+                          <td className="p-3 max-w-[160px] truncate text-gray-600 dark:text-gray-300" title={log.feed_title || ''}>
+                            {log.feed_title || '-'}
+                          </td>
+                          <td className="p-3 text-gray-600 dark:text-gray-300">
+                            {log.source_language} → {log.target_language}
+                          </td>
+                          <td className="p-3 text-gray-600 dark:text-gray-300">
+                            {(log.title_chars + log.content_chars).toLocaleString()}
+                            <span className="text-xs text-gray-400 dark:text-gray-500 ml-1">
+                              ({log.title_chars}/{log.content_chars})
+                            </span>
+                          </td>
+                          <td className="p-3 font-mono text-gray-700 dark:text-gray-200">
+                            {formatDurationMs(log.duration_ms)}
+                          </td>
+                          <td className={`p-3 ${getArgosLogStatusClass(log.status)}`}>
+                            {getArgosLogStatusLabel(log.status)}
+                          </td>
+                          <td className="p-3 text-gray-500 dark:text-gray-400">
+                            <div>{formatDateTime(log.started_at)}</div>
+                            {log.completed_at && (
+                              <div className="text-xs">{formatDateTime(log.completed_at)}</div>
+                            )}
+                          </td>
+                          <td className="p-3 max-w-[220px] truncate text-gray-500 dark:text-gray-400" title={log.error || ''}>
+                            {log.error || '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {!argosLogsLoading && argosLogs.length === 0 && (
+                    <div className="p-4 text-center text-gray-500 dark:text-gray-400">暂无本地翻译记录</div>
+                  )}
+                  {argosLogsLoading && argosLogs.length === 0 && (
+                    <div className="p-4 text-center text-gray-500 dark:text-gray-400">加载中...</div>
+                  )}
+                </div>
+                {argosLogTotalPages > 1 && (
+                  <div className="px-4 py-3 border-t dark:border-gray-700 flex items-center justify-end gap-2 text-sm">
+                    <button
+                      onClick={() => setArgosLogPage((page) => Math.max(1, page - 1))}
+                      disabled={argosLogPage <= 1}
+                      className="px-2 py-1 border dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 dark:text-gray-200"
+                    >
+                      上一页
+                    </button>
+                    <span className="text-gray-500 dark:text-gray-400">
+                      {argosLogPage} / {argosLogTotalPages}
+                    </span>
+                    <button
+                      onClick={() => setArgosLogPage((page) => Math.min(argosLogTotalPages, page + 1))}
+                      disabled={argosLogPage >= argosLogTotalPages}
+                      className="px-2 py-1 border dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 dark:text-gray-200"
+                    >
+                      下一页
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
 

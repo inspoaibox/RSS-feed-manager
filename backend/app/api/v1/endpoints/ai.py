@@ -3,7 +3,7 @@ import math
 from typing import List
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.api.deps import CurrentUserId, DbSession
 from app.schemas.ai import (
@@ -283,6 +283,19 @@ async def get_argos_translation_logs(
         page_size=page_size,
         total_pages=math.ceil(total / page_size) if total > 0 else 1,
     )
+
+
+@router.delete("/argos/translation-logs")
+async def clear_argos_translation_logs(user_id: CurrentUserId, db: DbSession):
+    """Clear local Argos translation execution logs for the current user."""
+    result = await db.execute(
+        delete(ArgosTranslationLog).where(ArgosTranslationLog.user_id == user_id)
+    )
+    await db.commit()
+    return {
+        "success": True,
+        "deleted": result.rowcount or 0,
+    }
 
 
 @router.get("/google-translate-keys", response_model=List[GoogleTranslateKeyResponse])

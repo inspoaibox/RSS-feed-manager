@@ -55,6 +55,13 @@ def _get_package_module():
 
 
 def _clear_argos_runtime_cache() -> None:
+    try:
+        argos_translate = _get_translate_module()
+        cache_clear = getattr(argos_translate.get_installed_languages, "cache_clear", None)
+        if callable(cache_clear):
+            cache_clear()
+    except ArgosTranslateError:
+        pass
     _get_translate_module.cache_clear()
     _get_package_module.cache_clear()
 
@@ -146,14 +153,31 @@ def _find_package(packages, source_language: str, target_language: str):
 def _get_translation(source_language: str, target_language: str):
     argos_translate = _get_translate_module()
     installed_languages = argos_translate.get_installed_languages()
-    from_language = next(
-        (language for language in installed_languages if language.code == source_language),
-        None,
-    )
-    to_language = next(
-        (language for language in installed_languages if language.code == target_language),
-        None,
-    )
+
+    def find_translation():
+        from_language = next(
+            (language for language in installed_languages if language.code == source_language),
+            None,
+        )
+        to_language = next(
+            (language for language in installed_languages if language.code == target_language),
+            None,
+        )
+        if not from_language or not to_language:
+            return None, from_language, to_language
+        return from_language.get_translation(to_language), from_language, to_language
+
+    translation, from_language, to_language = find_translation()
+    if translation:
+        return translation
+
+    cache_clear = getattr(argos_translate.get_installed_languages, "cache_clear", None)
+    if callable(cache_clear):
+        cache_clear()
+        installed_languages = argos_translate.get_installed_languages()
+        translation, from_language, to_language = find_translation()
+        if translation:
+            return translation
 
     if not from_language or not to_language:
         available = ", ".join(sorted(language.code for language in installed_languages)) or "无"
@@ -162,10 +186,7 @@ def _get_translation(source_language: str, target_language: str):
             f"(已安装语言: {available})"
         )
 
-    translation = from_language.get_translation(to_language)
-    if not translation:
-        raise ArgosTranslateError(f"Argos 语言包未安装: {source_language} -> {target_language}")
-    return translation
+    raise ArgosTranslateError(f"Argos 语言包未安装: {source_language} -> {target_language}")
 
 
 def list_argos_packages_sync(refresh: bool = False) -> dict:
