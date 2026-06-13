@@ -69,7 +69,7 @@ async def refresh_feed(feed_id: int, user_id: CurrentUserId, db: DbSession):
 
 @router.post("/{feed_id}/translate-all")
 async def translate_all_articles(feed_id: int, user_id: CurrentUserId, db: DbSession):
-    """Translate all untranslated articles in a feed using AI."""
+    """Queue all untranslated articles in a feed for translation."""
     service = FeedService(db)
     # Verify feed belongs to user
     feed = await service.get_by_id(user_id, feed_id)
@@ -78,7 +78,7 @@ async def translate_all_articles(feed_id: int, user_id: CurrentUserId, db: DbSes
     from app.tasks.feed_tasks import translate_feed_articles
     translate_feed_articles.delay(feed_id)
     
-    return {"message": "翻译任务已启动", "feed_id": feed_id}
+    return {"message": "翻译任务已加入队列", "feed_id": feed_id}
 
 
 @router.post("/import", response_model=OPMLImportResult)

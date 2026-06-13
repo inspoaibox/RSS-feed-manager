@@ -15,6 +15,10 @@ class ArticleResponse(BaseModel):
     full_content: str | None
     summary: str | None
     translation: str | None
+    translation_status: str = "none"
+    translation_error: str | None = None
+    translation_started_at: datetime | None = None
+    translation_completed_at: datetime | None = None
     author: str | None
     published_at: datetime | None
     is_read: bool = False

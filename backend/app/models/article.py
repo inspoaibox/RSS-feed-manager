@@ -35,6 +35,10 @@ class Article(BaseModel):
     full_content: Mapped[str | None] = mapped_column(Text, nullable=True)  # Extracted full text
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)  # AI-generated summary
     translation: Mapped[str | None] = mapped_column(Text, nullable=True)  # AI translation
+    translation_status: Mapped[str] = mapped_column(String(20), default="none", nullable=False)
+    translation_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    translation_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    translation_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     
     # Metadata
     author: Mapped[str | None] = mapped_column(String(500), nullable=True)

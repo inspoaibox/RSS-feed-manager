@@ -552,6 +552,7 @@ class FeedService:
     async def _save_articles(self, user_id: int, feed: Feed, parsed: ParsedFeed) -> int:
         """Save articles from parsed feed. Returns count of new articles."""
         count = 0
+        queued_translation_article_ids: list[int] = []
         for article in parsed.articles:
             # Check if article already exists
             existing = await self.article_repo.get_by_guid(feed.id, article.guid)
@@ -567,29 +568,61 @@ class FeedService:
                 author=article.author,
                 published_at=article.published_at
             )
-            await self._auto_translate_article(user_id, feed, saved_article.id)
+            if await self._queue_article_translation(feed, saved_article):
+                queued_translation_article_ids.append(saved_article.id)
             count += 1
+
+        if queued_translation_article_ids:
+            await self.session.commit()
+            await self._dispatch_translation_tasks(queued_translation_article_ids)
         
         return count
 
-    async def _auto_translate_article(self, user_id: int, feed: Feed, article_id: int) -> None:
-        """Translate a newly saved article when the feed has translation enabled."""
+    async def _queue_article_translation(self, feed: Feed, article) -> bool:
+        """Mark a newly saved article for background translation."""
         translate_method = getattr(feed, 'translate_method', None) or (
             'ai' if feed.auto_translate else 'none'
         )
         if translate_method == 'none' or not feed.target_language:
-            return
+            return False
 
-        try:
-            from app.services.article_service import ArticleService
+        if not ((article.title or "").strip() or (article.content or "").strip()):
+            article.translation_status = "failed"
+            article.translation_error = "Article has no content to translate"
+            await self.session.flush()
+            return False
 
-            await ArticleService(self.session).translate_article(
-                user_id,
-                article_id,
-                feed.target_language,
+        if article.translation_status in {"queued", "translating"}:
+            return False
+
+        article.translation_status = "queued"
+        article.translation_error = None
+        article.translation_started_at = None
+        article.translation_completed_at = None
+        await self.session.flush()
+        return True
+
+    async def _dispatch_translation_tasks(self, article_ids: list[int]) -> None:
+        """Dispatch queued translation tasks after the article transaction is committed."""
+        from sqlalchemy import select
+
+        from app.models.article import Article
+        from app.tasks.feed_tasks import dispatch_article_translation
+
+        for article_id in article_ids:
+            queued, error = dispatch_article_translation(article_id)
+            if queued or error == "duplicate":
+                continue
+
+            result = await self.session.execute(
+                select(Article).where(Article.id == article_id)
             )
-        except Exception as e:
-            print(f"[FeedService] Auto translation failed for article {article_id}: {e}")
+            article = result.scalar_one_or_none()
+            if article:
+                article.translation_status = "failed"
+                article.translation_error = f"Translation queue dispatch failed: {error}"[:1000]
+                await self.session.commit()
+            print(f"[FeedService] Translation dispatch failed for article {article_id}: {error}")
 
     async def reorder(self, user_id: int, data: FeedReorder) -> List[FeedResponse]:
         """Reorder feeds by updating their positions."""

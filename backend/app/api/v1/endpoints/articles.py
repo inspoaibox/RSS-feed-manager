@@ -119,7 +119,7 @@ async def translate_article(
     db: DbSession,
     target_language: str = Query("zh-CN")
 ):
-    """Translate article content using AI."""
+    """Queue article content translation."""
     service = ArticleService(db)
     result = await service.translate_article(user_id, article_id, target_language)
     return result

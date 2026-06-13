@@ -183,6 +183,8 @@ export interface KeywordSubscriptionCount {
 }
 
 // Article types
+export type TranslationStatus = 'none' | 'queued' | 'translating' | 'completed' | 'failed'
+
 export interface Article {
   id: number
   feed_id: number
@@ -193,6 +195,10 @@ export interface Article {
   full_content: string | null
   summary: string | null
   translation: string | null
+  translation_status: TranslationStatus
+  translation_error: string | null
+  translation_started_at: string | null
+  translation_completed_at: string | null
   author: string | null
   published_at: string
   is_read: boolean

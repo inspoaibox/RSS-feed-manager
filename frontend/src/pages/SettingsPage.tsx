@@ -3646,8 +3646,19 @@ interface ImportResult {
   success: boolean
   categories_imported: number
   feeds_imported: number
+  articles_imported?: number
+  user_articles_imported?: number
   ai_providers_imported: number
+  ai_models_imported?: number
   custom_rules_imported: number
+  keyword_subscriptions_imported?: number
+  proxy_pool_entries_imported?: number
+  google_translate_keys_imported?: number
+  analysis_queries_imported?: number
+  recommended_feeds_imported?: number
+  notifications_imported?: number
+  user_notification_reads_imported?: number
+  updated?: number
   errors: string[]
 }
 
@@ -3669,6 +3680,27 @@ function BackupTab() {
   const [webdavUploading, setWebdavUploading] = useState(false)
   const [restoringFile, setRestoringFile] = useState<string | null>(null)
   const [deletingFile, setDeletingFile] = useState<string | null>(null)
+
+  const invalidateBackupRelatedQueries = () => {
+    ;[
+      'feeds',
+      'categories',
+      'articles',
+      'ai-providers',
+      'ai-models',
+      'ai-settings',
+      'custom-rules',
+      'keywords',
+      'keyword-counts',
+      'proxies',
+      'proxy-groups',
+      'google-translate-keys',
+      'admin-recommendations',
+      'webdav-config',
+    ].forEach((queryKey) => {
+      queryClient.invalidateQueries({ queryKey: [queryKey] })
+    })
+  }
 
   // Fetch WebDAV config
   const { data: webdavConfigData, refetch: refetchWebdavConfig } = useQuery({
@@ -3709,7 +3741,7 @@ function BackupTab() {
       link.remove()
       window.URL.revokeObjectURL(url)
       
-      setMessage({ type: 'success', text: '配置已导出' })
+      setMessage({ type: 'success', text: '备份已导出' })
       setTimeout(() => setMessage(null), 3000)
     } catch (err: any) {
       setMessage({ type: 'error', text: '导出失败' })
@@ -3729,17 +3761,12 @@ function BackupTab() {
       })
       
       setImportResult(response.data)
-      
-      queryClient.invalidateQueries({ queryKey: ['feeds'] })
-      queryClient.invalidateQueries({ queryKey: ['categories'] })
-      queryClient.invalidateQueries({ queryKey: ['ai-providers'] })
-      queryClient.invalidateQueries({ queryKey: ['ai-models'] })
-      queryClient.invalidateQueries({ queryKey: ['custom-rules'] })
+      invalidateBackupRelatedQueries()
       
       if (response.data.errors?.length === 0) {
-        setMessage({ type: 'success', text: '配置导入成功' })
+        setMessage({ type: 'success', text: '备份导入成功' })
       } else {
-        setMessage({ type: 'error', text: '部分配置导入失败，请查看详情' })
+        setMessage({ type: 'error', text: '部分数据导入失败，请查看详情' })
       }
     } catch (err: any) {
       const detail = err.response?.data?.detail
@@ -3797,23 +3824,18 @@ function BackupTab() {
   }
 
   const handleWebDAVRestore = async (filename: string) => {
-    if (!confirm(`确定要从 "${filename}" 恢复配置吗？已存在的配置不会被覆盖。`)) return
+    if (!confirm(`确定要从 "${filename}" 恢复备份吗？已存在的数据会按唯一标识更新。`)) return
     
     setRestoringFile(filename)
     try {
       const response = await api.post(`/backup/webdav/restore/${encodeURIComponent(filename)}`)
       setImportResult(response.data)
-      
-      queryClient.invalidateQueries({ queryKey: ['feeds'] })
-      queryClient.invalidateQueries({ queryKey: ['categories'] })
-      queryClient.invalidateQueries({ queryKey: ['ai-providers'] })
-      queryClient.invalidateQueries({ queryKey: ['ai-models'] })
-      queryClient.invalidateQueries({ queryKey: ['custom-rules'] })
+      invalidateBackupRelatedQueries()
       
       if (response.data.errors?.length === 0) {
-        setMessage({ type: 'success', text: '配置恢复成功' })
+        setMessage({ type: 'success', text: '备份恢复成功' })
       } else {
-        setMessage({ type: 'error', text: '部分配置恢复失败，请查看详情' })
+        setMessage({ type: 'error', text: '部分数据恢复失败，请查看详情' })
       }
     } catch (err: any) {
       const detail = err.response?.data?.detail
@@ -3875,8 +3897,7 @@ function BackupTab() {
       <div className="p-4 bg-primary-50 dark:bg-primary-900/30 border border-blue-200 dark:border-blue-800 rounded">
         <h3 className="font-medium text-blue-800 dark:text-primary-300 mb-2">本地备份与恢复</h3>
         <p className="text-sm text-blue-700 dark:text-primary-400">
-          导出功能会将所有配置保存为 JSON 文件，包括：订阅源、分类、AI 设置、自定义规则。
-          导入时会跳过已存在的配置，不会覆盖现有数据。
+          导出会将配置和数据库内容保存为 JSON 文件。导入时按唯一标识新增或更新已有数据。
         </p>
       </div>
 
@@ -4073,23 +4094,29 @@ function BackupTab() {
       {importResult && (
         <div className="p-4 border dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-700">
           <h3 className="font-medium mb-3 dark:text-white">导入/恢复结果</h3>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded dark:text-gray-200">
-              <span>分类</span>
-              <span className="font-medium text-green-600 dark:text-green-400">+{importResult.categories_imported}</span>
-            </div>
-            <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded dark:text-gray-200">
-              <span>订阅源</span>
-              <span className="font-medium text-green-600 dark:text-green-400">+{importResult.feeds_imported}</span>
-            </div>
-            <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded dark:text-gray-200">
-              <span>AI 渠道</span>
-              <span className="font-medium text-green-600 dark:text-green-400">+{importResult.ai_providers_imported}</span>
-            </div>
-            <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded dark:text-gray-200">
-              <span>自定义规则</span>
-              <span className="font-medium text-green-600 dark:text-green-400">+{importResult.custom_rules_imported}</span>
-            </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+            {[
+              ['分类', importResult.categories_imported],
+              ['订阅源', importResult.feeds_imported],
+              ['文章', importResult.articles_imported || 0],
+              ['阅读/收藏状态', importResult.user_articles_imported || 0],
+              ['AI 渠道', importResult.ai_providers_imported],
+              ['AI 模型', importResult.ai_models_imported || 0],
+              ['自定义规则', importResult.custom_rules_imported],
+              ['关键词订阅', importResult.keyword_subscriptions_imported || 0],
+              ['代理池', importResult.proxy_pool_entries_imported || 0],
+              ['Google Key', importResult.google_translate_keys_imported || 0],
+              ['分析历史', importResult.analysis_queries_imported || 0],
+              ['推荐订阅', importResult.recommended_feeds_imported || 0],
+              ['通知', importResult.notifications_imported || 0],
+              ['通知阅读', importResult.user_notification_reads_imported || 0],
+              ['已更新', importResult.updated || 0],
+            ].map(([label, count]) => (
+              <div key={label} className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded dark:text-gray-200">
+                <span>{label}</span>
+                <span className="font-medium text-green-600 dark:text-green-400">+{count}</span>
+              </div>
+            ))}
           </div>
           
           {importResult.errors.length > 0 && (
@@ -4113,21 +4140,21 @@ function BackupTab() {
             <span className="w-8 h-8 flex items-center justify-center bg-primary-100 dark:bg-primary-900/50 text-primary-600 dark:text-primary-400 rounded">📁</span>
             <div>
               <p className="font-medium dark:text-white">分类</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">所有自定义分类名称</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">名称、描述、排序</p>
             </div>
           </div>
           <div className="p-4 flex items-center gap-3">
             <span className="w-8 h-8 flex items-center justify-center bg-orange-100 dark:bg-orange-900/50 text-orange-600 dark:text-orange-400 rounded">📰</span>
             <div>
-              <p className="font-medium dark:text-white">订阅源</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">URL、标题、分类、同步间隔、启用状态</p>
+              <p className="font-medium dark:text-white">订阅源与文章</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">订阅设置、文章内容、翻译、摘要、阅读/收藏状态</p>
             </div>
           </div>
           <div className="p-4 flex items-center gap-3">
             <span className="w-8 h-8 flex items-center justify-center bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 rounded">🤖</span>
             <div>
               <p className="font-medium dark:text-white">AI 设置</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">AI 渠道配置（包含 API Key）、模型列表</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">AI 渠道、模型、提示词、Embedding 配置、Google 翻译 Key</p>
             </div>
           </div>
           <div className="p-4 flex items-center gap-3">
@@ -4137,11 +4164,25 @@ function BackupTab() {
               <p className="text-sm text-gray-500 dark:text-gray-400">抓取规则配置（URL、选择器等）</p>
             </div>
           </div>
+          <div className="p-4 flex items-center gap-3">
+            <span className="w-8 h-8 flex items-center justify-center bg-cyan-100 dark:bg-cyan-900/50 text-cyan-600 dark:text-cyan-400 rounded">#</span>
+            <div>
+              <p className="font-medium dark:text-white">关键词与代理池</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">关键词订阅、代理 IP、国家/协议分组、测试状态</p>
+            </div>
+          </div>
+          <div className="p-4 flex items-center gap-3">
+            <span className="w-8 h-8 flex items-center justify-center bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-400 rounded">i</span>
+            <div>
+              <p className="font-medium dark:text-white">其它数据</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">分析历史、用户创建的推荐订阅和通知</p>
+            </div>
+          </div>
         </div>
       </div>
 
       <p className="text-sm text-gray-500 dark:text-gray-400">
-        注意：备份文件包含 API Key 等敏感信息，请妥善保管。文章内容不包含在备份中。
+        注意：备份文件包含 API Key、代理账号密码、Cookies、WebDAV 配置等敏感信息，请妥善保管。
       </p>
     </div>
   )

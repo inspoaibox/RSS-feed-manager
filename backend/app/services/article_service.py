@@ -1,5 +1,6 @@
 """Article service for business logic."""
 import math
+from datetime import datetime
 from typing import List
 
 from fastapi import HTTPException, status
@@ -96,6 +97,10 @@ class ArticleService:
             full_content=article.full_content,
             summary=article.summary,
             translation=article.translation,
+            translation_status=article.translation_status,
+            translation_error=article.translation_error,
+            translation_started_at=article.translation_started_at,
+            translation_completed_at=article.translation_completed_at,
             author=article.author,
             published_at=article.published_at,
             is_read=user_article.is_read if user_article else True,
@@ -208,6 +213,10 @@ class ArticleService:
             full_content=article.full_content,
             summary=article.summary,
             translation=article.translation,
+            translation_status=article.translation_status,
+            translation_error=article.translation_error,
+            translation_started_at=article.translation_started_at,
+            translation_completed_at=article.translation_completed_at,
             author=article.author,
             published_at=article.published_at,
             is_read=data.get("is_read", False),
@@ -239,9 +248,7 @@ class ArticleService:
         return text.strip()
 
     async def translate_article(self, user_id: int, article_id: int, target_language: str) -> dict:
-        """Translate article title and content using AI or Google Translate based on feed settings."""
-        import json
-        
+        """Queue article title/content translation using the feed's configured provider."""
         article = await self._verify_article_access(user_id, article_id)
         
         content = article.content or ""
@@ -254,9 +261,6 @@ class ArticleService:
             )
         
         # Keep HTML content for translation (let AI preserve formatting)
-        content_text = content
-        
-        # Get feed's translate_method
         from app.models.feed import Feed
         from sqlalchemy import select
         feed_result = await self.session.execute(select(Feed).where(Feed.id == article.feed_id))
@@ -269,104 +273,41 @@ class ArticleService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="请先在订阅源设置中启用翻译"
             )
-        
-        # Get user info
-        from app.models.user import User
-        user_result = await self.session.execute(select(User).where(User.id == user_id))
-        user = user_result.scalar_one_or_none()
-        
-        translated_title = ""
-        translated_content = ""
-        
-        if translate_method == 'google':
-            # Use Google Translate
-            print(f"[Translate] Using Google Translate for article {article_id}")
-            from app.services.google_translate_key_service import GoogleTranslateKeyService
-            from app.services.google_translate_service import GoogleTranslateError
-            
-            try:
-                translated_title, translated_content = await GoogleTranslateKeyService(
-                    self.session
-                ).translate_article(
-                    user_id,
-                    title,
-                    content_text,
-                    target_language,
-                )
-            except GoogleTranslateError as e:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Google translation failed: {str(e)}"
-                )
-        elif translate_method == 'argos':
-            print(f"[Translate] Using Argos Translate for article {article_id}")
-            from app.services.argos_translate_service import ArgosTranslateError, ArgosTranslateService
 
-            source_language = (
-                getattr(feed, "source_language", None)
-                or (user.argos_source_language if user else None)
-                or "en"
-            )
-            try:
-                translated_title, translated_content = await ArgosTranslateService(
-                    source_language
-                ).translate_article(
-                    title,
-                    content_text,
-                    target_language,
-                )
-            except ArgosTranslateError as e:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Argos translation failed: {str(e)}",
-                )
-        else:
-            # Use AI translation (default)
-            print(f"[Translate] Using AI Translate for article {article_id}")
-            from app.repositories.ai_repository import AIModelRepository, AIProviderRepository
-            model_repo = AIModelRepository(self.session)
-            provider_repo = AIProviderRepository(self.session)
-            default_model = await model_repo.get_default_model(user_id)
-            
-            if not default_model:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="No default AI model configured"
-                )
-            
-            provider = await provider_repo.get_by_id(default_model.provider_id, user_id)
-            if not provider:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="AI provider not found"
-                )
-            
-            custom_prompt = user.translate_prompt if user and user.translate_prompt else None
-            
-            from app.services.ai_client import create_ai_client, AIClientError
-            try:
-                client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
-                
-                if title:
-                    translated_title = await client.translate(title, target_language, custom_prompt)
-                if content_text:
-                    translated_content = await client.translate(content_text, target_language, custom_prompt)
-            except AIClientError as e:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"AI translation failed: {str(e)}"
-                )
-        
-        # Store as JSON
-        translation_data = json.dumps({
-            "title": translated_title,
-            "content": translated_content
-        }, ensure_ascii=False)
-        
-        article.translation = translation_data
+        if article.translation_status in {"queued", "translating"}:
+            return {
+                "message": "翻译任务已在队列中",
+                "translation": article.translation,
+                "translation_status": article.translation_status,
+                "translation_error": article.translation_error,
+                "method": translate_method,
+            }
+
+        article.translation_status = "queued"
+        article.translation_error = None
+        article.translation_started_at = None
+        article.translation_completed_at = None
         await self.session.commit()
-        
-        return {"translation": translation_data, "title": translated_title, "content": translated_content, "method": translate_method}
+
+        from app.tasks.feed_tasks import dispatch_article_translation
+        queued, error = dispatch_article_translation(article.id, target_language=target_language)
+        if not queued and error != "duplicate":
+            article.translation_status = "failed"
+            article.translation_error = f"Translation queue dispatch failed: {error}"[:1000]
+            article.translation_completed_at = datetime.utcnow()
+            await self.session.commit()
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="翻译任务入队失败，请检查 Celery/Redis 状态",
+            )
+
+        return {
+            "message": "翻译任务已加入队列",
+            "translation": article.translation,
+            "translation_status": article.translation_status,
+            "translation_error": article.translation_error,
+            "method": translate_method,
+        }
 
     async def summarize_article(self, user_id: int, article_id: int) -> dict:
         """Summarize article using AI."""

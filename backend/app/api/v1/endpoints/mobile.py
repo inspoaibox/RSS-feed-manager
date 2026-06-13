@@ -63,6 +63,10 @@ class MobileArticle(BaseModel):
     full_content: str | None
     summary: str | None
     translation: str | None
+    translation_status: str = "none"
+    translation_error: str | None = None
+    translation_started_at: datetime | None = None
+    translation_completed_at: datetime | None = None
     author: str | None
     published_at: datetime | None
     created_at: datetime
@@ -191,6 +195,10 @@ def _article_to_mobile(row: dict[str, Any]) -> MobileArticle:
         full_content=article.full_content,
         summary=article.summary,
         translation=article.translation,
+        translation_status=article.translation_status,
+        translation_error=article.translation_error,
+        translation_started_at=article.translation_started_at,
+        translation_completed_at=article.translation_completed_at,
         author=article.author,
         published_at=article.published_at,
         created_at=article.created_at,

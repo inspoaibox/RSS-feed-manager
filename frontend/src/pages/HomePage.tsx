@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, Check, Star, ExternalLink, Search, SortAsc, SortDesc, X, Languages, FileText, Loader2, ChevronLeft, ChevronRight, Calendar } from 'lucide-react'
 import api from '@/services/api'
-import type { Article, PaginatedResponse } from '@/types'
+import type { Article, PaginatedResponse, TranslationStatus } from '@/types'
 import clsx from 'clsx'
 
 // Helper to get date string in YYYY-MM-DD format for date input
@@ -62,6 +62,44 @@ const parseTranslation = (translation: string | null | undefined): { title: stri
 const getDisplayTitle = (article: Article): string => {
   const translatedData = parseTranslation(article.translation)
   return translatedData.title || article.title
+}
+
+const getTranslationStatus = (article: Article): TranslationStatus => {
+  return article.translation_status || (article.translation ? 'completed' : 'none')
+}
+
+const isTranslationActive = (status: TranslationStatus): boolean => {
+  return status === 'queued' || status === 'translating'
+}
+
+const getTranslationStatusText = (status: TranslationStatus): string => {
+  switch (status) {
+    case 'queued':
+      return '待翻译'
+    case 'translating':
+      return '翻译中'
+    case 'completed':
+      return '已翻译'
+    case 'failed':
+      return '翻译失败'
+    default:
+      return ''
+  }
+}
+
+const getTranslationStatusClass = (status: TranslationStatus): string => {
+  switch (status) {
+    case 'queued':
+      return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-200 dark:border-amber-700'
+    case 'translating':
+      return 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700'
+    case 'completed':
+      return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-700'
+    case 'failed':
+      return 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-200 dark:border-red-700'
+    default:
+      return ''
+  }
 }
 
 const PAGE_SIZE = 30
@@ -162,6 +200,7 @@ export default function HomePage() {
       return response.data
     },
     enabled: isSearching && searchQuery.length > 0,
+    refetchInterval: 30000,
   })
 
 
@@ -193,14 +232,25 @@ export default function HomePage() {
 
   const translateMutation = useMutation({
     mutationFn: async (articleId: number) => {
-      const response = await api.post<{ translation: string }>(`/articles/${articleId}/translate?target_language=zh-CN`)
+      const response = await api.post<{
+        translation: string | null
+        translation_status: TranslationStatus
+        translation_error: string | null
+        message: string
+      }>(`/articles/${articleId}/translate?target_language=zh-CN`)
       return response.data
     },
     onSuccess: (data) => {
       if (selectedArticle) {
-        setSelectedArticle(prev => prev ? { ...prev, translation: data.translation } : null)
+        setSelectedArticle(prev => prev ? {
+          ...prev,
+          translation: data.translation ?? prev.translation,
+          translation_status: data.translation_status || 'queued',
+          translation_error: data.translation_error ?? null,
+        } : null)
       }
       queryClient.invalidateQueries({ queryKey: ['articles'] })
+      queryClient.invalidateQueries({ queryKey: ['articles-search'] })
     },
   })
 
@@ -300,6 +350,27 @@ export default function HomePage() {
   const totalPages = currentData?.total_pages || 1
   const page = isSearching ? searchPage : currentPage
   const setPage = isSearching ? setSearchPage : setCurrentPage
+
+  useEffect(() => {
+    if (!selectedArticle) return
+    const latest = articles.find((article) => article.id === selectedArticle.id)
+    if (latest) {
+      setSelectedArticle((prev) => prev ? { ...prev, ...latest } : latest)
+    }
+  }, [articles, selectedArticle?.id])
+
+  useEffect(() => {
+    if (!selectedArticle || !isTranslationActive(getTranslationStatus(selectedArticle))) {
+      return
+    }
+
+    const interval = window.setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: ['articles'] })
+      queryClient.invalidateQueries({ queryKey: ['articles-search'] })
+    }, 5000)
+
+    return () => window.clearInterval(interval)
+  }, [queryClient, selectedArticle?.id, selectedArticle?.translation_status])
 
   const goToPage = (newPage: number) => {
     if (newPage >= 1 && newPage <= totalPages) {
@@ -525,6 +596,22 @@ export default function HomePage() {
                         )}>
                           {getDisplayTitle(article)}
                         </h3>
+                        {(() => {
+                          const translationStatus = getTranslationStatus(article)
+                          if (translationStatus === 'none') return null
+                          return (
+                            <span
+                              className={clsx(
+                                'inline-flex items-center gap-1 flex-shrink-0 h-5 px-1.5 border rounded text-[10px] leading-none',
+                                getTranslationStatusClass(translationStatus)
+                              )}
+                              title={article.translation_error || getTranslationStatusText(translationStatus)}
+                            >
+                              {translationStatus === 'translating' && <Loader2 className="w-3 h-3 animate-spin" />}
+                              {getTranslationStatusText(translationStatus)}
+                            </span>
+                          )
+                        })()}
                       </div>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
                         {stripHtml(article.summary || article.content)?.slice(0, 150)}
@@ -615,14 +702,26 @@ export default function HomePage() {
                   ← 返回
                 </button>
                 <div className="ml-auto flex items-center gap-1">
-                  <button
-                    onClick={() => translateMutation.mutate(selectedArticle.id)}
-                    disabled={translateMutation.isPending}
-                    className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-purple-600 dark:text-purple-400 disabled:opacity-50"
-                    title="翻译"
-                  >
-                    {translateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Languages className="w-4 h-4" />}
-                  </button>
+                  {(() => {
+                    const translationStatus = getTranslationStatus(selectedArticle)
+                    const translationBusy = translateMutation.isPending || isTranslationActive(translationStatus)
+                    return (
+                      <button
+                        onClick={() => translateMutation.mutate(selectedArticle.id)}
+                        disabled={translationBusy}
+                        className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-purple-600 dark:text-purple-400 disabled:opacity-50"
+                        title={
+                          translationStatus === 'failed'
+                            ? '重新翻译'
+                            : translationBusy
+                              ? getTranslationStatusText(translationStatus)
+                              : '翻译'
+                        }
+                      >
+                        {translationBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Languages className="w-4 h-4" />}
+                      </button>
+                    )
+                  })()}
                   <button
                     onClick={() => summarizeMutation.mutate(selectedArticle.id)}
                     disabled={summarizeMutation.isPending}
@@ -648,6 +747,7 @@ export default function HomePage() {
                 {(() => {
                   const translatedData = parseTranslation(selectedArticle.translation)
                   const showingTranslation = selectedArticle.translation && showTranslation
+                  const translationStatus = getTranslationStatus(selectedArticle)
                   
                   return (
                     <>
@@ -658,6 +758,22 @@ export default function HomePage() {
                         <span>{new Date(selectedArticle.published_at).toLocaleString()}</span>
                         {selectedArticle.author && <span>作者: {selectedArticle.author}</span>}
                       </div>
+                      {translationStatus !== 'none' && (
+                        <div
+                          className={clsx(
+                            'mb-4 inline-flex max-w-full items-center gap-2 rounded border px-2 py-1 text-xs',
+                            getTranslationStatusClass(translationStatus)
+                          )}
+                        >
+                          {isTranslationActive(translationStatus) && <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />}
+                          <span className="flex-shrink-0">{getTranslationStatusText(translationStatus)}</span>
+                          {translationStatus === 'failed' && selectedArticle.translation_error && (
+                            <span className="truncate" title={selectedArticle.translation_error}>
+                              {selectedArticle.translation_error}
+                            </span>
+                          )}
+                        </div>
+                      )}
                       {selectedArticle.summary && (
                         <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/30 rounded-lg">
                           <h3 className="text-sm font-semibold text-green-700 dark:text-green-400 mb-2">AI 整理</h3>

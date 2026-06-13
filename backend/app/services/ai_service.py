@@ -1,4 +1,5 @@
 """AI service for managing providers, models, and AI operations."""
+from datetime import datetime
 from typing import List
 
 from fastapi import HTTPException, status
@@ -224,10 +225,23 @@ class AIService:
         
         try:
             client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
+            article.translation_status = "translating"
+            article.translation_error = None
+            article.translation_started_at = datetime.utcnow()
+            article.translation_completed_at = None
+            await self.article_repo.session.flush()
             translation = await client.translate(content, target_language)
             await self.article_repo.update_content(article, translation=translation)
+            article.translation_status = "completed"
+            article.translation_error = None
+            article.translation_completed_at = datetime.utcnow()
+            await self.article_repo.session.flush()
             return translation
         except AIClientError as e:
+            article.translation_status = "failed"
+            article.translation_error = str(e)[:1000]
+            article.translation_completed_at = datetime.utcnow()
+            await self.article_repo.session.flush()
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
 
     async def summarize_article(self, user_id: int, article_id: int) -> str:
