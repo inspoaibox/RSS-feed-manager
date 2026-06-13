@@ -3,6 +3,9 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, HttpUrl
 
+TranslateMethod = str
+TRANSLATE_METHOD_PATTERN = "^(none|ai|google|argos)$"
+
 
 class CustomRuleBase(BaseModel):
     """Base custom rule schema."""
@@ -19,8 +22,9 @@ class CustomRuleBase(BaseModel):
     use_playwright: bool = False
     auto_translate: bool = False
     auto_summarize: bool = False
+    source_language: str | None = Field(None, max_length=10)
     target_language: str | None = Field(None, max_length=10)
-    translate_method: str = Field(default='none', pattern='^(none|ai|google)$')
+    translate_method: TranslateMethod = Field(default='none', pattern=TRANSLATE_METHOD_PATTERN)
     is_active: bool = True
 
 
@@ -45,8 +49,9 @@ class CustomRuleUpdate(BaseModel):
     use_playwright: bool | None = None
     auto_translate: bool | None = None
     auto_summarize: bool | None = None
+    source_language: str | None = Field(None, max_length=10)
     target_language: str | None = Field(None, max_length=10)
-    translate_method: str | None = Field(None, pattern='^(none|ai|google)$')
+    translate_method: TranslateMethod | None = Field(None, pattern=TRANSLATE_METHOD_PATTERN)
     is_active: bool | None = None
 
 
@@ -69,6 +74,7 @@ class CustomRuleResponse(BaseModel):
     use_playwright: bool
     auto_translate: bool
     auto_summarize: bool
+    source_language: str | None
     target_language: str | None
     translate_method: str = 'none'
     is_active: bool

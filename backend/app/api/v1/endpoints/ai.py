@@ -11,6 +11,11 @@ from app.schemas.ai import (
     AIProviderCreate,
     AIProviderResponse,
     AIProviderUpdate,
+    ArgosPackageInfo,
+    ArgosPackageInstallRequest,
+    ArgosPackagesResponse,
+    ArgosPackageTestRequest,
+    ArgosPackageTestResponse,
     AnalyzeRequest,
     AnalyzeResponse,
     ArticleResult,
@@ -28,6 +33,13 @@ from app.schemas.google_translate_key import (
     GoogleTranslateKeyUpdate,
 )
 from app.services.ai_service import AIService
+from app.services.argos_translate_service import (
+    ArgosTranslateError,
+    install_argos_package,
+    list_argos_packages,
+    test_argos_package,
+    uninstall_argos_package,
+)
 from app.services.content_analysis_service import ContentAnalysisService
 from app.services.embedding_service import EmbeddingService
 from app.services.google_translate_key_service import GoogleTranslateKeyService
@@ -178,6 +190,62 @@ async def update_ai_settings(
     """Update AI prompt settings."""
     service = AIService(db)
     return await service.update_settings(user_id, data)
+
+
+@router.get("/argos/packages", response_model=ArgosPackagesResponse)
+async def get_argos_packages(user_id: CurrentUserId, refresh: bool = False):
+    """Get installed and available Argos translation packages."""
+    try:
+        return await list_argos_packages(refresh=refresh)
+    except ArgosTranslateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post("/argos/packages/install", response_model=ArgosPackageInfo)
+async def install_argos_package_endpoint(
+    data: ArgosPackageInstallRequest,
+    user_id: CurrentUserId,
+):
+    """Install an Argos translation package."""
+    try:
+        return await install_argos_package(data.source_language, data.target_language)
+    except ArgosTranslateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.delete("/argos/packages/{source_language}/{target_language}")
+async def uninstall_argos_package_endpoint(
+    source_language: str,
+    target_language: str,
+    user_id: CurrentUserId,
+):
+    """Uninstall an Argos translation package."""
+    try:
+        return await uninstall_argos_package(source_language, target_language)
+    except ArgosTranslateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post("/argos/test", response_model=ArgosPackageTestResponse)
+async def test_argos_package_endpoint(
+    data: ArgosPackageTestRequest,
+    user_id: CurrentUserId,
+):
+    """Test an installed Argos translation package."""
+    return await test_argos_package(
+        data.source_language,
+        data.target_language,
+        data.text,
+    )
 
 
 @router.get("/google-translate-keys", response_model=List[GoogleTranslateKeyResponse])

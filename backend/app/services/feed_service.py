@@ -238,6 +238,7 @@ class FeedService:
             proxy_pool_protocol=proxy_pool_protocol,
             auto_translate=data.auto_translate,
             auto_summarize=data.auto_summarize,
+            source_language=data.source_language,
             target_language=data.target_language,
             translate_method=data.translate_method
         )
@@ -614,6 +615,7 @@ class FeedService:
             last_fetched_at=feed.last_fetched_at,
             auto_translate=feed.auto_translate,
             auto_summarize=feed.auto_summarize,
+            source_language=getattr(feed, "source_language", None),
             target_language=feed.target_language,
             translate_method=getattr(feed, 'translate_method', 'none'),
             is_active=feed.is_active,

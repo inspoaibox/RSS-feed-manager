@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from webdav3.client import Client
 from webdav3.exceptions import WebDavException
 
@@ -15,6 +15,7 @@ from app.models.category import Category
 from app.models.custom_rule import CustomRule
 from app.models.feed import Feed
 from app.models.system_settings import SystemSettings
+from app.models.user import User
 from sqlalchemy import select
 
 router = APIRouter()
@@ -63,6 +64,7 @@ class BackupData(BaseModel):
     """Backup data structure."""
     version: str = "1.0"
     exported_at: str
+    user_settings: Dict[str, Any] = Field(default_factory=dict)
     categories: List[Dict[str, Any]]
     feeds: List[Dict[str, Any]]
     ai_providers: List[Dict[str, Any]]
@@ -83,6 +85,10 @@ class ImportResult(BaseModel):
 @router.get("/export")
 async def export_all(user_id: CurrentUserId, db: DbSession):
     """Export all user settings and subscriptions."""
+    # Get user-level settings
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
     # Get categories
     result = await db.execute(select(Category).where(Category.user_id == user_id))
     categories = result.scalars().all()
@@ -110,6 +116,9 @@ async def export_all(user_id: CurrentUserId, db: DbSession):
     backup = {
         "version": "1.0",
         "exported_at": datetime.utcnow().isoformat(),
+        "user_settings": {
+            "argos_source_language": getattr(user, "argos_source_language", None),
+        },
         "categories": [
             {"name": c.name}
             for c in categories
@@ -121,6 +130,11 @@ async def export_all(user_id: CurrentUserId, db: DbSession):
                 "category_name": next((c.name for c in categories if c.id == f.category_id), None),
                 "fetch_interval": f.fetch_interval,
                 "is_active": f.is_active,
+                "auto_translate": getattr(f, "auto_translate", False),
+                "auto_summarize": getattr(f, "auto_summarize", False),
+                "source_language": getattr(f, "source_language", None),
+                "target_language": getattr(f, "target_language", None),
+                "translate_method": getattr(f, "translate_method", "none"),
                 "use_playwright": f.use_playwright,
                 "browser_engine": getattr(
                     f,
@@ -162,11 +176,21 @@ async def export_all(user_id: CurrentUserId, db: DbSession):
             {
                 "name": r.name,
                 "target_url": r.target_url,
+                "rule_type": getattr(r, "rule_type", "general"),
+                "cookies": getattr(r, "cookies", None),
+                "category_name": next((c.name for c in categories if c.id == r.category_id), None),
                 "list_selector": r.list_selector,
                 "title_selector": r.title_selector,
                 "link_selector": r.link_selector,
                 "content_selector": r.content_selector,
+                "date_selector": getattr(r, "date_selector", None),
                 "fetch_interval": r.fetch_interval,
+                "use_playwright": getattr(r, "use_playwright", False),
+                "auto_translate": getattr(r, "auto_translate", False),
+                "auto_summarize": getattr(r, "auto_summarize", False),
+                "source_language": getattr(r, "source_language", None),
+                "target_language": getattr(r, "target_language", None),
+                "translate_method": getattr(r, "translate_method", "none"),
                 "is_active": r.is_active,
             }
             for r in rules
@@ -204,6 +228,14 @@ async def import_all(
     
     # Category name to ID mapping
     category_map = {}
+
+    # Import user-level settings
+    user_settings = data.get("user_settings") or {}
+    if isinstance(user_settings, dict) and "argos_source_language" in user_settings:
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if user:
+            user.argos_source_language = user_settings.get("argos_source_language")
     
     # Import categories
     for cat_data in data.get("categories", []):
@@ -256,6 +288,11 @@ async def import_all(
                 category_id=category_id,
                 fetch_interval=feed_data.get("fetch_interval", 3600),
                 is_active=feed_data.get("is_active", True),
+                auto_translate=feed_data.get("auto_translate", False),
+                auto_summarize=feed_data.get("auto_summarize", False),
+                source_language=feed_data.get("source_language"),
+                target_language=feed_data.get("target_language"),
+                translate_method=feed_data.get("translate_method", "none"),
                 use_playwright=feed_data.get("use_playwright", browser_engine != "http"),
                 browser_engine=browser_engine,
                 proxy_enabled=feed_data.get("proxy_enabled", False),
@@ -350,11 +387,21 @@ async def import_all(
                 user_id=user_id,
                 name=rule_data["name"],
                 target_url=rule_data["target_url"],
+                rule_type=rule_data.get("rule_type", "general"),
+                cookies=rule_data.get("cookies"),
+                category_id=category_map.get(rule_data.get("category_name")),
                 list_selector=rule_data["list_selector"],
                 title_selector=rule_data["title_selector"],
                 link_selector=rule_data["link_selector"],
                 content_selector=rule_data.get("content_selector"),
+                date_selector=rule_data.get("date_selector"),
                 fetch_interval=rule_data.get("fetch_interval", 3600),
+                use_playwright=rule_data.get("use_playwright", False),
+                auto_translate=rule_data.get("auto_translate", False),
+                auto_summarize=rule_data.get("auto_summarize", False),
+                source_language=rule_data.get("source_language"),
+                target_language=rule_data.get("target_language"),
+                translate_method=rule_data.get("translate_method", "none"),
                 is_active=rule_data.get("is_active", True),
             )
             db.add(rule)
@@ -411,6 +458,10 @@ async def save_webdav_config_to_db(db: DbSession, user_id: int, config: dict):
 
 async def generate_backup_data(db: DbSession, user_id: int) -> dict:
     """Generate backup data for a user."""
+    # Get user-level settings
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
     # Get categories
     result = await db.execute(select(Category).where(Category.user_id == user_id))
     categories = result.scalars().all()
@@ -437,6 +488,9 @@ async def generate_backup_data(db: DbSession, user_id: int) -> dict:
     return {
         "version": "1.0",
         "exported_at": datetime.utcnow().isoformat(),
+        "user_settings": {
+            "argos_source_language": getattr(user, "argos_source_language", None),
+        },
         "categories": [{"name": c.name} for c in categories],
         "feeds": [
             {
@@ -445,6 +499,11 @@ async def generate_backup_data(db: DbSession, user_id: int) -> dict:
                 "category_name": next((c.name for c in categories if c.id == f.category_id), None),
                 "fetch_interval": f.fetch_interval,
                 "is_active": f.is_active,
+                "auto_translate": getattr(f, "auto_translate", False),
+                "auto_summarize": getattr(f, "auto_summarize", False),
+                "source_language": getattr(f, "source_language", None),
+                "target_language": getattr(f, "target_language", None),
+                "translate_method": getattr(f, "translate_method", "none"),
                 "use_playwright": f.use_playwright,
                 "browser_engine": getattr(
                     f,
@@ -486,11 +545,21 @@ async def generate_backup_data(db: DbSession, user_id: int) -> dict:
             {
                 "name": r.name,
                 "target_url": r.target_url,
+                "rule_type": getattr(r, "rule_type", "general"),
+                "cookies": getattr(r, "cookies", None),
+                "category_name": next((c.name for c in categories if c.id == r.category_id), None),
                 "list_selector": r.list_selector,
                 "title_selector": r.title_selector,
                 "link_selector": r.link_selector,
                 "content_selector": r.content_selector,
+                "date_selector": getattr(r, "date_selector", None),
                 "fetch_interval": r.fetch_interval,
+                "use_playwright": getattr(r, "use_playwright", False),
+                "auto_translate": getattr(r, "auto_translate", False),
+                "auto_summarize": getattr(r, "auto_summarize", False),
+                "source_language": getattr(r, "source_language", None),
+                "target_language": getattr(r, "target_language", None),
+                "translate_method": getattr(r, "translate_method", "none"),
                 "is_active": r.is_active,
             }
             for r in rules
@@ -746,6 +815,14 @@ async def restore_from_webdav(filename: str, user_id: CurrentUserId, db: DbSessi
         custom_rules_imported = 0
         
         category_map = {}
+
+        # Restore user-level settings
+        user_settings = data.get("user_settings") or {}
+        if isinstance(user_settings, dict) and "argos_source_language" in user_settings:
+            result = await db.execute(select(User).where(User.id == user_id))
+            user = result.scalar_one_or_none()
+            if user:
+                user.argos_source_language = user_settings.get("argos_source_language")
         
         # Import categories
         for cat_data in data.get("categories", []):
@@ -796,6 +873,11 @@ async def restore_from_webdav(filename: str, user_id: CurrentUserId, db: DbSessi
                     category_id=category_id,
                     fetch_interval=feed_data.get("fetch_interval", 3600),
                     is_active=feed_data.get("is_active", True),
+                    auto_translate=feed_data.get("auto_translate", False),
+                    auto_summarize=feed_data.get("auto_summarize", False),
+                    source_language=feed_data.get("source_language"),
+                    target_language=feed_data.get("target_language"),
+                    translate_method=feed_data.get("translate_method", "none"),
                     use_playwright=feed_data.get("use_playwright", browser_engine != "http"),
                     browser_engine=browser_engine,
                     proxy_enabled=feed_data.get("proxy_enabled", False),
@@ -885,11 +967,21 @@ async def restore_from_webdav(filename: str, user_id: CurrentUserId, db: DbSessi
                     user_id=user_id,
                     name=rule_data["name"],
                     target_url=rule_data["target_url"],
+                    rule_type=rule_data.get("rule_type", "general"),
+                    cookies=rule_data.get("cookies"),
+                    category_id=category_map.get(rule_data.get("category_name")),
                     list_selector=rule_data["list_selector"],
                     title_selector=rule_data["title_selector"],
                     link_selector=rule_data["link_selector"],
                     content_selector=rule_data.get("content_selector"),
+                    date_selector=rule_data.get("date_selector"),
                     fetch_interval=rule_data.get("fetch_interval", 3600),
+                    use_playwright=rule_data.get("use_playwright", False),
+                    auto_translate=rule_data.get("auto_translate", False),
+                    auto_summarize=rule_data.get("auto_summarize", False),
+                    source_language=rule_data.get("source_language"),
+                    target_language=rule_data.get("target_language"),
+                    translate_method=rule_data.get("translate_method", "none"),
                     is_active=rule_data.get("is_active", True),
                 )
                 db.add(rule)

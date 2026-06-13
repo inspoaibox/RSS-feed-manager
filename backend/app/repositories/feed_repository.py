@@ -35,6 +35,7 @@ class FeedRepository:
         proxy_pool_protocol: str | None = None,
         auto_translate: bool = False,
         auto_summarize: bool = False,
+        source_language: str | None = None,
         target_language: str | None = None,
         translate_method: str = 'none'
     ) -> Feed:
@@ -64,6 +65,7 @@ class FeedRepository:
             proxy_pool_protocol=proxy_pool_protocol,
             auto_translate=auto_translate,
             auto_summarize=auto_summarize,
+            source_language=source_language,
             target_language=target_language,
             translate_method=translate_method,
             position=max_position + 1
@@ -129,6 +131,7 @@ class FeedRepository:
         """Update feed fields."""
         nullable_fields = {
             "category_id",
+            "source_language",
             "target_language",
             "proxy_url",
             "proxy_pool_country",

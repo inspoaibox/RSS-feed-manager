@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, HttpUrl
 FeedBrowserEngine = Literal["http", "playwright", "cloakbrowser"]
 FeedProxyMode = Literal["none", "single", "pool"]
 FeedProxyProtocol = Literal["http", "https", "socks4", "socks5", "socks5h"]
+FeedTranslateMethod = Literal["none", "ai", "google", "argos"]
 
 
 class FeedCreate(BaseModel):
@@ -23,8 +24,9 @@ class FeedCreate(BaseModel):
     proxy_pool_protocol: FeedProxyProtocol | None = None
     auto_translate: bool = False  # Auto translate articles using AI
     auto_summarize: bool = False  # Auto summarize articles using AI
+    source_language: str | None = Field(None, max_length=10)  # Source language for local translation
     target_language: str | None = Field(None, max_length=10)  # Target language for translation
-    translate_method: str = Field(default='none', pattern='^(none|ai|google)$')  # Translation method
+    translate_method: FeedTranslateMethod = "none"  # Translation method
 
     @property
     def resolved_browser_engine(self) -> FeedBrowserEngine:
@@ -40,8 +42,9 @@ class FeedUpdate(BaseModel):
     fetch_interval: int | None = Field(None, ge=60, le=86400)
     auto_translate: bool | None = None
     auto_summarize: bool | None = None
+    source_language: str | None = Field(None, max_length=10)
     target_language: str | None = Field(None, max_length=10)
-    translate_method: str | None = Field(None, pattern='^(none|ai|google)$')
+    translate_method: FeedTranslateMethod | None = None
     is_active: bool | None = None
     use_playwright: bool | None = None
     browser_engine: FeedBrowserEngine | None = None
@@ -71,8 +74,9 @@ class FeedResponse(BaseModel):
     last_fetched_at: datetime | None
     auto_translate: bool
     auto_summarize: bool
+    source_language: str | None
     target_language: str | None
-    translate_method: str = 'none'
+    translate_method: FeedTranslateMethod = "none"
     is_active: bool
     use_playwright: bool = False
     browser_engine: FeedBrowserEngine = "http"

@@ -37,6 +37,7 @@ class MobileFeed(BaseModel):
     last_fetched_at: datetime | None
     auto_translate: bool
     auto_summarize: bool
+    source_language: str | None = None
     target_language: str | None
     translate_method: str
     is_active: bool
@@ -153,6 +154,7 @@ def _feed_to_mobile(feed: Feed, counts: dict[str, int]) -> MobileFeed:
         last_fetched_at=feed.last_fetched_at,
         auto_translate=feed.auto_translate,
         auto_summarize=feed.auto_summarize,
+        source_language=getattr(feed, "source_language", None),
         target_language=feed.target_language,
         translate_method=feed.translate_method,
         is_active=feed.is_active,

@@ -80,6 +80,45 @@ class TranslateResponse(BaseModel):
     translation: str
 
 
+class ArgosPackageInfo(BaseModel):
+    """Schema for an Argos translation package."""
+    source_language: str
+    source_name: str | None = None
+    target_language: str
+    target_name: str | None = None
+    package_version: str | None = None
+    argos_version: str | None = None
+    package_type: str = "translate"
+    installed: bool = False
+
+
+class ArgosPackagesResponse(BaseModel):
+    """Schema for Argos package listing."""
+    installed: list[ArgosPackageInfo] = []
+    available: list[ArgosPackageInfo] = []
+    available_error: str | None = None
+
+
+class ArgosPackageInstallRequest(BaseModel):
+    """Schema for installing an Argos translation package."""
+    source_language: str = Field(..., min_length=2, max_length=10)
+    target_language: str = Field(..., min_length=2, max_length=10)
+
+
+class ArgosPackageTestRequest(BaseModel):
+    """Schema for testing an Argos translation package."""
+    source_language: str = Field(..., min_length=2, max_length=10)
+    target_language: str = Field(..., min_length=2, max_length=10)
+    text: str = Field(default="Hello", min_length=1, max_length=500)
+
+
+class ArgosPackageTestResponse(BaseModel):
+    """Schema for Argos translation test response."""
+    success: bool
+    message: str
+    translation: str | None = None
+
+
 # ============ Content Analysis Schemas ============
 
 class AnalyzeRequest(BaseModel):

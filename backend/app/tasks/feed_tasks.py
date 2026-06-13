@@ -198,6 +198,29 @@ def _process_article_with_ai(db: Session, article: Article, feed: Feed) -> None:
                 print(f"Google translated article {article.id}: {article.title[:50]}...")
             except GoogleTranslateError as e:
                 print(f"Google translate error for article {article.id}: {e}")
+
+        elif translate_method == 'argos' and feed.target_language:
+            try:
+                from app.services.argos_translate_service import (
+                    ArgosTranslateError,
+                    ArgosTranslateService,
+                )
+
+                source_language = (
+                    getattr(feed, "source_language", None)
+                    or (user.argos_source_language if user else None)
+                    or "en"
+                )
+                translated_title, translated_content = ArgosTranslateService(
+                    source_language
+                ).translate_article_sync(title, content, feed.target_language)
+                article.translation = json.dumps(
+                    {"title": translated_title, "content": translated_content},
+                    ensure_ascii=False,
+                )
+                print(f"Argos translated article {article.id}: {article.title[:50]}...")
+            except ArgosTranslateError as e:
+                print(f"Argos translate error for article {article.id}: {e}")
         
         elif translate_method == 'ai' and feed.target_language:
             # Use AI translation
@@ -463,6 +486,7 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
             fetch_interval=rule.fetch_interval,
             auto_translate=rule.auto_translate,
             auto_summarize=rule.auto_summarize,
+            source_language=getattr(rule, 'source_language', None),
             target_language=rule.target_language,
             translate_method=getattr(rule, 'translate_method', 'none'),
             is_active=rule.is_active,
@@ -1044,6 +1068,45 @@ def translate_feed_articles(feed_id: int) -> dict:
                         print(f"Google translated article {article.id}: {article.title[:50]}...")
                     except GoogleTranslateError as e:
                         print(f"Google translate error for article {article.id}: {e}")
+                        errors += 1
+                    except Exception as e:
+                        print(f"Error translating article {article.id}: {e}")
+                        errors += 1
+
+            elif translate_method == 'argos':
+                from app.services.argos_translate_service import (
+                    ArgosTranslateError,
+                    ArgosTranslateService,
+                )
+
+                source_language = (
+                    getattr(feed, "source_language", None)
+                    or (user.argos_source_language if user else None)
+                    or "en"
+                )
+                service = ArgosTranslateService(source_language)
+
+                for article in articles:
+                    title = article.title or ""
+                    content = article.content or ""
+                    if not title and not content:
+                        continue
+
+                    try:
+                        translated_title, translated_content = service.translate_article_sync(
+                            title,
+                            content,
+                            feed.target_language,
+                        )
+                        article.translation = json.dumps(
+                            {"title": translated_title, "content": translated_content},
+                            ensure_ascii=False,
+                        )
+                        db.commit()
+                        translated_count += 1
+                        print(f"Argos translated article {article.id}: {article.title[:50]}...")
+                    except ArgosTranslateError as e:
+                        print(f"Argos translate error for article {article.id}: {e}")
                         errors += 1
                     except Exception as e:
                         print(f"Error translating article {article.id}: {e}")

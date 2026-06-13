@@ -267,7 +267,7 @@ class ArticleService:
         if translate_method == 'none':
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="请先在订阅源设置中启用 Google 翻译或 AI 翻译"
+                detail="请先在订阅源设置中启用翻译"
             )
         
         # Get user info
@@ -297,6 +297,28 @@ class ArticleService:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=f"Google translation failed: {str(e)}"
+                )
+        elif translate_method == 'argos':
+            print(f"[Translate] Using Argos Translate for article {article_id}")
+            from app.services.argos_translate_service import ArgosTranslateError, ArgosTranslateService
+
+            source_language = (
+                getattr(feed, "source_language", None)
+                or (user.argos_source_language if user else None)
+                or "en"
+            )
+            try:
+                translated_title, translated_content = await ArgosTranslateService(
+                    source_language
+                ).translate_article(
+                    title,
+                    content_text,
+                    target_language,
+                )
+            except ArgosTranslateError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Argos translation failed: {str(e)}",
                 )
         else:
             # Use AI translation (default)

@@ -50,6 +50,9 @@ class User(BaseModel):
     # Google Translate API key (optional, for paid API)
     google_translate_api_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # Argos Translate default source language (optional, e.g. auto, en, ja)
+    argos_source_language: Mapped[str | None] = mapped_column(String(10), nullable=True)
+
     # Relationships
     categories: Mapped[List["Category"]] = relationship(
         "Category", back_populates="user", cascade="all, delete-orphan"

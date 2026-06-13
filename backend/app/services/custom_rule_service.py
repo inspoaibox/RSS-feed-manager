@@ -74,6 +74,7 @@ class CustomRuleService:
             fetch_interval=validated_interval,
             auto_translate=data.auto_translate,
             auto_summarize=data.auto_summarize,
+            source_language=data.source_language,
             target_language=data.target_language,
             translate_method=data.translate_method,
             is_active=data.is_active,
@@ -131,6 +132,8 @@ class CustomRuleService:
                     feed.auto_translate = update_data['auto_translate']
                 if 'auto_summarize' in update_data:
                     feed.auto_summarize = update_data['auto_summarize']
+                if 'source_language' in update_data:
+                    feed.source_language = update_data['source_language']
                 if 'target_language' in update_data:
                     feed.target_language = update_data['target_language']
                 if 'translate_method' in update_data:
@@ -250,6 +253,7 @@ class CustomRuleService:
             fetch_interval=rule.fetch_interval,
             auto_translate=rule.auto_translate,
             auto_summarize=rule.auto_summarize,
+            source_language=getattr(rule, 'source_language', None),
             target_language=rule.target_language,
             translate_method=getattr(rule, 'translate_method', 'none'),
             is_active=rule.is_active,

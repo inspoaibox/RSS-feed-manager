@@ -5,6 +5,10 @@ WORKDIR /app
 # Improve reliability on slower package mirrors.
 RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "60";\nAcquire::https::Timeout "60";\n' > /etc/apt/apt.conf.d/80-retries
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # 先复制依赖文件（这层会被缓存，只有依赖变化才重新安装）
 COPY pyproject.toml README.md ./
 

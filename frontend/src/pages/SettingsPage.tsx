@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, FolderOpen, Languages, ChevronUp, ChevronDown, Search, Shield, Star } from 'lucide-react'
 import api from '@/services/api'
-import type { Category, Feed, AIProvider, AIModel, CustomRule, FeedBrowserEngine, FeedProxyMode, GoogleTranslateKey, ProxyPoolEntry, ProxyPoolGroups, ProxyPoolImportResult, ProxyPoolTestResult, ProxyProtocol } from '@/types'
+import type { ArgosPackageInfo, ArgosPackagesResponse, ArgosPackageTestResult, Category, Feed, AIProvider, AIModel, CustomRule, FeedBrowserEngine, FeedProxyMode, GoogleTranslateKey, ProxyPoolEntry, ProxyPoolGroups, ProxyPoolImportResult, ProxyPoolTestResult, ProxyProtocol, TranslateMethod } from '@/types'
 import { useThemeStore, type ThemeColor } from '@/stores/themeStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useSyncIntervals } from '@/hooks/useSyncIntervals'
@@ -17,6 +17,35 @@ const feedBrowserEngineLabels: Record<FeedBrowserEngine, string> = {
 }
 
 const proxyProtocols: ProxyProtocol[] = ['http', 'https', 'socks4', 'socks5', 'socks5h']
+const translationSourceLanguages = [
+  { value: 'en', label: 'English' },
+  { value: 'zh', label: '中文' },
+  { value: 'ja', label: '日本語' },
+  { value: 'ko', label: '한국어' },
+  { value: 'fr', label: 'Français' },
+  { value: 'de', label: 'Deutsch' },
+  { value: 'es', label: 'Español' },
+  { value: 'ru', label: 'Русский' },
+  { value: 'pt', label: 'Português' },
+  { value: 'it', label: 'Italiano' },
+  { value: 'ar', label: 'العربية' },
+  { value: 'nl', label: 'Nederlands' },
+  { value: 'tr', label: 'Türkçe' },
+  { value: 'vi', label: 'Tiếng Việt' },
+  { value: 'id', label: 'Bahasa Indonesia' },
+  { value: 'th', label: 'ไทย' },
+  { value: 'hi', label: 'हिन्दी' },
+  { value: 'fa', label: 'فارسی' },
+  { value: 'pl', label: 'Polski' },
+  { value: 'uk', label: 'Українська' },
+  { value: 'sv', label: 'Svenska' },
+  { value: 'ms', label: 'Bahasa Melayu' },
+]
+
+const getTranslationLanguageLabel = (value: string | null | undefined) => {
+  if (!value) return ''
+  return translationSourceLanguages.find((language) => language.value === value)?.label || value
+}
 
 type ProxyUpdatePayload = {
   raw?: string
@@ -129,8 +158,9 @@ function FeedsTab() {
   const [newFeedProxyPoolProtocol, setNewFeedProxyPoolProtocol] = useState('')
 
   const [newFeedAutoSummarize, setNewFeedAutoSummarize] = useState(false)
+  const [newFeedSourceLanguage, setNewFeedSourceLanguage] = useState('')
   const [newFeedTargetLanguage, setNewFeedTargetLanguage] = useState('zh-CN')
-  const [newFeedTranslateMethod, setNewFeedTranslateMethod] = useState<'none' | 'ai' | 'google'>('none')
+  const [newFeedTranslateMethod, setNewFeedTranslateMethod] = useState<TranslateMethod>('none')
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editData, setEditData] = useState<{
@@ -147,9 +177,10 @@ function FeedsTab() {
     proxy_pool_protocol: string
     auto_translate: boolean
     auto_summarize: boolean
+    source_language: string
     target_language: string
-    translate_method: 'none' | 'ai' | 'google'
-  }>({ title: '', category_id: null, fetch_interval: 3600, is_active: true, use_playwright: false, browser_engine: 'http', proxy_mode: 'none', proxy_enabled: false, proxy_url: '', proxy_pool_country: '', proxy_pool_protocol: '', auto_translate: false, auto_summarize: false, target_language: 'zh-CN', translate_method: 'none' })
+    translate_method: TranslateMethod
+  }>({ title: '', category_id: null, fetch_interval: 3600, is_active: true, use_playwright: false, browser_engine: 'http', proxy_mode: 'none', proxy_enabled: false, proxy_url: '', proxy_pool_country: '', proxy_pool_protocol: '', auto_translate: false, auto_summarize: false, source_language: '', target_language: 'zh-CN', translate_method: 'none' })
   
   // Filter states
   const [searchQuery, setSearchQuery] = useState('')
@@ -204,6 +235,7 @@ function FeedsTab() {
         proxy_pool_protocol: newFeedProxyMode === 'pool' && newFeedProxyPoolProtocol ? newFeedProxyPoolProtocol : null,
         auto_translate: newFeedTranslateMethod !== 'none',
         auto_summarize: newFeedAutoSummarize,
+        source_language: newFeedTranslateMethod === 'argos' && newFeedSourceLanguage ? newFeedSourceLanguage : null,
         target_language: newFeedTranslateMethod !== 'none' ? newFeedTargetLanguage : null,
         translate_method: newFeedTranslateMethod
       })
@@ -223,6 +255,7 @@ function FeedsTab() {
       setNewFeedProxyPoolCountry('')
       setNewFeedProxyPoolProtocol('')
       setNewFeedAutoSummarize(false)
+      setNewFeedSourceLanguage('')
       setNewFeedTargetLanguage('zh-CN')
       setNewFeedTranslateMethod('none')
       setMessage({ type: 'success', text: `订阅源 "${data.title || newFeedUrl}" 添加成功` })
@@ -243,6 +276,7 @@ function FeedsTab() {
         proxy_url: data.proxy_mode === 'single' ? data.proxy_url.trim() : null,
         proxy_pool_country: data.proxy_mode === 'pool' && data.proxy_pool_country ? data.proxy_pool_country : null,
         proxy_pool_protocol: data.proxy_mode === 'pool' && data.proxy_pool_protocol ? data.proxy_pool_protocol : null,
+        source_language: data.translate_method === 'argos' && data.source_language ? data.source_language : null,
       })
       return response.data
     },
@@ -396,6 +430,7 @@ function FeedsTab() {
       proxy_pool_protocol: feed.proxy_pool_protocol || '',
       auto_translate: feed.auto_translate,
       auto_summarize: feed.auto_summarize,
+      source_language: feed.source_language || '',
       target_language: feed.target_language || 'zh-CN',
       translate_method: feed.translate_method || 'none'
     })
@@ -627,7 +662,7 @@ function FeedsTab() {
               <select
                 value={newFeedTranslateMethod}
                 onChange={(e) => {
-                  const method = e.target.value as 'none' | 'ai' | 'google'
+                  const method = e.target.value as TranslateMethod
                   if (method === 'ai' && !hasDefaultModel) {
                     setMessage({ type: 'error', text: '请先在 AI 设置中设置默认模型' })
                     return
@@ -638,9 +673,22 @@ function FeedsTab() {
               >
                 <option value="none">不翻译</option>
                 <option value="google">Google 翻译</option>
+                <option value="argos">本地翻译</option>
                 <option value="ai" disabled={!hasDefaultModel}>AI 翻译{!hasDefaultModel ? ' (需配置)' : ''}</option>
               </select>
             </div>
+            {newFeedTranslateMethod === 'argos' && (
+              <select
+                value={newFeedSourceLanguage}
+                onChange={(e) => setNewFeedSourceLanguage(e.target.value)}
+                className="px-3 py-2 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-800 dark:text-white"
+              >
+                <option value="">默认源语言</option>
+                {translationSourceLanguages.map((language) => (
+                  <option key={language.value} value={language.value}>{language.label}</option>
+                ))}
+              </select>
+            )}
             {newFeedTranslateMethod !== 'none' && (
               <select
                 value={newFeedTargetLanguage}
@@ -821,20 +869,38 @@ function FeedsTab() {
                     <select
                       value={editData.translate_method}
                       onChange={(e) => {
-                        const method = e.target.value as 'none' | 'ai' | 'google'
+                        const method = e.target.value as TranslateMethod
                         if (method === 'ai' && !hasDefaultModel) {
                           setMessage({ type: 'error', text: '请先在 AI 设置中设置默认模型' })
                           return
                         }
-                        setEditData({ ...editData, translate_method: method, auto_translate: method !== 'none' })
+                        setEditData({
+                          ...editData,
+                          translate_method: method,
+                          auto_translate: method !== 'none',
+                          source_language: method === 'argos' ? editData.source_language : '',
+                        })
                       }}
                       className="px-2 py-1 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-800 dark:text-white"
                     >
                       <option value="none">不翻译</option>
                       <option value="google">Google</option>
+                      <option value="argos">本地</option>
                       <option value="ai" disabled={!hasDefaultModel}>AI{!hasDefaultModel ? ' (需配置)' : ''}</option>
                     </select>
                   </div>
+                  {editData.translate_method === 'argos' && (
+                    <select
+                      value={editData.source_language}
+                      onChange={(e) => setEditData({ ...editData, source_language: e.target.value })}
+                      className="px-3 py-2 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-800 dark:text-white"
+                    >
+                      <option value="">默认源语言</option>
+                      {translationSourceLanguages.map((language) => (
+                        <option key={language.value} value={language.value}>{language.label}</option>
+                      ))}
+                    </select>
+                  )}
                   {editData.translate_method !== 'none' && (
                     <select
                       value={editData.target_language}
@@ -930,6 +996,9 @@ function FeedsTab() {
                     {feed.translate_method === 'ai' && (
                       <span className="text-primary-600 dark:text-primary-400">🤖 AI翻译</span>
                     )}
+                    {feed.translate_method === 'argos' && (
+                      <span className="text-emerald-600 dark:text-emerald-400">本地翻译</span>
+                    )}
                     {feed.auto_summarize && (
                       <span className="text-green-600 dark:text-green-400">📝 AI整理</span>
                     )}
@@ -943,7 +1012,7 @@ function FeedsTab() {
                 >
                   <RefreshCw className={`w-4 h-4 ${refreshFeedMutation.isPending ? 'animate-spin' : ''}`} />
                 </button>
-                {(feed.translate_method === 'ai' || feed.translate_method === 'google') && (
+                {(['ai', 'google', 'argos'] as TranslateMethod[]).includes(feed.translate_method) && (
                   <button
                     onClick={() => translateAllMutation.mutate(feed.id)}
                     disabled={translateAllMutation.isPending}
@@ -1812,7 +1881,13 @@ function AITab() {
   const { data: settings } = useQuery({
     queryKey: ['ai-settings'],
     queryFn: async () => {
-      const response = await api.get<{ translate_prompt: string; summarize_prompt: string; embedding_provider_id: number | null; embedding_model: string | null }>('/ai/settings')
+      const response = await api.get<{
+        translate_prompt: string
+        summarize_prompt: string
+        embedding_provider_id: number | null
+        embedding_model: string | null
+        argos_source_language: string | null
+      }>('/ai/settings')
       return response.data
     },
   })
@@ -1825,10 +1900,31 @@ function AITab() {
     },
   })
 
+  const { data: argosPackages, isLoading: argosPackagesLoading, error: argosPackagesError } = useQuery<ArgosPackagesResponse>({
+    queryKey: ['argos-packages'],
+    queryFn: async () => {
+      const response = await api.get<ArgosPackagesResponse>('/ai/argos/packages')
+      return response.data
+    },
+    retry: false,
+  })
+
   const [embeddingConfig, setEmbeddingConfig] = useState<{
     provider_id: number | null
     model: string
   }>({ provider_id: null, model: '' })
+  const [argosSourceLanguage, setArgosSourceLanguage] = useState('en')
+  const [argosSettingsLoaded, setArgosSettingsLoaded] = useState(false)
+  const [argosInstallForm, setArgosInstallForm] = useState({
+    source_language: 'en',
+    target_language: 'zh',
+  })
+  const [argosTestForm, setArgosTestForm] = useState({
+    source_language: 'en',
+    target_language: 'zh',
+    text: 'Hello world',
+  })
+  const [argosTestResult, setArgosTestResult] = useState<ArgosPackageTestResult | null>(null)
 
   const buildGoogleKeyPayload = (form: typeof newGoogleKey, includeApiKey: boolean) => ({
     name: form.name.trim(),
@@ -1855,6 +1951,11 @@ function AITab() {
         model: settings.embedding_model || '',
       })
     }
+  }
+
+  if (settings && !argosSettingsLoaded) {
+    setArgosSourceLanguage(settings.argos_source_language || 'en')
+    setArgosSettingsLoaded(true)
   }
   const addProviderMutation = useMutation({
     mutationFn: async () => {
@@ -1943,6 +2044,97 @@ function AITab() {
     },
   })
 
+  const saveArgosConfigMutation = useMutation({
+    mutationFn: async () => {
+      await api.put('/ai/settings', {
+        argos_source_language: argosSourceLanguage || 'en',
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ai-settings'] })
+      setMessage({ type: 'success', text: '本地翻译设置已保存' })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: any) => {
+      setMessage({ type: 'error', text: err.response?.data?.detail || '保存失败' })
+    },
+  })
+
+  const refreshArgosPackagesMutation = useMutation({
+    mutationFn: async () => {
+      const response = await api.get<ArgosPackagesResponse>('/ai/argos/packages', {
+        params: { refresh: true },
+      })
+      return response.data
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(['argos-packages'], data)
+      setMessage({
+        type: data.available_error ? 'error' : 'success',
+        text: data.available_error || 'Argos 语言包列表已刷新',
+      })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: unknown) => {
+      setMessage({ type: 'error', text: getApiErrorMessage(err, '刷新语言包列表失败') })
+    },
+  })
+
+  const installArgosPackageMutation = useMutation({
+    mutationFn: async (payload?: { source_language: string; target_language: string }) => {
+      const response = await api.post<ArgosPackageInfo>('/ai/argos/packages/install', payload || argosInstallForm)
+      return response.data
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['argos-packages'] })
+      setMessage({
+        type: 'success',
+        text: `Argos 语言包已安装: ${data.source_language} -> ${data.target_language}`,
+      })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: unknown) => {
+      setMessage({ type: 'error', text: getApiErrorMessage(err, '安装语言包失败') })
+    },
+  })
+
+  const uninstallArgosPackageMutation = useMutation({
+    mutationFn: async (pkg: ArgosPackageInfo) => {
+      const response = await api.delete<{ success: boolean; message: string }>(
+        `/ai/argos/packages/${encodeURIComponent(pkg.source_language)}/${encodeURIComponent(pkg.target_language)}`
+      )
+      return response.data
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['argos-packages'] })
+      setMessage({ type: 'success', text: data.message })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: unknown) => {
+      setMessage({ type: 'error', text: getApiErrorMessage(err, '卸载语言包失败') })
+    },
+  })
+
+  const testArgosPackageMutation = useMutation({
+    mutationFn: async (payload?: { source_language: string; target_language: string; text?: string }) => {
+      const response = await api.post<ArgosPackageTestResult>('/ai/argos/test', {
+        source_language: payload?.source_language || argosTestForm.source_language,
+        target_language: payload?.target_language || argosTestForm.target_language,
+        text: payload?.text || argosTestForm.text,
+      })
+      return response.data
+    },
+    onSuccess: (data) => {
+      setArgosTestResult(data)
+      setMessage({ type: data.success ? 'success' : 'error', text: data.message })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: unknown) => {
+      setArgosTestResult(null)
+      setMessage({ type: 'error', text: getApiErrorMessage(err, '测试语言包失败') })
+    },
+  })
+
   const addGoogleKeyMutation = useMutation({
     mutationFn: async () => {
       await api.post('/ai/google-translate-keys', buildGoogleKeyPayload(newGoogleKey, true))
@@ -2025,6 +2217,19 @@ function AITab() {
 
   const defaultModel = models.find(m => m.is_default)
   const activeGoogleKeyCount = googleTranslateKeys.filter((key) => key.is_active).length
+  const installedArgosPackages = argosPackages?.installed || []
+  const availableArgosPackages = argosPackages?.available || []
+  const visibleAvailableArgosPackages = availableArgosPackages
+    .filter((pkg) => !pkg.installed)
+    .slice(0, 12)
+  const selectedInstallPackageInstalled = installedArgosPackages.some(
+    (pkg) =>
+      pkg.source_language === argosInstallForm.source_language &&
+      pkg.target_language === argosInstallForm.target_language
+  )
+  const argosPackagesErrorText = argosPackagesError
+    ? getApiErrorMessage(argosPackagesError, '本地翻译语言包读取失败')
+    : null
 
   const startGoogleKeyEdit = (key: GoogleTranslateKey) => {
     setEditingGoogleKeyId(key.id)
@@ -2114,6 +2319,225 @@ function AITab() {
           >
             保存 Embedding 配置
           </button>
+        </div>
+      </div>
+
+      {/* Local Translation Configuration */}
+      <div className="p-4 border dark:border-gray-700 rounded bg-emerald-50 dark:bg-emerald-900/30">
+        <h2 className="text-lg font-semibold mb-3 dark:text-white flex items-center gap-2">
+          <Languages className="w-5 h-5" /> 本地翻译
+        </h2>
+        <div className="space-y-4">
+          <div className="flex gap-2 flex-wrap items-center">
+            <select
+              value={argosSourceLanguage}
+              onChange={(e) => setArgosSourceLanguage(e.target.value)}
+              className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+              aria-label="默认源语言"
+            >
+              {translationSourceLanguages.map((language) => (
+                <option key={language.value} value={language.value}>{language.label}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => saveArgosConfigMutation.mutate()}
+              disabled={saveArgosConfigMutation.isPending}
+              className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+            >
+              保存默认源语言
+            </button>
+            <button
+              onClick={() => refreshArgosPackagesMutation.mutate()}
+              disabled={refreshArgosPackagesMutation.isPending}
+              className="flex items-center gap-1 px-3 py-2 border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900/50 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshArgosPackagesMutation.isPending ? 'animate-spin' : ''}`} />
+              刷新语言包
+            </button>
+          </div>
+
+          <div className="flex flex-wrap gap-2 text-xs text-gray-600 dark:text-gray-300">
+            <span className="px-2 py-1 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded">
+              已安装 {installedArgosPackages.length}
+            </span>
+            <span className="px-2 py-1 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded">
+              可安装 {availableArgosPackages.length}
+            </span>
+            {argosPackagesLoading && <span className="px-2 py-1 text-emerald-700 dark:text-emerald-300">加载中</span>}
+          </div>
+
+          {(argosPackagesErrorText || argosPackages?.available_error) && (
+            <div className="p-2 text-sm text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded">
+              {argosPackagesErrorText || argosPackages?.available_error}
+            </div>
+          )}
+
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div className="border dark:border-gray-700 rounded bg-white dark:bg-gray-800 overflow-hidden">
+              <div className="px-3 py-2 bg-gray-50 dark:bg-gray-700 text-sm font-medium dark:text-white">
+                已安装语言包
+              </div>
+              <div className="divide-y dark:divide-gray-700">
+                {installedArgosPackages.length === 0 && (
+                  <div className="p-3 text-sm text-gray-500 dark:text-gray-400">暂无已安装语言包</div>
+                )}
+                {installedArgosPackages.map((pkg) => (
+                  <div key={`${pkg.source_language}-${pkg.target_language}`} className="p-3 flex items-center gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium dark:text-white truncate">
+                        {getTranslationLanguageLabel(pkg.source_language)} → {getTranslationLanguageLabel(pkg.target_language)}
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                        {pkg.source_language} → {pkg.target_language}
+                        {pkg.package_version ? ` · v${pkg.package_version}` : ''}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => testArgosPackageMutation.mutate({
+                        source_language: pkg.source_language,
+                        target_language: pkg.target_language,
+                      })}
+                      disabled={testArgosPackageMutation.isPending}
+                      className="px-2 py-1 text-xs border dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 dark:text-gray-200"
+                    >
+                      测试
+                    </button>
+                    <button
+                      onClick={() => uninstallArgosPackageMutation.mutate(pkg)}
+                      disabled={uninstallArgosPackageMutation.isPending}
+                      className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded disabled:opacity-50"
+                      title="卸载语言包"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="border dark:border-gray-700 rounded bg-white dark:bg-gray-800 p-3 space-y-3">
+              <div className="text-sm font-medium dark:text-white">安装语言包</div>
+              <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                <select
+                  value={argosInstallForm.source_language}
+                  onChange={(e) => setArgosInstallForm({ ...argosInstallForm, source_language: e.target.value })}
+                  className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                  aria-label="安装源语言"
+                >
+                  {translationSourceLanguages.map((language) => (
+                    <option key={language.value} value={language.value}>{language.label}</option>
+                  ))}
+                </select>
+                <select
+                  value={argosInstallForm.target_language}
+                  onChange={(e) => setArgosInstallForm({ ...argosInstallForm, target_language: e.target.value })}
+                  className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                  aria-label="安装目标语言"
+                >
+                  {translationSourceLanguages.map((language) => (
+                    <option key={language.value} value={language.value}>{language.label}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => installArgosPackageMutation.mutate(argosInstallForm)}
+                  disabled={
+                    installArgosPackageMutation.isPending ||
+                    argosInstallForm.source_language === argosInstallForm.target_language ||
+                    selectedInstallPackageInstalled
+                  }
+                  className="flex items-center justify-center gap-1 px-3 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  <Download className="w-4 h-4" /> 安装
+                </button>
+              </div>
+              {selectedInstallPackageInstalled && (
+                <div className="text-xs text-emerald-700 dark:text-emerald-300">当前语言包已安装</div>
+              )}
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium dark:text-white">可安装语言包</div>
+                {visibleAvailableArgosPackages.length === 0 ? (
+                  <div className="text-sm text-gray-500 dark:text-gray-400">暂无可安装列表</div>
+                ) : (
+                  <div className="grid gap-2">
+                    {visibleAvailableArgosPackages.map((pkg) => (
+                      <div key={`${pkg.source_language}-${pkg.target_language}`} className="flex items-center gap-2 text-sm">
+                        <span className="flex-1 min-w-0 truncate dark:text-gray-200">
+                          {getTranslationLanguageLabel(pkg.source_language)} → {getTranslationLanguageLabel(pkg.target_language)}
+                        </span>
+                        <button
+                          onClick={() => installArgosPackageMutation.mutate({
+                            source_language: pkg.source_language,
+                            target_language: pkg.target_language,
+                          })}
+                          disabled={installArgosPackageMutation.isPending}
+                          className="px-2 py-1 text-xs border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 rounded hover:bg-emerald-50 dark:hover:bg-emerald-900/30 disabled:opacity-50"
+                        >
+                          安装
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="border dark:border-gray-700 rounded bg-white dark:bg-gray-800 p-3 space-y-3">
+            <div className="text-sm font-medium dark:text-white">翻译测试</div>
+            <div className="grid gap-2 md:grid-cols-[150px_150px_1fr_auto]">
+              <select
+                value={argosTestForm.source_language}
+                onChange={(e) => setArgosTestForm({ ...argosTestForm, source_language: e.target.value })}
+                className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                aria-label="测试源语言"
+              >
+                {translationSourceLanguages.map((language) => (
+                  <option key={language.value} value={language.value}>{language.label}</option>
+                ))}
+              </select>
+              <select
+                value={argosTestForm.target_language}
+                onChange={(e) => setArgosTestForm({ ...argosTestForm, target_language: e.target.value })}
+                className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                aria-label="测试目标语言"
+              >
+                {translationSourceLanguages.map((language) => (
+                  <option key={language.value} value={language.value}>{language.label}</option>
+                ))}
+              </select>
+              <input
+                type="text"
+                value={argosTestForm.text}
+                onChange={(e) => setArgosTestForm({ ...argosTestForm, text: e.target.value })}
+                className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                placeholder="测试文本"
+              />
+              <button
+                onClick={() => testArgosPackageMutation.mutate(argosTestForm)}
+                disabled={
+                  testArgosPackageMutation.isPending ||
+                  !argosTestForm.text.trim() ||
+                  argosTestForm.source_language === argosTestForm.target_language
+                }
+                className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+              >
+                测试
+              </button>
+            </div>
+            {argosTestResult && (
+              <div className={`p-2 text-sm border rounded ${
+                argosTestResult.success
+                  ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800'
+                  : 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-800'
+              }`}>
+                <div>{argosTestResult.message}</div>
+                {argosTestResult.translation && (
+                  <div className="mt-1 text-gray-700 dark:text-gray-200 break-words">{argosTestResult.translation}</div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -2543,6 +2967,11 @@ function RulesTab() {
     category_id: null as number | null,
     fetch_interval: defaultSyncInterval,
     use_playwright: false,
+    auto_translate: false,
+    auto_summarize: false,
+    source_language: '',
+    target_language: 'zh-CN',
+    translate_method: 'none' as TranslateMethod,
     is_active: true,
   })
   const [formData, setFormData] = useState(getEmptyRule())
@@ -2572,6 +3001,15 @@ function RulesTab() {
     },
   })
 
+  const { data: aiModels = [] } = useQuery({
+    queryKey: ['ai-models'],
+    queryFn: async () => {
+      const response = await api.get<AIModel[]>('/ai/models')
+      return response.data
+    },
+  })
+  const hasDefaultModel = aiModels.some((model) => model.is_default)
+
   const addRuleMutation = useMutation({
     mutationFn: async () => {
       const payload = {
@@ -2580,6 +3018,9 @@ function RulesTab() {
         link_selector: formData.link_selector || null,
         content_selector: formData.content_selector || null,
         date_selector: formData.date_selector || null,
+        auto_translate: formData.translate_method !== 'none',
+        source_language: formData.translate_method === 'argos' && formData.source_language ? formData.source_language : null,
+        target_language: formData.translate_method !== 'none' ? formData.target_language : null,
       }
       await api.post('/rules', payload)
     },
@@ -2605,6 +3046,9 @@ function RulesTab() {
         link_selector: data.link_selector || null,
         content_selector: data.content_selector || null,
         date_selector: data.date_selector || null,
+        auto_translate: data.translate_method !== 'none',
+        source_language: data.translate_method === 'argos' && data.source_language ? data.source_language : null,
+        target_language: data.translate_method !== 'none' ? data.target_language : null,
       }
       await api.put(`/rules/${id}`, payload)
     },
@@ -2728,6 +3172,11 @@ function RulesTab() {
       category_id: rule.category_id,
       fetch_interval: rule.fetch_interval,
       use_playwright: rule.use_playwright,
+      auto_translate: rule.auto_translate,
+      auto_summarize: rule.auto_summarize,
+      source_language: rule.source_language || '',
+      target_language: rule.target_language || 'zh-CN',
+      translate_method: rule.translate_method || (rule.auto_translate ? 'ai' : 'none'),
       is_active: rule.is_active,
     })
   }
@@ -2897,6 +3346,65 @@ function RulesTab() {
             <option key={interval.value} value={interval.value}>{interval.label}</option>
           ))}
         </select>
+      </div>
+      <div className="flex gap-4">
+        <div className="flex gap-2 flex-wrap">
+          <select
+            value={formData.translate_method}
+            onChange={(e) => {
+              const method = e.target.value as TranslateMethod
+              if (method === 'ai' && !hasDefaultModel) {
+                setMessage({ type: 'error', text: '请先在 AI 设置中设置默认模型' })
+                return
+              }
+              setFormData({
+                ...formData,
+                translate_method: method,
+                auto_translate: method !== 'none',
+                source_language: method === 'argos' ? formData.source_language : '',
+              })
+            }}
+            className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+          >
+            <option value="none">不翻译</option>
+            <option value="google">Google 翻译</option>
+            <option value="argos">本地翻译</option>
+            <option value="ai" disabled={!hasDefaultModel}>AI 翻译{!hasDefaultModel ? ' (需配置)' : ''}</option>
+          </select>
+          {formData.translate_method === 'argos' && (
+            <select
+              value={formData.source_language}
+              onChange={(e) => setFormData({ ...formData, source_language: e.target.value })}
+              className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+            >
+              <option value="">默认源语言</option>
+              {translationSourceLanguages.map((language) => (
+                <option key={language.value} value={language.value}>{language.label}</option>
+              ))}
+            </select>
+          )}
+          {formData.translate_method !== 'none' && (
+            <select
+              value={formData.target_language}
+              onChange={(e) => setFormData({ ...formData, target_language: e.target.value })}
+              className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+            >
+              <option value="zh-CN">中文</option>
+              <option value="zh-TW">繁体中文</option>
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+            </select>
+          )}
+          <label className="flex items-center gap-2 p-2 border dark:border-gray-600 rounded text-sm dark:text-gray-200">
+            <input
+              type="checkbox"
+              checked={formData.auto_summarize}
+              onChange={(e) => setFormData({ ...formData, auto_summarize: e.target.checked })}
+            />
+            AI整理
+          </label>
+        </div>
       </div>
       <div className="flex gap-4">
         <label className="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded text-sm dark:text-yellow-200">
@@ -3075,6 +3583,10 @@ function RulesTab() {
                     <div className="flex gap-3 mt-1 text-xs text-gray-400 dark:text-gray-500">
                       <span>同步间隔: {formatInterval(rule.fetch_interval)}</span>
                       {categoryName && <span>分类: {categoryName}</span>}
+                      {rule.translate_method === 'google' && <span>Google翻译</span>}
+                      {rule.translate_method === 'ai' && <span>AI翻译</span>}
+                      {rule.translate_method === 'argos' && <span>本地翻译</span>}
+                      {rule.auto_summarize && <span>AI整理</span>}
                       {rule.last_fetched_at && (
                         <span>上次抓取: {new Date(rule.last_fetched_at).toLocaleString('zh-CN')}</span>
                       )}

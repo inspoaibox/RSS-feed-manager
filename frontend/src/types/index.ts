@@ -38,6 +38,7 @@ export interface Category {
 export type FeedBrowserEngine = 'http' | 'playwright' | 'cloakbrowser'
 export type FeedProxyMode = 'none' | 'single' | 'pool'
 export type ProxyProtocol = 'http' | 'https' | 'socks4' | 'socks5' | 'socks5h'
+export type TranslateMethod = 'none' | 'ai' | 'google' | 'argos'
 
 export interface Feed {
   id: number
@@ -54,8 +55,9 @@ export interface Feed {
   fetch_interval: number
   last_fetched_at: string | null
   is_active: boolean
+  source_language: string | null
   target_language: string | null
-  translate_method: 'none' | 'ai' | 'google'
+  translate_method: TranslateMethod
   use_playwright: boolean
   browser_engine: FeedBrowserEngine
   proxy_enabled: boolean
@@ -134,6 +136,29 @@ export interface GoogleTranslateKey {
   updated_at: string | null
 }
 
+export interface ArgosPackageInfo {
+  source_language: string
+  source_name: string | null
+  target_language: string
+  target_name: string | null
+  package_version: string | null
+  argos_version: string | null
+  package_type: string
+  installed: boolean
+}
+
+export interface ArgosPackagesResponse {
+  installed: ArgosPackageInfo[]
+  available: ArgosPackageInfo[]
+  available_error: string | null
+}
+
+export interface ArgosPackageTestResult {
+  success: boolean
+  message: string
+  translation: string | null
+}
+
 // Keyword subscription types
 export interface KeywordSubscription {
   id: number
@@ -209,8 +234,9 @@ export interface CustomRule {
   use_playwright: boolean
   auto_translate: boolean
   auto_summarize: boolean
+  source_language: string | null
   target_language: string | null
-  translate_method: 'none' | 'ai' | 'google'
+  translate_method: TranslateMethod
   is_active: boolean
   category_id: number | null
   last_fetched_at: string | null
@@ -219,9 +245,6 @@ export interface CustomRule {
   created_at: string
   updated_at: string | null
 }
-
-// Translate method type
-export type TranslateMethod = 'none' | 'ai' | 'google'
 
 // Pagination
 export interface PaginatedResponse<T> {
