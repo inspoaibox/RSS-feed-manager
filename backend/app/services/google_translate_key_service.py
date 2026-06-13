@@ -168,6 +168,7 @@ class GoogleTranslateKeyService:
                     detail="Google Translate API Key 已存在",
                 )
         entry = await self.repo.update(entry, **update_data)
+        await self.session.refresh(entry)
         return self._to_response(entry)
 
     async def delete(self, user_id: int, key_id: int) -> None:
@@ -185,6 +186,7 @@ class GoogleTranslateKeyService:
         entry.last_used_at = None
         entry.is_active = True
         await self.session.flush()
+        await self.session.refresh(entry)
         return self._to_response(entry)
 
     async def test(self, user_id: int, key_id: int) -> GoogleTranslateKeyTestResponse:
