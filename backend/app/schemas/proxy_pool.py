@@ -19,6 +19,8 @@ class ProxyPoolEntryCreate(BaseModel):
 class ProxyPoolEntryUpdate(BaseModel):
     """Update a proxy pool entry."""
 
+    raw: str | None = Field(None, min_length=1, max_length=2048)
+    default_protocol: ProxyProtocol | None = None
     country: str | None = Field(None, max_length=20)
     is_active: bool | None = None
     fail_count: int | None = Field(None, ge=0)

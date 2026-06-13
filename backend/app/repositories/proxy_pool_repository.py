@@ -39,12 +39,19 @@ class ProxyPoolRepository:
         await self.session.flush()
         return entry
 
-    async def exists_by_url(self, user_id: int, proxy_url: str) -> bool:
-        result = await self.session.execute(
-            select(ProxyPoolEntry.id)
-            .where(ProxyPoolEntry.user_id == user_id, ProxyPoolEntry.proxy_url == proxy_url)
-            .limit(1)
+    async def exists_by_url(
+        self,
+        user_id: int,
+        proxy_url: str,
+        exclude_id: int | None = None,
+    ) -> bool:
+        query = select(ProxyPoolEntry.id).where(
+            ProxyPoolEntry.user_id == user_id,
+            ProxyPoolEntry.proxy_url == proxy_url,
         )
+        if exclude_id is not None:
+            query = query.where(ProxyPoolEntry.id != exclude_id)
+        result = await self.session.execute(query.limit(1))
         return result.scalar_one_or_none() is not None
 
     async def get_by_id(self, user_id: int, proxy_id: int) -> ProxyPoolEntry | None:
@@ -121,7 +128,14 @@ class ProxyPoolRepository:
         return list(result.scalars().all())
 
     async def update(self, entry: ProxyPoolEntry, **kwargs) -> ProxyPoolEntry:
-        nullable_fields = {"country", "last_latency_ms", "last_error", "last_used_at"}
+        nullable_fields = {
+            "username",
+            "password",
+            "country",
+            "last_latency_ms",
+            "last_error",
+            "last_used_at",
+        }
         for key, value in kwargs.items():
             if hasattr(entry, key) and (value is not None or key in nullable_fields):
                 setattr(entry, key, value)

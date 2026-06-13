@@ -117,9 +117,50 @@ class ProxyPoolService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="代理不存在")
 
         update_data = data.model_dump(exclude_unset=True)
-        if "country" in update_data and update_data["country"]:
-            update_data["country"] = update_data["country"].strip().lower()
+        raw = update_data.pop("raw", None)
+        default_protocol = update_data.pop("default_protocol", None) or entry.protocol
+        has_country = "country" in update_data
+        country = update_data.pop("country", None) if has_country else entry.country
+        normalized_country = country.strip().lower() if country else None
+
+        if raw is not None:
+            try:
+                parsed = parse_proxy_line(
+                    raw,
+                    default_protocol=default_protocol,
+                    default_country=normalized_country,
+                )
+            except ProxyParseError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=str(exc),
+                ) from exc
+
+            if parsed.proxy_url != entry.proxy_url and await self.repo.exists_by_url(
+                user_id,
+                parsed.proxy_url,
+                exclude_id=proxy_id,
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="代理已存在",
+                )
+
+            update_data.update(
+                protocol=parsed.protocol,
+                host=parsed.host,
+                port=parsed.port,
+                username=parsed.username,
+                password=parsed.password,
+                country=normalized_country if has_country else parsed.country,
+                source_format=parsed.source_format,
+                proxy_url=parsed.proxy_url,
+            )
+        elif has_country:
+            update_data["country"] = normalized_country
+
         entry = await self.repo.update(entry, **update_data)
+        await self.session.refresh(entry)
         return self._to_response(entry)
 
     async def delete(self, user_id: int, proxy_id: int) -> None:

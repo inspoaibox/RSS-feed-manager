@@ -18,6 +18,14 @@ const feedBrowserEngineLabels: Record<FeedBrowserEngine, string> = {
 
 const proxyProtocols: ProxyProtocol[] = ['http', 'https', 'socks4', 'socks5', 'socks5h']
 
+type ProxyUpdatePayload = {
+  raw?: string
+  default_protocol?: ProxyProtocol
+  country?: string | null
+  is_active?: boolean
+  fail_count?: number
+}
+
 const resolveFeedBrowserEngine = (feed: Feed): FeedBrowserEngine => {
   return feed.browser_engine || (feed.use_playwright ? 'playwright' : 'http')
 }
@@ -978,7 +986,8 @@ function ProxyPoolTab() {
   const [singleRaw, setSingleRaw] = useState('')
   const [bulkRaw, setBulkRaw] = useState('')
   const [defaultProtocol, setDefaultProtocol] = useState<ProxyProtocol>('http')
-  const [defaultCountry, setDefaultCountry] = useState('')
+  const [singleCountry, setSingleCountry] = useState('')
+  const [bulkDefaultCountry, setBulkDefaultCountry] = useState('')
   const [newProxiesActive, setNewProxiesActive] = useState(true)
   const [filterCountry, setFilterCountry] = useState('')
   const [filterProtocol, setFilterProtocol] = useState('')
@@ -988,6 +997,14 @@ function ProxyPoolTab() {
   const [testTimeout, setTestTimeout] = useState(10)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [importErrors, setImportErrors] = useState<string[]>([])
+  const [editingProxyId, setEditingProxyId] = useState<number | null>(null)
+  const [proxyEdit, setProxyEdit] = useState({
+    raw: '',
+    default_protocol: 'http' as ProxyProtocol,
+    country: '',
+    is_active: true,
+    fail_count: '0',
+  })
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
 
@@ -1030,7 +1047,7 @@ function ProxyPoolTab() {
       const response = await api.post<ProxyPoolEntry>('/proxies', {
         raw: singleRaw,
         default_protocol: defaultProtocol,
-        country: defaultCountry || null,
+        country: singleCountry || null,
         is_active: newProxiesActive,
       })
       return response.data
@@ -1051,7 +1068,7 @@ function ProxyPoolTab() {
       const response = await api.post<ProxyPoolImportResult>('/proxies/import', {
         content: bulkRaw,
         default_protocol: defaultProtocol,
-        default_country: defaultCountry || null,
+        default_country: bulkDefaultCountry || null,
         is_active: newProxiesActive,
       })
       return response.data
@@ -1069,12 +1086,13 @@ function ProxyPoolTab() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Partial<Pick<ProxyPoolEntry, 'country' | 'is_active' | 'fail_count'>> }) => {
+    mutationFn: async ({ id, data }: { id: number; data: ProxyUpdatePayload }) => {
       const response = await api.put<ProxyPoolEntry>(`/proxies/${id}`, data)
       return response.data
     },
     onSuccess: () => {
       invalidateProxyData()
+      setEditingProxyId(null)
     },
     onError: (err: unknown) => {
       showMessage('error', getApiErrorMessage(err, '更新代理失败'))
@@ -1169,6 +1187,35 @@ function ProxyPoolTab() {
     testMutation.mutate(ids)
   }
 
+  const startProxyEdit = (proxy: ProxyPoolEntry) => {
+    setEditingProxyId(proxy.id)
+    setProxyEdit({
+      raw: proxy.proxy_url,
+      default_protocol: proxy.protocol,
+      country: proxy.country || '',
+      is_active: proxy.is_active,
+      fail_count: proxy.fail_count.toString(),
+    })
+  }
+
+  const saveProxyEdit = (id: number) => {
+    if (!proxyEdit.raw.trim()) {
+      showMessage('error', '代理不能为空')
+      return
+    }
+
+    updateMutation.mutate({
+      id,
+      data: {
+        raw: proxyEdit.raw.trim(),
+        default_protocol: proxyEdit.default_protocol,
+        country: proxyEdit.country.trim() ? proxyEdit.country.trim() : null,
+        is_active: proxyEdit.is_active,
+        fail_count: Math.max(0, parseInt(proxyEdit.fail_count) || 0),
+      },
+    })
+  }
+
   return (
     <div className="space-y-4">
       {message && (
@@ -1197,9 +1244,9 @@ function ProxyPoolTab() {
           </select>
           <input
             type="text"
-            value={defaultCountry}
-            onChange={(e) => setDefaultCountry(e.target.value)}
-            placeholder="国家"
+            value={singleCountry}
+            onChange={(e) => setSingleCountry(e.target.value)}
+            placeholder="单个国家"
             className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
           />
           <button
@@ -1226,6 +1273,13 @@ function ProxyPoolTab() {
           className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white font-mono text-sm"
         />
         <div className="flex gap-2 flex-wrap">
+          <input
+            type="text"
+            value={bulkDefaultCountry}
+            onChange={(e) => setBulkDefaultCountry(e.target.value)}
+            placeholder="批量国家"
+            className="w-32 px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
+          />
           <button
             onClick={() => importMutation.mutate()}
             disabled={!bulkRaw.trim() || importMutation.isPending}
@@ -1366,67 +1420,149 @@ function ProxyPoolTab() {
                     onChange={() => toggleSelected(proxy.id)}
                   />
                 </td>
-                <td className="p-3">
-                  <div className="font-medium">{proxy.host}:{proxy.port}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[320px]">
-                    {proxy.username ? `${proxy.username}@` : ''}{proxy.protocol}://{proxy.host}:{proxy.port}
-                  </div>
-                </td>
-                <td className="p-3">
-                  <div className="flex gap-1 flex-wrap">
-                    <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700">{proxy.protocol}</span>
-                    <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700">{proxy.country ? proxy.country.toUpperCase() : '未分组'}</span>
-                    <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700">{proxy.source_format}</span>
-                  </div>
-                </td>
-                <td className="p-3">
-                  <span className={proxy.is_active ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
-                    {proxy.is_active ? '启用' : '停用'}
-                  </span>
-                </td>
-                <td className="p-3 text-gray-600 dark:text-gray-300">
-                  {proxy.last_latency_ms === null ? '-' : `${proxy.last_latency_ms}ms`}
-                </td>
-                <td className="p-3 text-gray-600 dark:text-gray-300">{proxy.fail_count}/5</td>
-                <td className="p-3 max-w-[220px] truncate text-gray-500 dark:text-gray-400" title={proxy.last_error || ''}>
-                  {proxy.last_error || '-'}
-                </td>
-                <td className="p-3">
-                  <div className="flex justify-end gap-1">
-                    <button
-                      onClick={() => runTest([proxy.id])}
-                      disabled={testMutation.isPending}
-                      className="p-2 text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded disabled:opacity-50"
-                      title="测速"
-                    >
-                      <RefreshCw className={`w-4 h-4 ${testMutation.isPending ? 'animate-spin' : ''}`} />
-                    </button>
-                    <button
-                      onClick={() => updateMutation.mutate({ id: proxy.id, data: { is_active: !proxy.is_active } })}
-                      disabled={updateMutation.isPending}
-                      className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50"
-                      title={proxy.is_active ? '停用' : '启用'}
-                    >
-                      {proxy.is_active ? <X className="w-4 h-4" /> : <Check className="w-4 h-4" />}
-                    </button>
-                    <button
-                      onClick={() => updateMutation.mutate({ id: proxy.id, data: { fail_count: 0, is_active: true } })}
-                      disabled={updateMutation.isPending}
-                      className="p-2 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 rounded disabled:opacity-50"
-                      title="重置失败"
-                    >
-                      <Check className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => deleteMutation.mutate(proxy.id)}
-                      disabled={deleteMutation.isPending}
-                      className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded disabled:opacity-50"
-                      title="删除"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </td>
+                {editingProxyId === proxy.id ? (
+                  <>
+                    <td className="p-3">
+                      <input
+                        type="text"
+                        value={proxyEdit.raw}
+                        onChange={(e) => setProxyEdit({ ...proxyEdit, raw: e.target.value })}
+                        className="w-full px-2 py-1 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white font-mono text-xs"
+                      />
+                    </td>
+                    <td className="p-3">
+                      <div className="grid grid-cols-2 gap-2">
+                        <select
+                          value={proxyEdit.default_protocol}
+                          onChange={(e) => setProxyEdit({ ...proxyEdit, default_protocol: e.target.value as ProxyProtocol })}
+                          className="px-2 py-1 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
+                        >
+                          {proxyProtocols.map((protocol) => (
+                            <option key={protocol} value={protocol}>{protocol}</option>
+                          ))}
+                        </select>
+                        <input
+                          type="text"
+                          value={proxyEdit.country}
+                          onChange={(e) => setProxyEdit({ ...proxyEdit, country: e.target.value })}
+                          placeholder="国家"
+                          className="px-2 py-1 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
+                        />
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={proxyEdit.is_active}
+                          onChange={(e) => setProxyEdit({ ...proxyEdit, is_active: e.target.checked })}
+                        />
+                        启用
+                      </label>
+                    </td>
+                    <td className="p-3 text-gray-500 dark:text-gray-400">保存后更新</td>
+                    <td className="p-3">
+                      <input
+                        type="number"
+                        min={0}
+                        value={proxyEdit.fail_count}
+                        onChange={(e) => setProxyEdit({ ...proxyEdit, fail_count: e.target.value })}
+                        className="w-20 px-2 py-1 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white"
+                      />
+                    </td>
+                    <td className="p-3 text-gray-500 dark:text-gray-400">-</td>
+                    <td className="p-3">
+                      <div className="flex justify-end gap-1">
+                        <button
+                          onClick={() => saveProxyEdit(proxy.id)}
+                          disabled={!proxyEdit.raw.trim() || updateMutation.isPending}
+                          className="p-2 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 rounded disabled:opacity-50"
+                          title="保存"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setEditingProxyId(null)}
+                          className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                          title="取消"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td className="p-3">
+                      <div className="font-medium">{proxy.host}:{proxy.port}</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[320px]">
+                        {proxy.username ? `${proxy.username}@` : ''}{proxy.protocol}://{proxy.host}:{proxy.port}
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex gap-1 flex-wrap">
+                        <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700">{proxy.protocol}</span>
+                        <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700">{proxy.country ? proxy.country.toUpperCase() : '未分组'}</span>
+                        <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700">{proxy.source_format}</span>
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <span className={proxy.is_active ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
+                        {proxy.is_active ? '启用' : '停用'}
+                      </span>
+                    </td>
+                    <td className="p-3 text-gray-600 dark:text-gray-300">
+                      {proxy.last_latency_ms === null ? '-' : `${proxy.last_latency_ms}ms`}
+                    </td>
+                    <td className="p-3 text-gray-600 dark:text-gray-300">{proxy.fail_count}/5</td>
+                    <td className="p-3 max-w-[220px] truncate text-gray-500 dark:text-gray-400" title={proxy.last_error || ''}>
+                      {proxy.last_error || '-'}
+                    </td>
+                    <td className="p-3">
+                      <div className="flex justify-end gap-1">
+                        <button
+                          onClick={() => runTest([proxy.id])}
+                          disabled={testMutation.isPending}
+                          className="p-2 text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded disabled:opacity-50"
+                          title="测速"
+                        >
+                          <RefreshCw className={`w-4 h-4 ${testMutation.isPending ? 'animate-spin' : ''}`} />
+                        </button>
+                        <button
+                          onClick={() => startProxyEdit(proxy)}
+                          className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                          title="编辑"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => updateMutation.mutate({ id: proxy.id, data: { is_active: !proxy.is_active } })}
+                          disabled={updateMutation.isPending}
+                          className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50"
+                          title={proxy.is_active ? '停用' : '启用'}
+                        >
+                          {proxy.is_active ? <X className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+                        </button>
+                        <button
+                          onClick={() => updateMutation.mutate({ id: proxy.id, data: { fail_count: 0, is_active: true } })}
+                          disabled={updateMutation.isPending}
+                          className="p-2 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 rounded disabled:opacity-50"
+                          title="重置失败"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => deleteMutation.mutate(proxy.id)}
+                          disabled={deleteMutation.isPending}
+                          className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded disabled:opacity-50"
+                          title="删除"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </>
+                )}
               </tr>
             ))}
           </tbody>
