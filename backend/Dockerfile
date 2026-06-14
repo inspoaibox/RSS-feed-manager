@@ -12,6 +12,13 @@ RUN apt-get update \
 # 先复制依赖文件（这层会被缓存，只有依赖变化才重新安装）
 COPY pyproject.toml README.md ./
 
+# Argos Translate depends on stanza, which depends on torch. The default PyPI
+# Linux torch wheel pulls CUDA/NVIDIA packages and makes the backend image huge.
+ARG TORCH_CPU_VERSION=2.12.0+cpu
+RUN pip install --no-cache-dir --retries 5 --timeout 120 \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    "torch==${TORCH_CPU_VERSION}"
+
 # 只安装依赖，不安装项目本身
 RUN pip install --no-cache-dir --retries 5 --timeout 120 $(python -c "import tomllib; f=open('pyproject.toml','rb'); d=tomllib.load(f); print(' '.join(d['project']['dependencies']))")
 
