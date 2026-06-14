@@ -1,25 +1,15 @@
 services:
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    pull_policy: always
 
   celery_worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    pull_policy: always
 
   celery_browser_worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    pull_policy: always
 
   celery_beat:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    pull_policy: always
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    pull_policy: always

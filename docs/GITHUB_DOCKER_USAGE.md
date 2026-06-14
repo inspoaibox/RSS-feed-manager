@@ -534,12 +534,14 @@ RSS_MANAGER_IMAGE_TAG=latest
 
 ## 14. 需要在服务器本地构建时
 
-正常生产部署不需要服务器本地构建。如果 GitHub Actions 暂时不可用，或者你想在服务器上临时验证本地源码，可以使用额外的 build override 文件：
+正常生产部署不需要服务器本地构建。`docker-compose.prod.build.yml` 现在用于强制拉取 GHCR 镜像，兼容旧更新命令但不会触发本地构建。
+
+如果 GitHub Actions 暂时不可用，或者你想在服务器上临时验证本地源码，可以使用专门的 local-build override 文件：
 
 ```bash
 docker compose \
   -f docker-compose.prod.yml \
-  -f docker-compose.prod.build.yml \
+  -f docker-compose.prod.local-build.yml \
   --env-file .env.production \
   up -d --build
 ```
@@ -661,16 +663,22 @@ docker pull ghcr.io/inspoaibox/rss-feed-manager-backend:latest
 
 ### 18.2 服务器还是在本地构建
 
-确认你没有使用 `--build`，也没有额外加 `docker-compose.prod.build.yml`：
+确认你没有额外加 `docker-compose.prod.local-build.yml`：
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
-确认 compose 配置中使用的是 `image`：
+如果兼容旧命令需要加 `docker-compose.prod.build.yml`，它现在只会强制拉取镜像：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production config | grep ghcr.io
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d --build
+```
+
+确认 compose 配置中没有 `build:`，并且使用的是 `image`：
+
+```bash
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production config | grep -E 'ghcr.io|pull_policy|build:'
 ```
 
 ### 18.3 端口 5666 被占用

@@ -90,9 +90,10 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 docker exec -it rss_manager_backend alembic upgrade head
 ```
 
-> 如果需要临时在服务器本地构建，可以使用 `docker-compose.prod.build.yml`：
+> `docker-compose.prod.build.yml` 现在用于强制拉取 GHCR 镜像，兼容旧更新命令但不会在服务器本地构建。
+> 如果需要临时在服务器本地构建，可以使用 `docker-compose.prod.local-build.yml`：
 > ```bash
-> docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d --build
+> docker compose -f docker-compose.prod.yml -f docker-compose.prod.local-build.yml --env-file .env.production up -d --build
 > ```
 
 **反向代理部署：**
@@ -250,7 +251,7 @@ AI 分析功能允许你使用自然语言查询订阅的文章内容，系统�
   docker compose -f docker-compose.prod.yml --env-file .env.production up -d
   ```
 - 如果修改了 Celery 任务、RSS 抓取逻辑或定时任务逻辑，也按同一套流程更新；`backend`、`celery_worker`、`celery_beat` 会使用同一个后端镜像。
-- 如需临时在服务器本地构建，可参考 [本地构建说明](docs/GITHUB_DOCKER_USAGE.md#14-需要在服务器本地构建时)。
+- `docker-compose.prod.build.yml` 会强制拉取 GHCR 镜像，不会在服务器本地构建；如需临时本地构建，可参考 [本地构建说明](docs/GITHUB_DOCKER_USAGE.md#14-需要在服务器本地构建时)。
 - **数据库结构变更时**，必须执行迁移：
   ```bash
   docker exec -it rss_manager_backend alembic upgrade head
