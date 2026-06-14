@@ -98,7 +98,7 @@ async def test_rule(
 ):
     """Test a custom rule without saving it."""
     service = CustomRuleService(db)
-    return await service.test_rule(data)
+    return await service.test_rule(current_user.id, data)
 
 
 @router.post("/generate", response_model=AIGenerateRuleResponse)

@@ -263,6 +263,11 @@ export interface CustomRule {
   date_selector: string | null
   fetch_interval: number
   use_playwright: boolean
+  proxy_enabled: boolean
+  proxy_url: string | null
+  proxy_mode: FeedProxyMode
+  proxy_pool_country: string | null
+  proxy_pool_protocol: ProxyProtocol | null
   auto_translate: boolean
   auto_summarize: boolean
   source_language: string | null

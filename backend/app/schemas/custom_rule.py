@@ -1,9 +1,12 @@
 """Custom rule schemas."""
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, HttpUrl
 
 TranslateMethod = str
+CustomRuleProxyMode = Literal["none", "single", "pool"]
+CustomRuleProxyProtocol = Literal["http", "https", "socks4", "socks5", "socks5h"]
 TRANSLATE_METHOD_PATTERN = "^(none|ai|google|argos)$"
 
 
@@ -20,6 +23,11 @@ class CustomRuleBase(BaseModel):
     date_selector: str | None = Field(None, max_length=500)
     fetch_interval: int = Field(default=3600, ge=300, le=86400)
     use_playwright: bool = False
+    proxy_enabled: bool = False
+    proxy_url: str | None = Field(None, max_length=2048)
+    proxy_mode: CustomRuleProxyMode | None = None
+    proxy_pool_country: str | None = Field(None, max_length=20)
+    proxy_pool_protocol: CustomRuleProxyProtocol | None = None
     auto_translate: bool = False
     auto_summarize: bool = False
     source_language: str | None = Field(None, max_length=10)
@@ -47,6 +55,11 @@ class CustomRuleUpdate(BaseModel):
     date_selector: str | None = Field(None, max_length=500)
     fetch_interval: int | None = Field(None, ge=300, le=86400)
     use_playwright: bool | None = None
+    proxy_enabled: bool | None = None
+    proxy_url: str | None = Field(None, max_length=2048)
+    proxy_mode: CustomRuleProxyMode | None = None
+    proxy_pool_country: str | None = Field(None, max_length=20)
+    proxy_pool_protocol: CustomRuleProxyProtocol | None = None
     auto_translate: bool | None = None
     auto_summarize: bool | None = None
     source_language: str | None = Field(None, max_length=10)
@@ -72,6 +85,11 @@ class CustomRuleResponse(BaseModel):
     date_selector: str | None
     fetch_interval: int
     use_playwright: bool
+    proxy_enabled: bool = False
+    proxy_url: str | None = None
+    proxy_mode: CustomRuleProxyMode = "none"
+    proxy_pool_country: str | None = None
+    proxy_pool_protocol: CustomRuleProxyProtocol | None = None
     auto_translate: bool
     auto_summarize: bool
     source_language: str | None
@@ -97,6 +115,11 @@ class CustomRuleTestRequest(BaseModel):
     content_selector: str | None = Field(None, max_length=500)
     date_selector: str | None = Field(None, max_length=500)
     use_playwright: bool = False
+    proxy_enabled: bool = False
+    proxy_url: str | None = Field(None, max_length=2048)
+    proxy_mode: CustomRuleProxyMode | None = None
+    proxy_pool_country: str | None = Field(None, max_length=20)
+    proxy_pool_protocol: CustomRuleProxyProtocol | None = None
 
 
 class CustomRuleTestResult(BaseModel):

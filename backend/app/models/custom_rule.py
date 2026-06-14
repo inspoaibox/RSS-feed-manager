@@ -44,6 +44,11 @@ class CustomRule(BaseModel):
     # Fetch settings
     fetch_interval: Mapped[int] = mapped_column(Integer, default=3600)  # seconds
     use_playwright: Mapped[bool] = mapped_column(Boolean, default=False)  # Use browser for JS sites
+    proxy_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    proxy_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    proxy_mode: Mapped[str] = mapped_column(String(20), default="none", nullable=False)  # none, single, pool
+    proxy_pool_country: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    proxy_pool_protocol: Mapped[str | None] = mapped_column(String(20), nullable=True)
     last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_count: Mapped[int] = mapped_column(Integer, default=0)

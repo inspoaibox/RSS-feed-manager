@@ -304,6 +304,8 @@ async def fetch_feed_content_playwright(
     from app.core.config import settings
 
     response_body = None
+    browser = None
+    context = None
 
     try:
         async with async_playwright() as p:
@@ -364,13 +366,22 @@ async def fetch_feed_content_playwright(
             if not response_body:
                 response_body = await page.content()
 
-            await browser.close()
-
             return _ensure_not_blocked_challenge(response_body, url, "Playwright")
     except Exception as e:
         if "FeedParserError" in str(type(e)):
             raise
         raise FeedParserError(f"Playwright error: {str(e)}")
+    finally:
+        if context:
+            try:
+                await context.close()
+            except Exception:
+                pass
+        if browser:
+            try:
+                await browser.close()
+            except Exception:
+                pass
 
 
 async def fetch_feed_content_cloakbrowser(

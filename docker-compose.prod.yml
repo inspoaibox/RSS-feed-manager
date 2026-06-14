@@ -65,13 +65,43 @@ services:
     image: ghcr.io/inspoaibox/rss-feed-manager-backend:${RSS_MANAGER_IMAGE_TAG:-latest}
     container_name: rss_manager_celery_worker
     restart: always
-    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=10
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=5 -Q feed,translation,celery
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rss_manager}:${POSTGRES_PASSWORD:-rss_manager_prod_2024}@postgres:5432/${POSTGRES_DB:-rss_manager}
       - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_prod_2024}@redis:6379/0
       - SECRET_KEY=${SECRET_KEY:-rss_manager_secret_key_2024_production}
       - XDG_DATA_HOME=/data
       - ARGOS_PACKAGES_DIR=/data/argos-translate/packages
+      - FEED_REFRESH_DISPATCH_LIMIT=${FEED_REFRESH_DISPATCH_LIMIT:-100}
+      - FEED_BROWSER_REFRESH_DISPATCH_LIMIT=${FEED_BROWSER_REFRESH_DISPATCH_LIMIT:-50}
+      - CUSTOM_RULE_DISPATCH_LIMIT=${CUSTOM_RULE_DISPATCH_LIMIT:-10}
+      - CUSTOM_RULE_BROWSER_DISPATCH_LIMIT=${CUSTOM_RULE_BROWSER_DISPATCH_LIMIT:-1}
+    volumes:
+      - argos_data:/data/argos-translate
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - rss_network
+
+  # Celery Worker for browser-backed fetching (Playwright/CloakBrowser)
+  celery_browser_worker:
+    image: ghcr.io/inspoaibox/rss-feed-manager-backend:${RSS_MANAGER_IMAGE_TAG:-latest}
+    container_name: rss_manager_celery_browser_worker
+    restart: always
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=${BROWSER_WORKER_CONCURRENCY:-3} --max-tasks-per-child=${BROWSER_WORKER_MAX_TASKS_PER_CHILD:-20} -Q browser
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rss_manager}:${POSTGRES_PASSWORD:-rss_manager_prod_2024}@postgres:5432/${POSTGRES_DB:-rss_manager}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_prod_2024}@redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-rss_manager_secret_key_2024_production}
+      - XDG_DATA_HOME=/data
+      - ARGOS_PACKAGES_DIR=/data/argos-translate/packages
+      - FEED_REFRESH_DISPATCH_LIMIT=${FEED_REFRESH_DISPATCH_LIMIT:-100}
+      - FEED_BROWSER_REFRESH_DISPATCH_LIMIT=${FEED_BROWSER_REFRESH_DISPATCH_LIMIT:-50}
+      - CUSTOM_RULE_DISPATCH_LIMIT=${CUSTOM_RULE_DISPATCH_LIMIT:-10}
+      - CUSTOM_RULE_BROWSER_DISPATCH_LIMIT=${CUSTOM_RULE_BROWSER_DISPATCH_LIMIT:-1}
     volumes:
       - argos_data:/data/argos-translate
     depends_on:
@@ -92,6 +122,10 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rss_manager}:${POSTGRES_PASSWORD:-rss_manager_prod_2024}@postgres:5432/${POSTGRES_DB:-rss_manager}
       - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_prod_2024}@redis:6379/0
       - SECRET_KEY=${SECRET_KEY:-rss_manager_secret_key_2024_production}
+      - FEED_REFRESH_DISPATCH_LIMIT=${FEED_REFRESH_DISPATCH_LIMIT:-100}
+      - FEED_BROWSER_REFRESH_DISPATCH_LIMIT=${FEED_BROWSER_REFRESH_DISPATCH_LIMIT:-50}
+      - CUSTOM_RULE_DISPATCH_LIMIT=${CUSTOM_RULE_DISPATCH_LIMIT:-10}
+      - CUSTOM_RULE_BROWSER_DISPATCH_LIMIT=${CUSTOM_RULE_BROWSER_DISPATCH_LIMIT:-1}
     depends_on:
       postgres:
         condition: service_healthy

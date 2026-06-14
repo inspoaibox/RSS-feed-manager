@@ -27,6 +27,11 @@ celery_app.conf.update(
     task_time_limit=10800,  # 3 hours max per task (for large embedding jobs)
     worker_prefetch_multiplier=1,
     task_acks_late=True,
+    task_default_queue="celery",
+    task_routes={
+        "app.tasks.feed_tasks.execute_custom_rule": {"queue": "feed"},
+        "app.tasks.feed_tasks.translate_article": {"queue": "translation"},
+    },
 )
 
 # Periodic tasks (beat schedule)

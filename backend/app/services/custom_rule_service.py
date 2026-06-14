@@ -1,14 +1,17 @@
 """Custom rule service."""
 import json
 from datetime import datetime
+from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup
+from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.custom_rule import CustomRule
 from app.models.feed import Feed
 from app.repositories.custom_rule_repository import CustomRuleRepository
+from app.repositories.proxy_pool_repository import ProxyPoolRepository
 from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.schemas.custom_rule import (
     AIGenerateRuleResponse,
@@ -17,6 +20,7 @@ from app.schemas.custom_rule import (
     CustomRuleTestResult,
     CustomRuleUpdate,
 )
+from app.utils.feed_parser import _build_playwright_proxy
 
 
 # 默认的同步间隔选项（秒）
@@ -29,7 +33,165 @@ class CustomRuleService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.repository = CustomRuleRepository(db)
+        self.proxy_repo = ProxyPoolRepository(db)
         self.settings_repo = SystemSettingsRepository(db)
+
+    def _normalize_proxy_config(
+        self,
+        proxy_mode: str | None,
+        proxy_enabled: bool | None,
+        proxy_url: str | None,
+        proxy_pool_country: str | None = None,
+        proxy_pool_protocol: str | None = None,
+    ) -> tuple[str, bool, str | None, str | None, str | None]:
+        """Normalize and validate per-rule proxy settings."""
+        mode = (proxy_mode or ("single" if proxy_enabled else "none")).strip().lower()
+        if mode not in {"none", "single", "pool"}:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="代理模式无效",
+            )
+
+        normalized_url = proxy_url.strip() if proxy_url else None
+        normalized_country = proxy_pool_country.strip().lower() if proxy_pool_country else None
+        normalized_protocol = proxy_pool_protocol.strip().lower() if proxy_pool_protocol else None
+
+        if normalized_protocol and normalized_protocol not in {
+            "http",
+            "https",
+            "socks4",
+            "socks5",
+            "socks5h",
+        }:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="代理池协议筛选无效",
+            )
+
+        if mode == "none":
+            return "none", False, None, None, None
+
+        if mode == "pool":
+            return "pool", True, None, normalized_country, normalized_protocol
+
+        if not normalized_url:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="使用单个代理时必须填写代理地址",
+            )
+
+        parsed = urlparse(normalized_url)
+        if parsed.scheme not in {"http", "https", "socks4", "socks5", "socks5h"} or not parsed.netloc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="代理地址格式无效，请使用 http://host:port 或 socks5://host:port",
+            )
+
+        return "single", True, normalized_url, None, None
+
+    async def _fetch_html(
+        self,
+        url: str,
+        use_playwright: bool,
+        cookies_dict: dict[str, str],
+        proxy_url: str | None = None,
+    ) -> str:
+        """Fetch custom-rule target HTML with optional proxy support."""
+        if use_playwright:
+            from playwright.async_api import async_playwright
+
+            launch_kwargs = {"headless": True}
+            playwright_proxy = _build_playwright_proxy(proxy_url)
+            if playwright_proxy:
+                launch_kwargs["proxy"] = playwright_proxy
+
+            browser = None
+            context = None
+            try:
+                async with async_playwright() as p:
+                    browser = await p.chromium.launch(**launch_kwargs)
+                    context = await browser.new_context()
+                    if cookies_dict:
+                        host = urlparse(url).hostname or ""
+                        cookie_list = [
+                            {"name": key, "value": value, "domain": host, "path": "/"}
+                            for key, value in cookies_dict.items()
+                        ]
+                        await context.add_cookies(cookie_list)
+                    page = await context.new_page()
+                    await page.goto(url, wait_until="networkidle", timeout=30000)
+                    return await page.content()
+            finally:
+                if context:
+                    try:
+                        await context.close()
+                    except Exception:
+                        pass
+                if browser:
+                    try:
+                        await browser.close()
+                    except Exception:
+                        pass
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        }
+        async with httpx.AsyncClient(
+            timeout=30.0,
+            cookies=cookies_dict if cookies_dict else None,
+            proxy=proxy_url,
+            follow_redirects=True,
+        ) as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+        return response.text
+
+    async def _fetch_html_with_proxy(
+        self,
+        user_id: int,
+        url: str,
+        use_playwright: bool,
+        cookies_dict: dict[str, str],
+        proxy_mode: str,
+        proxy_url: str | None,
+        proxy_pool_country: str | None,
+        proxy_pool_protocol: str | None,
+    ) -> str:
+        """Fetch target HTML, rotating through proxy pool candidates when configured."""
+        if proxy_mode == "pool":
+            candidates = await self.proxy_repo.get_candidates(
+                user_id,
+                country=proxy_pool_country,
+                protocol=proxy_pool_protocol,
+            )
+            if not candidates:
+                raise RuntimeError("代理池没有可用代理")
+
+            last_error = ""
+            for proxy in candidates:
+                try:
+                    html = await self._fetch_html(
+                        url,
+                        use_playwright,
+                        cookies_dict,
+                        proxy_url=proxy.proxy_url,
+                    )
+                    await self.proxy_repo.record_success(proxy)
+                    await self.db.commit()
+                    return html
+                except Exception as exc:
+                    last_error = str(exc)
+                    await self.proxy_repo.record_failure(proxy, last_error)
+                    await self.db.commit()
+
+            raise RuntimeError(f"代理池全部失败: {last_error or '未知错误'}")
+
+        return await self._fetch_html(
+            url,
+            use_playwright,
+            cookies_dict,
+            proxy_url=proxy_url if proxy_mode == "single" else None,
+        )
 
     async def _get_allowed_intervals(self) -> list[int]:
         """Get allowed sync intervals from system settings."""
@@ -63,6 +225,19 @@ class CustomRuleService:
         """Create a new custom rule with associated feed."""
         # Validate fetch interval
         validated_interval = await self._validate_fetch_interval(data.fetch_interval)
+        (
+            proxy_mode,
+            proxy_enabled,
+            proxy_url,
+            proxy_pool_country,
+            proxy_pool_protocol,
+        ) = self._normalize_proxy_config(
+            data.proxy_mode,
+            data.proxy_enabled,
+            data.proxy_url,
+            data.proxy_pool_country,
+            data.proxy_pool_protocol,
+        )
         
         # Create a feed for this custom rule
         feed = Feed(
@@ -77,6 +252,11 @@ class CustomRuleService:
             source_language=data.source_language,
             target_language=data.target_language,
             translate_method=data.translate_method,
+            proxy_mode=proxy_mode,
+            proxy_enabled=proxy_enabled,
+            proxy_url=proxy_url,
+            proxy_pool_country=proxy_pool_country,
+            proxy_pool_protocol=proxy_pool_protocol,
             is_active=data.is_active,
         )
         self.db.add(feed)
@@ -85,6 +265,12 @@ class CustomRuleService:
         # Create the custom rule linked to the feed
         rule_data = data.model_dump()
         rule_data['feed_id'] = feed.id
+        rule_data["fetch_interval"] = validated_interval
+        rule_data["proxy_mode"] = proxy_mode
+        rule_data["proxy_enabled"] = proxy_enabled
+        rule_data["proxy_url"] = proxy_url
+        rule_data["proxy_pool_country"] = proxy_pool_country
+        rule_data["proxy_pool_protocol"] = proxy_pool_protocol
         return await self.repository.create(user_id=user_id, **rule_data)
 
     async def get_rule(self, rule_id: int, user_id: int) -> CustomRule | None:
@@ -108,6 +294,35 @@ class CustomRuleService:
         # Validate fetch interval if provided
         if 'fetch_interval' in update_data:
             update_data['fetch_interval'] = await self._validate_fetch_interval(update_data['fetch_interval'])
+
+        if any(
+            key in update_data
+            for key in (
+                "proxy_mode",
+                "proxy_enabled",
+                "proxy_url",
+                "proxy_pool_country",
+                "proxy_pool_protocol",
+            )
+        ):
+            (
+                proxy_mode,
+                proxy_enabled,
+                proxy_url,
+                proxy_pool_country,
+                proxy_pool_protocol,
+            ) = self._normalize_proxy_config(
+                update_data.get("proxy_mode", getattr(rule, "proxy_mode", None)),
+                update_data.get("proxy_enabled", getattr(rule, "proxy_enabled", False)),
+                update_data.get("proxy_url", getattr(rule, "proxy_url", None)),
+                update_data.get("proxy_pool_country", getattr(rule, "proxy_pool_country", None)),
+                update_data.get("proxy_pool_protocol", getattr(rule, "proxy_pool_protocol", None)),
+            )
+            update_data["proxy_mode"] = proxy_mode
+            update_data["proxy_enabled"] = proxy_enabled
+            update_data["proxy_url"] = proxy_url
+            update_data["proxy_pool_country"] = proxy_pool_country
+            update_data["proxy_pool_protocol"] = proxy_pool_protocol
         
         for key, value in update_data.items():
             setattr(rule, key, value)
@@ -138,6 +353,16 @@ class CustomRuleService:
                     feed.target_language = update_data['target_language']
                 if 'translate_method' in update_data:
                     feed.translate_method = update_data['translate_method']
+                if 'proxy_mode' in update_data:
+                    feed.proxy_mode = update_data['proxy_mode']
+                if 'proxy_enabled' in update_data:
+                    feed.proxy_enabled = update_data['proxy_enabled']
+                if 'proxy_url' in update_data:
+                    feed.proxy_url = update_data['proxy_url']
+                if 'proxy_pool_country' in update_data:
+                    feed.proxy_pool_country = update_data['proxy_pool_country']
+                if 'proxy_pool_protocol' in update_data:
+                    feed.proxy_pool_protocol = update_data['proxy_pool_protocol']
                 if 'is_active' in update_data:
                     feed.is_active = update_data['is_active']
         
@@ -166,26 +391,32 @@ class CustomRuleService:
         return True
 
 
-    async def test_rule(self, data: CustomRuleTestRequest) -> CustomRuleTestResult:
+    async def test_rule(self, user_id: int, data: CustomRuleTestRequest) -> CustomRuleTestResult:
         """Test a custom rule without saving it."""
         try:
-            if data.use_playwright:
-                # Use Playwright for JS-rendered pages
-                from playwright.async_api import async_playwright
-                async with async_playwright() as p:
-                    browser = await p.chromium.launch(headless=True)
-                    page = await browser.new_page()
-                    await page.goto(data.target_url, wait_until="networkidle", timeout=30000)
-                    html_content = await page.content()
-                    await browser.close()
-            else:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(
-                        data.target_url,
-                        headers={"User-Agent": "Mozilla/5.0 RSS Reader Bot"}
-                    )
-                    response.raise_for_status()
-                html_content = response.text
+            (
+                proxy_mode,
+                _proxy_enabled,
+                proxy_url,
+                proxy_pool_country,
+                proxy_pool_protocol,
+            ) = self._normalize_proxy_config(
+                data.proxy_mode,
+                data.proxy_enabled,
+                data.proxy_url,
+                data.proxy_pool_country,
+                data.proxy_pool_protocol,
+            )
+            html_content = await self._fetch_html_with_proxy(
+                user_id,
+                data.target_url,
+                data.use_playwright,
+                {},
+                proxy_mode,
+                proxy_url,
+                proxy_pool_country,
+                proxy_pool_protocol,
+            )
             
             soup = BeautifulSoup(html_content, "html.parser")
             items = soup.select(data.list_selector)
@@ -256,6 +487,15 @@ class CustomRuleService:
             source_language=getattr(rule, 'source_language', None),
             target_language=rule.target_language,
             translate_method=getattr(rule, 'translate_method', 'none'),
+            proxy_enabled=getattr(rule, "proxy_enabled", False),
+            proxy_url=getattr(rule, "proxy_url", None),
+            proxy_mode=getattr(
+                rule,
+                "proxy_mode",
+                "single" if getattr(rule, "proxy_enabled", False) else "none",
+            ),
+            proxy_pool_country=getattr(rule, "proxy_pool_country", None),
+            proxy_pool_protocol=getattr(rule, "proxy_pool_protocol", None),
             is_active=rule.is_active,
         )
         self.db.add(feed)
@@ -283,31 +523,25 @@ class CustomRuleService:
                     if '=' in item:
                         key, value = item.strip().split('=', 1)
                         cookies_dict[key.strip()] = value.strip()
-            
-            # Use Playwright for JS-rendered pages if enabled
+
+            proxy_mode = getattr(
+                rule,
+                "proxy_mode",
+                "single" if getattr(rule, "proxy_enabled", False) else "none",
+            )
             print(f"[CustomRule] use_playwright={rule.use_playwright} for rule {rule.id}")
-            if rule.use_playwright:
-                from playwright.async_api import async_playwright
-                print(f"[CustomRule] Starting Playwright for {rule.target_url}")
-                async with async_playwright() as p:
-                    browser = await p.chromium.launch(headless=True)
-                    context = await browser.new_context()
-                    # Add cookies if provided
-                    if cookies_dict:
-                        cookie_list = [{"name": k, "value": v, "domain": rule.target_url.split('/')[2], "path": "/"} for k, v in cookies_dict.items()]
-                        await context.add_cookies(cookie_list)
-                    page = await context.new_page()
-                    await page.goto(rule.target_url, wait_until="networkidle", timeout=30000)
-                    html_content = await page.content()
-                    await browser.close()
-                print(f"[CustomRule] Playwright loaded {len(html_content)} bytes")
-            else:
-                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-                async with httpx.AsyncClient(timeout=30.0, cookies=cookies_dict if cookies_dict else None) as client:
-                    response = await client.get(rule.target_url, headers=headers)
-                    response.raise_for_status()
-                html_content = response.text
-                print(f"[CustomRule] HTTP loaded {len(html_content)} bytes")
+            print(f"[CustomRule] proxy_mode={proxy_mode} for rule {rule.id}")
+            html_content = await self._fetch_html_with_proxy(
+                rule.user_id,
+                rule.target_url,
+                rule.use_playwright,
+                cookies_dict,
+                proxy_mode,
+                getattr(rule, "proxy_url", None),
+                getattr(rule, "proxy_pool_country", None),
+                getattr(rule, "proxy_pool_protocol", None),
+            )
+            print(f"[CustomRule] Loaded {len(html_content)} bytes")
             
             soup = BeautifulSoup(html_content, "html.parser")
             
@@ -562,13 +796,20 @@ HTML 内容:
             # Use Playwright to get the page HTML (handles JS-rendered content)
             from playwright.async_api import async_playwright
             
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                page = await browser.new_page()
-                await page.goto(target_url, wait_until="networkidle", timeout=30000)
-                html_content = await page.content()
-                page_title = await page.title()
-                await browser.close()
+            browser = None
+            try:
+                async with async_playwright() as p:
+                    browser = await p.chromium.launch(headless=True)
+                    page = await browser.new_page()
+                    await page.goto(target_url, wait_until="networkidle", timeout=30000)
+                    html_content = await page.content()
+                    page_title = await page.title()
+            finally:
+                if browser:
+                    try:
+                        await browser.close()
+                    except Exception:
+                        pass
             
             # Parse and simplify HTML for AI
             soup = BeautifulSoup(html_content, "html.parser")

@@ -3150,6 +3150,11 @@ function RulesTab() {
     category_id: null as number | null,
     fetch_interval: defaultSyncInterval,
     use_playwright: false,
+    proxy_mode: 'none' as FeedProxyMode,
+    proxy_enabled: false,
+    proxy_url: '',
+    proxy_pool_country: '',
+    proxy_pool_protocol: '',
     auto_translate: false,
     auto_summarize: false,
     source_language: '',
@@ -3184,6 +3189,14 @@ function RulesTab() {
     },
   })
 
+  const { data: proxyGroups = { countries: [], protocols: [] } } = useQuery({
+    queryKey: ['proxy-groups'],
+    queryFn: async () => {
+      const response = await api.get<ProxyPoolGroups>('/proxies/groups')
+      return response.data
+    },
+  })
+
   const { data: aiModels = [] } = useQuery({
     queryKey: ['ai-models'],
     queryFn: async () => {
@@ -3201,6 +3214,11 @@ function RulesTab() {
         link_selector: formData.link_selector || null,
         content_selector: formData.content_selector || null,
         date_selector: formData.date_selector || null,
+        proxy_mode: formData.proxy_mode,
+        proxy_enabled: formData.proxy_mode !== 'none',
+        proxy_url: formData.proxy_mode === 'single' ? formData.proxy_url.trim() : null,
+        proxy_pool_country: formData.proxy_mode === 'pool' && formData.proxy_pool_country ? formData.proxy_pool_country : null,
+        proxy_pool_protocol: formData.proxy_mode === 'pool' && formData.proxy_pool_protocol ? formData.proxy_pool_protocol : null,
         auto_translate: formData.translate_method !== 'none',
         source_language: formData.translate_method === 'argos' && formData.source_language ? formData.source_language : null,
         target_language: formData.translate_method !== 'none' ? formData.target_language : null,
@@ -3229,6 +3247,11 @@ function RulesTab() {
         link_selector: data.link_selector || null,
         content_selector: data.content_selector || null,
         date_selector: data.date_selector || null,
+        proxy_mode: data.proxy_mode,
+        proxy_enabled: data.proxy_mode !== 'none',
+        proxy_url: data.proxy_mode === 'single' ? data.proxy_url.trim() : null,
+        proxy_pool_country: data.proxy_mode === 'pool' && data.proxy_pool_country ? data.proxy_pool_country : null,
+        proxy_pool_protocol: data.proxy_mode === 'pool' && data.proxy_pool_protocol ? data.proxy_pool_protocol : null,
         auto_translate: data.translate_method !== 'none',
         source_language: data.translate_method === 'argos' && data.source_language ? data.source_language : null,
         target_language: data.translate_method !== 'none' ? data.target_language : null,
@@ -3293,6 +3316,11 @@ function RulesTab() {
         content_selector: formData.content_selector || null,
         date_selector: formData.date_selector || null,
         use_playwright: formData.use_playwright,
+        proxy_mode: formData.proxy_mode,
+        proxy_enabled: formData.proxy_mode !== 'none',
+        proxy_url: formData.proxy_mode === 'single' ? formData.proxy_url.trim() : null,
+        proxy_pool_country: formData.proxy_mode === 'pool' && formData.proxy_pool_country ? formData.proxy_pool_country : null,
+        proxy_pool_protocol: formData.proxy_mode === 'pool' && formData.proxy_pool_protocol ? formData.proxy_pool_protocol : null,
       }
       const response = await api.post('/rules/test', payload)
       return response.data
@@ -3355,6 +3383,11 @@ function RulesTab() {
       category_id: rule.category_id,
       fetch_interval: rule.fetch_interval,
       use_playwright: rule.use_playwright,
+      proxy_mode: rule.proxy_mode || (rule.proxy_enabled ? 'single' : 'none'),
+      proxy_enabled: rule.proxy_mode !== 'none',
+      proxy_url: rule.proxy_url || '',
+      proxy_pool_country: rule.proxy_pool_country || '',
+      proxy_pool_protocol: rule.proxy_pool_protocol || '',
       auto_translate: rule.auto_translate,
       auto_summarize: rule.auto_summarize,
       source_language: rule.source_language || '',
@@ -3607,6 +3640,60 @@ function RulesTab() {
           启用规则
         </label>
       </div>
+      <div className="grid gap-2 p-2 bg-slate-50 dark:bg-gray-800 border border-slate-200 dark:border-gray-600 rounded text-sm">
+        <div className="flex items-center gap-2">
+          <span className="text-gray-700 dark:text-gray-200">代理配置</span>
+          <select
+            value={formData.proxy_mode}
+            onChange={(e) => {
+              const mode = e.target.value as FeedProxyMode
+              setFormData({
+                ...formData,
+                proxy_mode: mode,
+                proxy_enabled: mode !== 'none',
+              })
+            }}
+            className="px-2 py-1 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 dark:text-white"
+          >
+            <option value="none">不使用代理</option>
+            <option value="single">单个代理</option>
+            <option value="pool">代理池轮询</option>
+          </select>
+        </div>
+        {formData.proxy_mode === 'single' && (
+          <input
+            type="text"
+            value={formData.proxy_url}
+            onChange={(e) => setFormData({ ...formData, proxy_url: e.target.value })}
+            placeholder="http://user:pass@host:port 或 socks5://host:port"
+            className="w-full px-3 py-2 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 dark:text-white"
+          />
+        )}
+        {formData.proxy_mode === 'pool' && (
+          <div className="grid grid-cols-2 gap-2">
+            <select
+              value={formData.proxy_pool_country}
+              onChange={(e) => setFormData({ ...formData, proxy_pool_country: e.target.value })}
+              className="px-3 py-2 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 dark:text-white"
+            >
+              <option value="">全部国家</option>
+              {proxyGroups.countries.map((country) => (
+                <option key={country} value={country}>{country.toUpperCase()}</option>
+              ))}
+            </select>
+            <select
+              value={formData.proxy_pool_protocol}
+              onChange={(e) => setFormData({ ...formData, proxy_pool_protocol: e.target.value })}
+              className="px-3 py-2 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 dark:text-white"
+            >
+              <option value="">全部协议</option>
+              {proxyProtocols.map((protocol) => (
+                <option key={protocol} value={protocol}>{protocol}</option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
       
       {testRuleMutation.data && (
         <div className={`p-3 rounded ${testRuleMutation.data.success ? 'bg-green-50 dark:bg-green-900/30' : 'bg-red-50 dark:bg-red-900/30'}`}>
@@ -3635,14 +3722,14 @@ function RulesTab() {
       <div className="flex gap-2">
         <button
           onClick={() => testRuleMutation.mutate()}
-          disabled={!formData.target_url || !formData.list_selector || testRuleMutation.isPending}
+          disabled={!formData.target_url || !formData.list_selector || (formData.proxy_mode === 'single' && !formData.proxy_url.trim()) || testRuleMutation.isPending}
           className="px-4 py-2 border dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600 dark:text-gray-200 disabled:opacity-50"
         >
           测试规则
         </button>
         <button
           onClick={() => isEdit ? updateRuleMutation.mutate({ id: editingId!, data: formData }) : addRuleMutation.mutate()}
-          disabled={!formData.name || !formData.target_url || addRuleMutation.isPending || updateRuleMutation.isPending}
+          disabled={!formData.name || !formData.target_url || (formData.proxy_mode === 'single' && !formData.proxy_url.trim()) || addRuleMutation.isPending || updateRuleMutation.isPending}
           className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
         >
           {isEdit ? '更新' : '保存'}
@@ -3769,6 +3856,12 @@ function RulesTab() {
                       {rule.translate_method === 'google' && <span>Google翻译</span>}
                       {rule.translate_method === 'ai' && <span>AI翻译</span>}
                       {rule.translate_method === 'argos' && <span>本地翻译</span>}
+                      {rule.proxy_mode === 'single' && <span>单个代理</span>}
+                      {rule.proxy_mode === 'pool' && (
+                        <span>
+                          代理池{rule.proxy_pool_country ? `/${rule.proxy_pool_country.toUpperCase()}` : ''}{rule.proxy_pool_protocol ? `/${rule.proxy_pool_protocol}` : ''}
+                        </span>
+                      )}
                       {rule.auto_summarize && <span>AI整理</span>}
                       {rule.last_fetched_at && (
                         <span>上次抓取: {new Date(rule.last_fetched_at).toLocaleString('zh-CN')}</span>

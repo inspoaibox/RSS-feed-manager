@@ -16,7 +16,7 @@ from app.models.feed import Feed
 from app.models.custom_rule import CustomRule
 from app.models.proxy_pool import ProxyPoolEntry
 from app.models.ai_provider import AIModel, AIProvider
-from app.utils.feed_parser import FeedParserError, parse_feed, ParsedFeed
+from app.utils.feed_parser import FeedParserError, parse_feed, ParsedFeed, _build_playwright_proxy
 
 
 # Create sync engine for Celery tasks
@@ -35,6 +35,11 @@ _sync_engine = None
 _SyncSessionLocal = None
 FEED_REFRESH_QUEUE_LOCK_TTL = int(os.environ.get("FEED_REFRESH_QUEUE_LOCK_TTL", "14400"))
 ARTICLE_TRANSLATION_QUEUE_LOCK_TTL = int(os.environ.get("ARTICLE_TRANSLATION_QUEUE_LOCK_TTL", "14400"))
+CUSTOM_RULE_EXECUTION_QUEUE_LOCK_TTL = int(os.environ.get("CUSTOM_RULE_EXECUTION_QUEUE_LOCK_TTL", "14400"))
+FEED_REFRESH_DISPATCH_LIMIT = int(os.environ.get("FEED_REFRESH_DISPATCH_LIMIT", "100"))
+FEED_BROWSER_REFRESH_DISPATCH_LIMIT = int(os.environ.get("FEED_BROWSER_REFRESH_DISPATCH_LIMIT", "50"))
+CUSTOM_RULE_DISPATCH_LIMIT = int(os.environ.get("CUSTOM_RULE_DISPATCH_LIMIT", "10"))
+CUSTOM_RULE_BROWSER_DISPATCH_LIMIT = int(os.environ.get("CUSTOM_RULE_BROWSER_DISPATCH_LIMIT", "1"))
 
 
 def get_sync_session():
@@ -100,6 +105,84 @@ def _release_feed_refresh_slot(redis_client, feed_id: int, owner: str) -> None:
     """
     try:
         redis_client.eval(script, 1, _feed_refresh_slot_key(feed_id), owner)
+    except Exception:
+        pass
+
+
+def _naive_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    return value.replace(tzinfo=None) if value.tzinfo else value
+
+
+def _next_fetch_at(last_fetched_at: datetime | None, fetch_interval: int | None) -> datetime:
+    last_fetched = _naive_utc(last_fetched_at)
+    if last_fetched is None:
+        return datetime.min
+    return last_fetched + timedelta(seconds=fetch_interval or 0)
+
+
+def _current_task_queue(task) -> str | None:
+    delivery_info = getattr(getattr(task, "request", None), "delivery_info", None) or {}
+    return delivery_info.get("routing_key") or delivery_info.get("queue")
+
+
+def _feed_uses_browser(feed: Feed) -> bool:
+    if getattr(feed, "use_playwright", False):
+        return True
+    engine = (getattr(feed, "browser_engine", None) or "").strip().lower()
+    return bool(engine and engine != "http")
+
+
+def _feed_browser_engine_for_parse(feed: Feed) -> str | None:
+    engine = (getattr(feed, "browser_engine", None) or "").strip().lower()
+    if getattr(feed, "use_playwright", False) and (not engine or engine == "http"):
+        return "playwright"
+    return engine or None
+
+
+def _rule_uses_browser(rule: CustomRule) -> bool:
+    return bool(getattr(rule, "use_playwright", False))
+
+
+def _custom_rule_execution_slot_key(rule_id: int) -> str:
+    return f"execute_custom_rule_{rule_id}_queued_or_running"
+
+
+def _acquire_custom_rule_execution_slot(redis_client, rule_id: int, owner: str) -> bool:
+    return bool(
+        redis_client.set(
+            _custom_rule_execution_slot_key(rule_id),
+            owner,
+            nx=True,
+            ex=CUSTOM_RULE_EXECUTION_QUEUE_LOCK_TTL,
+        )
+    )
+
+
+def _refresh_custom_rule_slot_for_worker(redis_client, rule_id: int, owner: str) -> bool:
+    key = _custom_rule_execution_slot_key(rule_id)
+    current_owner = redis_client.get(key)
+
+    if current_owner is None:
+        return _acquire_custom_rule_execution_slot(redis_client, rule_id, owner)
+
+    if _redis_value_matches(current_owner, owner):
+        redis_client.expire(key, CUSTOM_RULE_EXECUTION_QUEUE_LOCK_TTL)
+        return True
+
+    return False
+
+
+def _release_custom_rule_execution_slot(redis_client, rule_id: int, owner: str) -> None:
+    script = """
+    if redis.call("get", KEYS[1]) == ARGV[1] then
+        return redis.call("del", KEYS[1])
+    end
+    return 0
+    """
+    try:
+        redis_client.eval(script, 1, _custom_rule_execution_slot_key(rule_id), owner)
     except Exception:
         pass
 
@@ -199,6 +282,7 @@ def dispatch_article_translation(article_id: int, target_language: str | None = 
             args=[article_id],
             kwargs=kwargs,
             task_id=owner,
+            queue="translation",
         )
         return True, None
     except Exception as exc:
@@ -685,7 +769,7 @@ def _parse_feed_for_sync_refresh(db: Session, feed: Feed) -> ParsedFeed:
                         parse_feed(
                             feed.url,
                             use_playwright=feed.use_playwright,
-                            browser_engine=getattr(feed, "browser_engine", None),
+                            browser_engine=_feed_browser_engine_for_parse(feed),
                             proxy_url=proxy.proxy_url,
                         )
                     )
@@ -706,7 +790,7 @@ def _parse_feed_for_sync_refresh(db: Session, feed: Feed) -> ParsedFeed:
             parse_feed(
                 feed.url,
                 use_playwright=feed.use_playwright,
-                browser_engine=getattr(feed, "browser_engine", None),
+                browser_engine=_feed_browser_engine_for_parse(feed),
                 proxy_url=proxy_url,
             )
         )
@@ -784,7 +868,7 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
 
 def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
     """Execute a custom rule and save articles (sync version for Celery)."""
-    from urllib.parse import urljoin
+    from urllib.parse import urljoin, urlparse
     from hashlib import md5
     import httpx
     from bs4 import BeautifulSoup
@@ -805,6 +889,15 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
             source_language=getattr(rule, 'source_language', None),
             target_language=rule.target_language,
             translate_method=getattr(rule, 'translate_method', 'none'),
+            proxy_enabled=getattr(rule, "proxy_enabled", False),
+            proxy_url=getattr(rule, "proxy_url", None),
+            proxy_mode=getattr(
+                rule,
+                "proxy_mode",
+                "single" if getattr(rule, "proxy_enabled", False) else "none",
+            ),
+            proxy_pool_country=getattr(rule, "proxy_pool_country", None),
+            proxy_pool_protocol=getattr(rule, "proxy_pool_protocol", None),
             is_active=rule.is_active,
         )
         db.add(feed)
@@ -822,38 +915,98 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
                     key, value = item.strip().split('=', 1)
                     cookies_dict[key.strip()] = value.strip()
         
-        # Fetch page content
+        proxy_mode = getattr(
+            rule,
+            "proxy_mode",
+            "single" if getattr(rule, "proxy_enabled", False) else "none",
+        )
         print(f"[CustomRule] use_playwright={rule.use_playwright} for rule {rule.id}")
-        
+        print(f"[CustomRule] proxy_mode={proxy_mode} for rule {rule.id}")
+
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            if rule.use_playwright:
-                async def _fetch_with_playwright():
-                    from playwright.async_api import async_playwright
-                    print(f"[CustomRule] Starting Playwright for {rule.target_url}")
+            async def _fetch_with_playwright(proxy_url: str | None = None):
+                from playwright.async_api import async_playwright
+
+                launch_kwargs = {"headless": True}
+                playwright_proxy = _build_playwright_proxy(proxy_url)
+                if playwright_proxy:
+                    launch_kwargs["proxy"] = playwright_proxy
+
+                print(f"[CustomRule] Starting Playwright for {rule.target_url}")
+                browser = None
+                context = None
+                try:
                     async with async_playwright() as p:
-                        browser = await p.chromium.launch(headless=True)
+                        browser = await p.chromium.launch(**launch_kwargs)
                         context = await browser.new_context()
                         if cookies_dict:
-                            cookie_list = [{"name": k, "value": v, "domain": rule.target_url.split('/')[2], "path": "/"} for k, v in cookies_dict.items()]
+                            host = urlparse(rule.target_url).hostname or ""
+                            cookie_list = [
+                                {"name": k, "value": v, "domain": host, "path": "/"}
+                                for k, v in cookies_dict.items()
+                            ]
                             await context.add_cookies(cookie_list)
                         page = await context.new_page()
                         await page.goto(rule.target_url, wait_until="networkidle", timeout=30000)
-                        content = await page.content()
-                        await browser.close()
-                    return content
-                html_content = loop.run_until_complete(_fetch_with_playwright())
-                print(f"[CustomRule] Playwright loaded {len(html_content)} bytes")
+                        return await page.content()
+                finally:
+                    if context:
+                        try:
+                            await context.close()
+                        except Exception:
+                            pass
+                    if browser:
+                        try:
+                            await browser.close()
+                        except Exception:
+                            pass
+
+            async def _fetch_with_httpx(proxy_url: str | None = None):
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                async with httpx.AsyncClient(
+                    timeout=30.0,
+                    cookies=cookies_dict if cookies_dict else None,
+                    proxy=proxy_url,
+                    follow_redirects=True,
+                ) as client:
+                    response = await client.get(rule.target_url, headers=headers)
+                    response.raise_for_status()
+                return response.text
+
+            def _fetch_once(proxy_url: str | None = None) -> str:
+                if rule.use_playwright:
+                    return loop.run_until_complete(_fetch_with_playwright(proxy_url))
+                return loop.run_until_complete(_fetch_with_httpx(proxy_url))
+
+            if proxy_mode == "pool":
+                candidates = _get_proxy_candidates_sync(db, rule)
+                if not candidates:
+                    raise RuntimeError("代理池没有可用代理")
+
+                last_error = ""
+                for proxy in candidates:
+                    try:
+                        html_content = _fetch_once(proxy.proxy_url)
+                        _record_proxy_success_sync(db, proxy)
+                        db.commit()
+                        break
+                    except Exception as exc:
+                        last_error = str(exc)
+                        _record_proxy_failure_sync(db, proxy, last_error)
+                        db.commit()
+                else:
+                    raise RuntimeError(f"代理池全部失败: {last_error or '未知错误'}")
             else:
-                async def _fetch_with_httpx():
-                    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-                    async with httpx.AsyncClient(timeout=30.0, cookies=cookies_dict if cookies_dict else None) as client:
-                        response = await client.get(rule.target_url, headers=headers)
-                        response.raise_for_status()
-                    return response.text
-                html_content = loop.run_until_complete(_fetch_with_httpx())
-                print(f"[CustomRule] HTTP loaded {len(html_content)} bytes")
+                proxy_url = (
+                    getattr(rule, "proxy_url", None)
+                    if proxy_mode == "single" and getattr(rule, "proxy_enabled", False)
+                    else None
+                )
+                html_content = _fetch_once(proxy_url)
+
+            print(f"[CustomRule] Loaded {len(html_content)} bytes")
         finally:
             loop.close()
         
@@ -1095,18 +1248,31 @@ def refresh_due_feeds(self) -> dict:
             ).scalars().all()
             
             dispatched = 0
+            dispatched_browser = 0
+            dispatched_regular = 0
             skipped = 0
             skipped_queued = 0
+            skipped_limited = 0
+            due_feeds: list[tuple[datetime, int, Feed]] = []
             
             for feed in feeds:
-                # Check if feed is due for refresh
-                if feed.last_fetched_at:
-                    last_fetched = feed.last_fetched_at.replace(tzinfo=None) if feed.last_fetched_at.tzinfo else feed.last_fetched_at
-                    next_fetch = last_fetched + timedelta(seconds=feed.fetch_interval)
-                    if now < next_fetch:
-                        skipped += 1
-                        continue
-                
+                next_fetch = _next_fetch_at(feed.last_fetched_at, feed.fetch_interval)
+                if now < next_fetch:
+                    skipped += 1
+                    continue
+                due_feeds.append((next_fetch, feed.id, feed))
+
+            due_feeds.sort(key=lambda item: (item[0], item[1]))
+
+            for _next_fetch, _feed_id, feed in due_feeds:
+                uses_browser = _feed_uses_browser(feed)
+                if dispatched >= FEED_REFRESH_DISPATCH_LIMIT:
+                    skipped_limited += 1
+                    continue
+                if uses_browser and dispatched_browser >= FEED_BROWSER_REFRESH_DISPATCH_LIMIT:
+                    skipped_limited += 1
+                    continue
+
                 owner = f"refresh_due_feeds:{self.request.id}:{feed.id}:{int(now.timestamp())}"
                 if not _acquire_feed_refresh_slot(redis_client, feed.id, owner):
                     skipped_queued += 1
@@ -1114,11 +1280,16 @@ def refresh_due_feeds(self) -> dict:
 
                 try:
                     # Dispatch individual feed refresh task after reserving its queue slot.
-                    refresh_single_feed.delay(feed.id, owner)
+                    queue_name = "browser" if uses_browser else "feed"
+                    refresh_single_feed.apply_async(args=[feed.id, owner], queue=queue_name)
                 except Exception:
                     _release_feed_refresh_slot(redis_client, feed.id, owner)
                     raise
                 dispatched += 1
+                if uses_browser:
+                    dispatched_browser += 1
+                else:
+                    dispatched_regular += 1
             
             if skipped_queued:
                 print(
@@ -1130,9 +1301,13 @@ def refresh_due_feeds(self) -> dict:
             return {
                 "success": True,
                 "feeds_checked": len(feeds),
+                "feeds_due": len(due_feeds),
                 "feeds_dispatched": dispatched,
+                "feeds_dispatched_regular": dispatched_regular,
+                "feeds_dispatched_browser": dispatched_browser,
                 "feeds_skipped": skipped,
                 "feeds_skipped_queued": skipped_queued,
+                "feeds_skipped_limited": skipped_limited,
             }
     finally:
         try:
@@ -1146,6 +1321,7 @@ def refresh_single_feed(self, feed_id: int, refresh_owner: str | None = None) ->
     """Refresh a single feed - designed for parallel execution."""
     redis_client = get_redis_client()
     owner = refresh_owner or f"refresh_single_feed:{self.request.id}:{feed_id}"
+    release_slot = True
 
     if not _refresh_feed_slot_for_worker(redis_client, feed_id, owner):
         print(f"[FeedRefreshDedup] Skipped feed {feed_id}: already queued or processing")
@@ -1167,6 +1343,17 @@ def refresh_single_feed(self, feed_id: int, refresh_owner: str | None = None) ->
             
             if not feed.is_active:
                 return {"success": True, "feed_id": feed_id, "skipped": True, "reason": "inactive"}
+
+            if _feed_uses_browser(feed) and _current_task_queue(self) != "browser":
+                refresh_single_feed.apply_async(args=[feed.id, owner], queue="browser")
+                release_slot = False
+                return {
+                    "success": True,
+                    "feed_id": feed_id,
+                    "queued": True,
+                    "queue": "browser",
+                    "reason": "browser feed moved to browser queue",
+                }
             
             try:
                 new_count = _refresh_feed_sync(db, feed)
@@ -1185,7 +1372,8 @@ def refresh_single_feed(self, feed_id: int, refresh_owner: str | None = None) ->
                     "error": str(e)
                 }
     finally:
-        _release_feed_refresh_slot(redis_client, feed_id, owner)
+        if release_slot:
+            _release_feed_refresh_slot(redis_client, feed_id, owner)
 
 
 
@@ -1211,12 +1399,8 @@ def execute_custom_rule(rule_id: int) -> dict:
 @shared_task(name="app.tasks.feed_tasks.execute_all_custom_rules", bind=True)
 def execute_all_custom_rules(self) -> dict:
     """Dispatch custom rule execution tasks for rules that are due."""
-    import redis
-    import os
-    
     # Use Redis lock to prevent concurrent dispatch
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-    redis_client = redis.from_url(redis_url)
+    redis_client = get_redis_client()
     lock = redis_client.lock("execute_all_custom_rules_dispatch_lock", timeout=60)
     
     if not lock.acquire(blocking=False):
@@ -1231,26 +1415,65 @@ def execute_all_custom_rules(self) -> dict:
             ).scalars().all()
             
             dispatched = 0
+            dispatched_browser = 0
+            dispatched_regular = 0
             skipped = 0
+            skipped_queued = 0
+            skipped_limited = 0
+            due_rules: list[tuple[datetime, int, CustomRule]] = []
             
             for rule in rules:
-                # Check if rule is due for fetch
-                if rule.last_fetched_at:
-                    last_fetched = rule.last_fetched_at.replace(tzinfo=None) if rule.last_fetched_at.tzinfo else rule.last_fetched_at
-                    next_fetch = last_fetched + timedelta(seconds=rule.fetch_interval)
-                    if now < next_fetch:
-                        skipped += 1
-                        continue
+                next_fetch = _next_fetch_at(rule.last_fetched_at, rule.fetch_interval)
+                if now < next_fetch:
+                    skipped += 1
+                    continue
+                due_rules.append((next_fetch, rule.id, rule))
+
+            due_rules.sort(key=lambda item: (item[0], item[1]))
+
+            for _next_fetch, _rule_id, rule in due_rules:
+                uses_browser = _rule_uses_browser(rule)
+                if dispatched >= CUSTOM_RULE_DISPATCH_LIMIT:
+                    skipped_limited += 1
+                    continue
+                if uses_browser and dispatched_browser >= CUSTOM_RULE_BROWSER_DISPATCH_LIMIT:
+                    skipped_limited += 1
+                    continue
                 
-                # Dispatch individual rule execution task
-                execute_single_custom_rule.delay(rule.id)
+                owner = f"execute_all_custom_rules:{self.request.id}:{rule.id}:{int(now.timestamp())}"
+                if not _acquire_custom_rule_execution_slot(redis_client, rule.id, owner):
+                    skipped_queued += 1
+                    continue
+
+                try:
+                    queue_name = "browser" if uses_browser else "feed"
+                    execute_single_custom_rule.apply_async(args=[rule.id, owner], queue=queue_name)
+                except Exception:
+                    _release_custom_rule_execution_slot(redis_client, rule.id, owner)
+                    raise
                 dispatched += 1
+                if uses_browser:
+                    dispatched_browser += 1
+                else:
+                    dispatched_regular += 1
+
+            if skipped_queued:
+                print(
+                    "[CustomRuleDedup] "
+                    f"Skipped {skipped_queued} rules already queued/running "
+                    f"during dispatch task {self.request.id}"
+                )
             
             return {
                 "success": True,
                 "rules_checked": len(rules),
+                "rules_due": len(due_rules),
                 "rules_dispatched": dispatched,
-                "rules_skipped": skipped
+                "rules_dispatched_regular": dispatched_regular,
+                "rules_dispatched_browser": dispatched_browser,
+                "rules_skipped": skipped,
+                "rules_skipped_queued": skipped_queued,
+                "rules_skipped_limited": skipped_limited,
             }
     finally:
         try:
@@ -1260,18 +1483,20 @@ def execute_all_custom_rules(self) -> dict:
 
 
 @shared_task(name="app.tasks.feed_tasks.execute_single_custom_rule", bind=True)
-def execute_single_custom_rule(self, rule_id: int) -> dict:
+def execute_single_custom_rule(self, rule_id: int, execution_owner: str | None = None) -> dict:
     """Execute a single custom rule - designed for parallel execution."""
-    import redis
-    import os
-    
-    # Per-rule lock to prevent duplicate processing
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-    redis_client = redis.from_url(redis_url)
-    lock = redis_client.lock(f"execute_rule_{rule_id}_lock", timeout=300)
-    
-    if not lock.acquire(blocking=False):
-        return {"success": True, "rule_id": rule_id, "skipped": True, "reason": "already processing"}
+    redis_client = get_redis_client()
+    owner = execution_owner or f"execute_single_custom_rule:{self.request.id}:{rule_id}"
+    release_slot = True
+
+    if not _refresh_custom_rule_slot_for_worker(redis_client, rule_id, owner):
+        print(f"[CustomRuleDedup] Skipped rule {rule_id}: already queued or processing")
+        return {
+            "success": True,
+            "rule_id": rule_id,
+            "skipped": True,
+            "reason": "already queued or processing",
+        }
     
     try:
         # Use sync session to avoid asyncpg concurrent operation issues
@@ -1285,6 +1510,17 @@ def execute_single_custom_rule(self, rule_id: int) -> dict:
             
             if not rule.is_active:
                 return {"success": True, "rule_id": rule_id, "skipped": True, "reason": "inactive"}
+
+            if _rule_uses_browser(rule) and _current_task_queue(self) != "browser":
+                execute_single_custom_rule.apply_async(args=[rule.id, owner], queue="browser")
+                release_slot = False
+                return {
+                    "success": True,
+                    "rule_id": rule_id,
+                    "queued": True,
+                    "queue": "browser",
+                    "reason": "browser rule moved to browser queue",
+                }
             
             try:
                 articles = _execute_custom_rule_sync(db, rule)
@@ -1305,10 +1541,8 @@ def execute_single_custom_rule(self, rule_id: int) -> dict:
                     "error": str(e)
                 }
     finally:
-        try:
-            lock.release()
-        except Exception:
-            pass
+        if release_slot:
+            _release_custom_rule_execution_slot(redis_client, rule_id, owner)
 
 
 @shared_task(name="app.tasks.feed_tasks.translate_feed_articles")

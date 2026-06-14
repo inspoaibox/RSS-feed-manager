@@ -9,6 +9,11 @@ services:
       context: ./backend
       dockerfile: Dockerfile
 
+  celery_browser_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+
   celery_beat:
     build:
       context: ./backend
