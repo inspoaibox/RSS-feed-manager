@@ -19,7 +19,7 @@ GitHub Actions
   v
 GitHub Container Registry: ghcr.io
   |
-  | docker compose pull
+  | docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml pull
   v
 服务器 Docker Compose
   |-- postgres
@@ -33,7 +33,7 @@ GitHub Container Registry: ghcr.io
 Nginx / Caddy 反向代理到 127.0.0.1:5666
 ```
 
-服务器不再默认执行 `docker compose ... up -d --build`。更新时应先等 GitHub Actions 构建成功，然后在服务器执行 `docker compose pull` 和 `docker compose up -d`。浏览器抓取能力是可选 profile，只有启用 `--profile browser` 时才会拉取和启动 browser 大镜像。
+服务器不再默认执行 `docker compose ... up -d --build`。更新时应先等 GitHub Actions 构建成功，然后在服务器执行 `docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml pull` 和 `docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml up -d`。浏览器抓取能力是可选 profile，只有启用 `--profile browser` 时才会拉取和启动 browser 大镜像。
 
 ## 2. GitHub Actions 构建结果
 
@@ -196,16 +196,20 @@ RSS_MANAGER_IMAGE_TAG=latest
 
 ## 7. 启动生产服务
 
+### 7.1 默认轻量模式
+
+默认轻量模式不拉取 browser 大镜像，也不启动 `rss_manager_celery_browser_worker`。适合只使用普通 HTTP RSS 抓取、AI、翻译、备份等功能的部署。
+
 首次启动前，建议先拉取镜像：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production pull
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
 ```
 
 启动服务：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
 
 这个命令会启动：
@@ -214,27 +218,31 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 - `rss_manager_redis`：Redis
 - `rss_manager_backend`：FastAPI 后端
 - `rss_manager_celery_worker`：普通后台任务 Worker，使用小后端镜像
-- `rss_manager_celery_browser_worker`：可选浏览器抓取 Worker，启用 `browser` profile 后处理 Playwright/CloakBrowser 队列
 - `rss_manager_celery_beat`：定时任务调度器
 - `rss_manager_frontend`：前端 Nginx 与静态文件
 
 查看容器状态：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production ps
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production ps
 ```
 
-如果你启用了浏览器抓取模式，启动和查看状态时加上 profile：
+### 7.2 浏览器抓取模式
+
+如果需要抓取 Cloudflare 保护站点、Playwright 订阅源或 CloakBrowser 订阅源，使用 browser profile。该模式会额外拉取 `ghcr.io/inspoaibox/rss-feed-manager-browser`，并启动 `rss_manager_celery_browser_worker`。
 
 ```bash
-docker compose --profile browser -f docker-compose.prod.yml --env-file .env.production up -d
-docker compose --profile browser -f docker-compose.prod.yml --env-file .env.production ps
+docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
+docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
+docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production ps
 ```
+
+如果服务器没有 `.env.production`，去掉上面命令中的 `--env-file .env.production`。
 
 查看启动日志：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production logs -f
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production logs -f
 ```
 
 后端容器启动时会自动执行数据库迁移：
@@ -300,19 +308,12 @@ RSS_MANAGER_IMAGE_TAG=latest
 5. 拉取 GitHub 构建好的镜像
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production pull
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
 ```
 
 6. 用新镜像启动服务
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
-```
-
-也可以使用兼容旧更新流程的强制拉取 override：
-
-```bash
-docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
 docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
 
@@ -323,10 +324,12 @@ docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.pr
 docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
 
+正常 `pull`、`up -d`、`restart` 只会更新和重建应用容器，不会删除 PostgreSQL、Redis、Argos 语言包等 Docker 数据卷。只有执行 `down -v` 才会删除数据卷。
+
 7. 检查当前容器使用的镜像
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production images
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production images
 ```
 
 正常应看到：
@@ -334,6 +337,12 @@ docker compose -f docker-compose.prod.yml --env-file .env.production images
 ```text
 ghcr.io/inspoaibox/rss-feed-manager-backend
 ghcr.io/inspoaibox/rss-feed-manager-frontend
+```
+
+如果启用了浏览器抓取模式，还会看到：
+
+```text
+ghcr.io/inspoaibox/rss-feed-manager-browser
 ```
 
 ## 10. 使用 Nginx 反向代理
@@ -365,7 +374,7 @@ ports:
 然后重启服务：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
 
 这样外部用户不能直接访问 `服务器IP:5666`，只能通过反向代理访问。
@@ -448,7 +457,7 @@ BASE_URL=https://rss.example.com
 然后重启服务：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
 
 ### 10.4 Nginx 子路径部署说明
@@ -498,7 +507,7 @@ BASE_URL=https://rss.example.com
 重启服务：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
 
 ## 12. 更新到最新版本
@@ -560,8 +569,8 @@ RSS_MANAGER_IMAGE_TAG=sha-完整提交SHA
 重新拉取并启动：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production pull
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
 
 恢复跟随最新版本时，再改回：
@@ -584,7 +593,7 @@ docker compose \
   up -d --build
 ```
 
-这会临时使用本地 `backend/Dockerfile` 和 `frontend/Dockerfile` 构建镜像。恢复 GitHub 镜像部署时，重新执行：
+这会临时使用本地 `backend/Dockerfile` 和 `frontend/Dockerfile` 构建镜像。
 
 如果需要同时本地构建浏览器 Worker，添加 `--profile browser`：
 
@@ -599,9 +608,11 @@ docker compose \
 
 浏览器 Worker 会使用 `backend/Dockerfile.browser`，普通 backend 仍使用小镜像 Dockerfile。
 
+恢复 GitHub 镜像部署时，重新执行：
+
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production pull
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
 
 ## 15. 修改配置后的重启方式
@@ -609,14 +620,14 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 修改 `.env.production` 后：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
 
 如果修改的是镜像标签：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production pull
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
 
 ## 16. 数据备份和恢复
@@ -648,7 +659,7 @@ Get-Content rss_manager_backup.sql | docker exec -i rss_manager_postgres psql -U
 查看全部日志：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production logs -f
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production logs -f
 ```
 
 查看后端日志：
@@ -678,25 +689,25 @@ docker logs -f rss_manager_celery_beat
 查看当前使用的镜像：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production images
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production images
 ```
 
 重启所有服务：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production restart
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production restart
 ```
 
 停止服务但保留数据：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production down
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production down
 ```
 
 停止服务并删除数据库、Redis 数据卷：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production down -v
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production down -v
 ```
 
 清理未使用镜像：
@@ -714,16 +725,17 @@ docker image prune
 ```bash
 docker pull ghcr.io/inspoaibox/rss-feed-manager-frontend:latest
 docker pull ghcr.io/inspoaibox/rss-feed-manager-backend:latest
+docker pull ghcr.io/inspoaibox/rss-feed-manager-browser:latest
 ```
 
-如果提示无权限，请检查 GHCR package 是否公开，或在服务器执行 `docker login ghcr.io`。
+如果不使用浏览器抓取模式，`rss-feed-manager-browser` 可以不拉。若提示无权限，请检查 GHCR package 是否公开，或在服务器执行 `docker login ghcr.io`。
 
 ### 18.2 服务器还是在本地构建
 
 确认你没有额外加 `docker-compose.prod.local-build.yml`：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
 
 如果兼容旧命令需要加 `docker-compose.prod.build.yml`，它现在只会强制拉取镜像：
@@ -764,9 +776,9 @@ proxy_pass http://127.0.0.1:8080;
 查看服务状态和日志：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production ps
-docker compose -f docker-compose.prod.yml --env-file .env.production logs backend
-docker compose -f docker-compose.prod.yml --env-file .env.production logs frontend
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production ps
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production logs backend
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production logs frontend
 ```
 
 ### 18.5 数据库连接失败
@@ -774,7 +786,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.production logs fronte
 检查 PostgreSQL 是否健康：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production ps postgres
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production ps postgres
 docker logs --tail 100 rss_manager_postgres
 ```
 
@@ -789,13 +801,19 @@ docker logs --tail 100 rss_manager_postgres
 确认 Worker 和 Beat 正常：
 
 ```bash
-docker compose --profile browser -f docker-compose.prod.yml --env-file .env.production ps celery_worker celery_browser_worker celery_beat
+docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production ps celery_worker celery_browser_worker celery_beat
 docker logs -f rss_manager_celery_worker
 docker logs -f rss_manager_celery_browser_worker
 docker logs -f rss_manager_celery_beat
 ```
 
 如果没有启用 `browser` profile，看不到 `rss_manager_celery_browser_worker` 是正常的；浏览器模式订阅源会排队等待该 Worker 启动。
+
+启动浏览器 Worker：
+
+```bash
+docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
+```
 
 ### 18.7 域名访问正常，但登录或 OAuth 回调异常
 
@@ -809,7 +827,7 @@ BASE_URL=https://rss.example.com
 修改后重启：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
 
 ### 18.8 Nginx 反向代理后接口 502
@@ -834,7 +852,7 @@ sudo journalctl -u nginx --no-pager -n 100
 执行：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
 
 然后查看后端容器环境变量是否正确传入：
@@ -849,13 +867,13 @@ docker exec rss_manager_backend env | grep CORS_ORIGINS
 停止并删除容器，但保留数据卷：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production down
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production down
 ```
 
 彻底删除容器和数据卷：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production down -v
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production down -v
 ```
 
 删除项目目录：

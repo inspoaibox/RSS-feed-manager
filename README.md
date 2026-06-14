@@ -42,25 +42,33 @@
 5. 通过 `http://服务器IP:5666` 测试访问
 6. 使用 Nginx 或 Caddy 反向代理到 `127.0.0.1:5666`
 7. 将 `.env.production` 中的 `CORS_ORIGINS` 和 `BASE_URL` 改为最终域名
-8. 后续通过 `git pull origin main`、`docker compose pull` 和 `docker compose up -d` 更新
+8. 后续通过 `git pull origin main`、`docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml pull` 和 `docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml up -d` 更新
 
 ### 方式一：生产环境部署（Docker 一键启动，推荐）
 
 只需安装 Docker，几条命令拉取 GitHub Actions 构建好的镜像并启动所有服务：
 
+**默认轻量模式（不启用浏览器抓取 Worker）：**
+
 ```bash
 # 1. 复制并编辑生产环境配置
 cp .env.production.example .env.production
 
-# 2. 拉取 GitHub Container Registry 镜像
-docker compose -f docker-compose.prod.yml --env-file .env.production pull
+# 2. 拉取 GitHub Container Registry 镜像并启动
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
+```
 
-# 3. 启动所有服务
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+**启用浏览器抓取模式（需要 Playwright/CloakBrowser 时使用）：**
+
+```bash
+docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
+docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
 
 > 如果服务器没有 `.env.production`，可以先去掉 `--env-file .env.production`，Compose 会使用 `docker-compose.prod.yml` 中的默认值。公网部署仍建议创建 `.env.production` 并修改数据库密码、Redis 密码、`SECRET_KEY`、`CORS_ORIGINS` 和 `BASE_URL`。
-> 浏览器抓取能力已拆到独立 browser 镜像。需要 Playwright/CloakBrowser 抓取时，在 `docker compose` 后添加 `--profile browser`，例如：`docker compose --profile browser -f docker-compose.prod.yml --env-file .env.production up -d`。
+> 浏览器抓取能力已拆到独立 browser 镜像。默认轻量模式不会拉取这个大镜像；只有添加 `--profile browser` 时才会拉取并启动 `rss_manager_celery_browser_worker`。
+> 更新或切换镜像只会替换应用容器，不会删除 PostgreSQL、Redis、Argos 语言包等 Docker 数据卷；只有执行 `down -v` 才会删除数据卷。
 
 后端容器启动时会自动执行数据库迁移。需要手动确认或重跑迁移时：
 
@@ -81,10 +89,13 @@ docker exec -it rss_manager_backend alembic upgrade head
 
 停止服务：
 ```bash
-docker compose -f docker-compose.prod.yml down
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml down
 ```
 
 **更新代码后重新部署：**
+
+默认轻量模式：
+
 ```bash
 # 等 GitHub Actions 构建成功后，在服务器拉取最新配置和镜像
 git pull origin main
@@ -95,12 +106,16 @@ docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env
 docker exec -it rss_manager_backend alembic upgrade head
 ```
 
+启用浏览器抓取模式：
+
+```bash
+git pull origin main
+docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
+docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
+docker exec -it rss_manager_backend alembic upgrade head
+```
+
 > `docker-compose.prod.build.yml` 现在用于强制拉取 GHCR 镜像，兼容旧更新命令但不会在服务器本地构建。
-> 如果需要启用浏览器抓取 Worker，使用：
-> ```bash
-> docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
-> docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
-> ```
 > 如果需要临时在服务器本地构建，可以使用 `docker-compose.prod.local-build.yml`：
 > ```bash
 > docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.local-build.yml --env-file .env.production up -d --build
@@ -264,6 +279,7 @@ AI 分析功能允许你使用自然语言查询订阅的文章内容，系统�
 - 如果需要浏览器抓取模式，更新和启动命令都加上 `--profile browser`；否则不会拉取或启动 browser 大镜像。
 - 如果修改了 Celery 任务、RSS 抓取逻辑或定时任务逻辑，也按同一套流程更新；`backend`、`celery_worker`、`celery_beat` 使用小后端镜像，`celery_browser_worker` 使用独立 browser 镜像。
 - `docker-compose.prod.build.yml` 会强制拉取 GHCR 镜像，不会在服务器本地构建；如需临时本地构建，可参考 [本地构建说明](docs/GITHUB_DOCKER_USAGE.md#14-需要在服务器本地构建时)。
+- 正常 `pull`、`up -d`、`restart` 不会清空数据库；不要在保留数据时执行 `docker compose ... down -v`。
 - **数据库结构变更时**，必须执行迁移：
   ```bash
   docker exec -it rss_manager_backend alembic upgrade head
