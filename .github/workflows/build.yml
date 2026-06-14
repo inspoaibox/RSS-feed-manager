@@ -22,9 +22,15 @@ jobs:
         include:
           - name: backend
             context: ./backend
+            file: ./backend/Dockerfile
             image: ghcr.io/inspoaibox/rss-feed-manager-backend
+          - name: browser
+            context: ./backend
+            file: ./backend/Dockerfile.browser
+            image: ghcr.io/inspoaibox/rss-feed-manager-browser
           - name: frontend
             context: ./frontend
+            file: ./frontend/Dockerfile
             image: ghcr.io/inspoaibox/rss-feed-manager-frontend
 
     steps:
@@ -46,6 +52,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: |
             ${{ matrix.image }}:latest

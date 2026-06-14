@@ -808,6 +808,17 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
             feed.error_count += 1
             db.commit()
             return 0
+
+        is_initial_fetch = feed.last_fetched_at is None
+        if is_initial_fetch:
+            if parsed.title:
+                feed.title = parsed.title
+            if parsed.description:
+                feed.description = parsed.description
+            if parsed.site_url:
+                feed.site_url = parsed.site_url
+            if parsed.icon_url:
+                feed.icon_url = parsed.icon_url
         
         new_count = 0
         queued_translation_article_ids: list[int] = []

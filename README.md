@@ -11,7 +11,7 @@
 - 📖 文章阅读（已读/未读、收藏）
 - 🔍 全文搜索和排序
 - ⏰ 定时自动抓取（可设置 1 分钟 - 24 小时间隔）
-- 🌐 Playwright 浏览器模式（支持 Cloudflare 保护的网站）
+- 🌐 可选 Playwright/CloakBrowser 浏览器抓取模式（支持 Cloudflare 保护的网站）
 - 🤖 AI 自动翻译和整理（支持 OpenAI、Gemini 及兼容 API）
 - 🧠 **AI 智能内容分析**（语义搜索 + AI 总结）
 - 🕷️ 自定义抓取规则
@@ -60,6 +60,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
 > 如果服务器没有 `.env.production`，可以先去掉 `--env-file .env.production`，Compose 会使用 `docker-compose.prod.yml` 中的默认值。公网部署仍建议创建 `.env.production` 并修改数据库密码、Redis 密码、`SECRET_KEY`、`CORS_ORIGINS` 和 `BASE_URL`。
+> 浏览器抓取能力已拆到独立 browser 镜像。需要 Playwright/CloakBrowser 抓取时，在 `docker compose` 后添加 `--profile browser`，例如：`docker compose --profile browser -f docker-compose.prod.yml --env-file .env.production up -d`。
 
 后端容器启动时会自动执行数据库迁移。需要手动确认或重跑迁移时：
 
@@ -74,7 +75,7 @@ docker exec -it rss_manager_backend alembic upgrade head
 - Redis 缓存
 - 后端 API
 - Celery 普通 Worker（RSS、翻译、自定义规则等后台任务）
-- Celery 浏览器 Worker（Playwright/CloakBrowser 抓取队列）
+- Celery 浏览器 Worker（可选，启用 `browser` profile 后处理 Playwright/CloakBrowser 抓取队列）
 - Celery Beat 定时调度器
 - 前端界面
 
@@ -95,9 +96,14 @@ docker exec -it rss_manager_backend alembic upgrade head
 ```
 
 > `docker-compose.prod.build.yml` 现在用于强制拉取 GHCR 镜像，兼容旧更新命令但不会在服务器本地构建。
+> 如果需要启用浏览器抓取 Worker，使用：
+> ```bash
+> docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
+> docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
+> ```
 > 如果需要临时在服务器本地构建，可以使用 `docker-compose.prod.local-build.yml`：
 > ```bash
-> docker compose -f docker-compose.prod.yml -f docker-compose.prod.local-build.yml --env-file .env.production up -d --build
+> docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.local-build.yml --env-file .env.production up -d --build
 > ```
 
 **反向代理部署：**
@@ -255,7 +261,8 @@ AI 分析功能允许你使用自然语言查询订阅的文章内容，系统�
   docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
   ```
 - 如果服务器没有 `.env.production`，去掉命令中的 `--env-file .env.production`。
-- 如果修改了 Celery 任务、RSS 抓取逻辑或定时任务逻辑，也按同一套流程更新；`backend`、`celery_worker`、`celery_browser_worker`、`celery_beat` 会使用同一个后端镜像。
+- 如果需要浏览器抓取模式，更新和启动命令都加上 `--profile browser`；否则不会拉取或启动 browser 大镜像。
+- 如果修改了 Celery 任务、RSS 抓取逻辑或定时任务逻辑，也按同一套流程更新；`backend`、`celery_worker`、`celery_beat` 使用小后端镜像，`celery_browser_worker` 使用独立 browser 镜像。
 - `docker-compose.prod.build.yml` 会强制拉取 GHCR 镜像，不会在服务器本地构建；如需临时本地构建，可参考 [本地构建说明](docs/GITHUB_DOCKER_USAGE.md#14-需要在服务器本地构建时)。
 - **数据库结构变更时**，必须执行迁移：
   ```bash

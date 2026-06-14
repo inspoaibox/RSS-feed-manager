@@ -12,7 +12,7 @@ services:
   celery_browser_worker:
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.browser
 
   celery_beat:
     build:

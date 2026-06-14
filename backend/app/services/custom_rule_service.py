@@ -98,7 +98,13 @@ class CustomRuleService:
     ) -> str:
         """Fetch custom-rule target HTML with optional proxy support."""
         if use_playwright:
-            from playwright.async_api import async_playwright
+            try:
+                from playwright.async_api import async_playwright
+            except ImportError as exc:
+                raise RuntimeError(
+                    "Playwright runtime is not installed in the API image. "
+                    "Enable the browser worker/profile for browser-backed fetching."
+                ) from exc
 
             launch_kwargs = {"headless": True}
             playwright_proxy = _build_playwright_proxy(proxy_url)
@@ -794,7 +800,13 @@ HTML 内容:
         """Use AI to analyze a webpage and generate CSS selectors."""
         try:
             # Use Playwright to get the page HTML (handles JS-rendered content)
-            from playwright.async_api import async_playwright
+            try:
+                from playwright.async_api import async_playwright
+            except ImportError as exc:
+                raise RuntimeError(
+                    "Playwright runtime is not installed in the API image. "
+                    "Run rule generation from a browser-enabled deployment."
+                ) from exc
             
             browser = None
             try:

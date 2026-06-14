@@ -261,6 +261,12 @@ async def admin_validate_feed(
 ):
     """Validate a feed URL and return parsed info (admin only)."""
     from app.utils.feed_parser import parse_feed
+
+    if use_playwright:
+        raise HTTPException(
+            status_code=400,
+            detail="浏览器模式推荐源验证需要 browser 镜像；请用普通模式验证，或创建订阅后由浏览器抓取队列处理。"
+        )
     
     try:
         parsed = await parse_feed(url, use_playwright=use_playwright)
@@ -294,20 +300,23 @@ async def admin_create_recommendation(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="该 URL 已存在")
     
-    # Validate feed
-    try:
-        parsed = await parse_feed(data.url, use_playwright=data.use_playwright)
-        if not parsed:
-            raise HTTPException(status_code=400, detail="无法解析该 RSS 源，请检查 URL 或尝试开启浏览器模式")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"RSS 验证失败: {str(e)}")
+    parsed = None
+    if not data.use_playwright:
+        # Validate regular feeds in the API image. Browser-backed recommendations are saved
+        # without validation so the API image can stay slim.
+        try:
+            parsed = await parse_feed(data.url, use_playwright=False)
+            if not parsed:
+                raise HTTPException(status_code=400, detail="无法解析该 RSS 源，请检查 URL")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"RSS 验证失败: {str(e)}")
     
     # Use parsed info if not provided
-    title = data.title or parsed.title or "未知标题"
-    description = data.description or parsed.description
-    icon_url = data.icon_url or parsed.icon_url
+    title = data.title or (parsed.title if parsed else None) or "未知标题"
+    description = data.description or (parsed.description if parsed else None)
+    icon_url = data.icon_url or (parsed.icon_url if parsed else None)
     
     rec = RecommendedFeed(
         url=data.url,

@@ -13,7 +13,8 @@
   |
   v
 GitHub Actions
-  |-- 构建 backend 镜像
+  |-- 构建 backend 镜像（小镜像，不含浏览器）
+  |-- 构建 browser 镜像（可选，含 Playwright/CloakBrowser/Chromium）
   |-- 构建 frontend 镜像
   v
 GitHub Container Registry: ghcr.io
@@ -25,21 +26,22 @@ GitHub Container Registry: ghcr.io
   |-- redis
   |-- backend
   |-- celery_worker
-  |-- celery_browser_worker
+  |-- celery_browser_worker (optional browser profile)
   |-- celery_beat
   |-- frontend
   v
 Nginx / Caddy 反向代理到 127.0.0.1:5666
 ```
 
-服务器不再默认执行 `docker compose ... up -d --build`。更新时应先等 GitHub Actions 构建成功，然后在服务器执行 `docker compose pull` 和 `docker compose up -d`。
+服务器不再默认执行 `docker compose ... up -d --build`。更新时应先等 GitHub Actions 构建成功，然后在服务器执行 `docker compose pull` 和 `docker compose up -d`。浏览器抓取能力是可选 profile，只有启用 `--profile browser` 时才会拉取和启动 browser 大镜像。
 
 ## 2. GitHub Actions 构建结果
 
-推送到 `main` 后，仓库的 GitHub Actions 会构建并发布两个镜像：
+推送到 `main` 后，仓库的 GitHub Actions 会构建并发布三个镜像：
 
 ```text
 ghcr.io/inspoaibox/rss-feed-manager-backend:latest
+ghcr.io/inspoaibox/rss-feed-manager-browser:latest
 ghcr.io/inspoaibox/rss-feed-manager-frontend:latest
 ```
 
@@ -47,6 +49,7 @@ ghcr.io/inspoaibox/rss-feed-manager-frontend:latest
 
 ```text
 ghcr.io/inspoaibox/rss-feed-manager-backend:sha-完整提交SHA
+ghcr.io/inspoaibox/rss-feed-manager-browser:sha-完整提交SHA
 ghcr.io/inspoaibox/rss-feed-manager-frontend:sha-完整提交SHA
 ```
 
@@ -69,6 +72,7 @@ RSS_MANAGER_IMAGE_TAG=sha-完整提交SHA
 ```bash
 docker pull ghcr.io/inspoaibox/rss-feed-manager-frontend:latest
 docker pull ghcr.io/inspoaibox/rss-feed-manager-backend:latest
+docker pull ghcr.io/inspoaibox/rss-feed-manager-browser:latest
 ```
 
 如果服务器拉取时报错 `pull access denied`、`unauthorized` 或 `denied`，通常是 GHCR 包没有公开。处理方式二选一：
@@ -188,6 +192,7 @@ RSS_MANAGER_IMAGE_TAG=latest
 - `POSTGRES_PASSWORD` 和 `REDIS_PASSWORD` 首次启动后会写入 Docker 数据卷。后续直接修改密码可能导致旧数据库连接失败，修改前请先备份数据。
 - `BASE_URL` 会影响 OAuth 回调等需要生成外部 URL 的功能，使用域名访问时应填写最终公网地址。
 - `RSS_MANAGER_IMAGE_TAG` 默认使用 GitHub Actions 发布的 `latest` 镜像。
+- 浏览器抓取 Worker 默认不启动。需要 Playwright/CloakBrowser 抓取时，在命令中添加 `--profile browser`，或设置 `COMPOSE_PROFILES=browser`。
 
 ## 7. 启动生产服务
 
@@ -208,8 +213,8 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 - `rss_manager_postgres`：PostgreSQL + pgvector 数据库
 - `rss_manager_redis`：Redis
 - `rss_manager_backend`：FastAPI 后端
-- `rss_manager_celery_worker`：普通后台任务 Worker
-- `rss_manager_celery_browser_worker`：浏览器抓取 Worker，处理 Playwright/CloakBrowser 队列
+- `rss_manager_celery_worker`：普通后台任务 Worker，使用小后端镜像
+- `rss_manager_celery_browser_worker`：可选浏览器抓取 Worker，启用 `browser` profile 后处理 Playwright/CloakBrowser 队列
 - `rss_manager_celery_beat`：定时任务调度器
 - `rss_manager_frontend`：前端 Nginx 与静态文件
 
@@ -217,6 +222,13 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env.production ps
+```
+
+如果你启用了浏览器抓取模式，启动和查看状态时加上 profile：
+
+```bash
+docker compose --profile browser -f docker-compose.prod.yml --env-file .env.production up -d
+docker compose --profile browser -f docker-compose.prod.yml --env-file .env.production ps
 ```
 
 查看启动日志：
@@ -302,6 +314,13 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```bash
 docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
 docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
+```
+
+如果需要浏览器抓取能力，使用 browser profile：
+
+```bash
+docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
+docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
 
 7. 检查当前容器使用的镜像
@@ -505,10 +524,17 @@ docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env
 
 如果服务器没有 `.env.production`，去掉命令中的 `--env-file .env.production`。
 
+如果使用了 Playwright/CloakBrowser 订阅源或自定义规则，更新时加上 `--profile browser`：
+
+```bash
+docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
+docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
+```
+
 检查服务状态：
 
 ```bash
-docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production ps
+docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production ps
 docker logs --tail 100 rss_manager_backend
 ```
 
@@ -559,6 +585,19 @@ docker compose \
 ```
 
 这会临时使用本地 `backend/Dockerfile` 和 `frontend/Dockerfile` 构建镜像。恢复 GitHub 镜像部署时，重新执行：
+
+如果需要同时本地构建浏览器 Worker，添加 `--profile browser`：
+
+```bash
+docker compose \
+  --profile browser \
+  -f docker-compose.prod.yml \
+  -f docker-compose.prod.local-build.yml \
+  --env-file .env.production \
+  up -d --build
+```
+
+浏览器 Worker 会使用 `backend/Dockerfile.browser`，普通 backend 仍使用小镜像 Dockerfile。
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env.production pull
@@ -750,11 +789,13 @@ docker logs --tail 100 rss_manager_postgres
 确认 Worker 和 Beat 正常：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production ps celery_worker celery_browser_worker celery_beat
+docker compose --profile browser -f docker-compose.prod.yml --env-file .env.production ps celery_worker celery_browser_worker celery_beat
 docker logs -f rss_manager_celery_worker
 docker logs -f rss_manager_celery_browser_worker
 docker logs -f rss_manager_celery_beat
 ```
+
+如果没有启用 `browser` profile，看不到 `rss_manager_celery_browser_worker` 是正常的；浏览器模式订阅源会排队等待该 Worker 启动。
 
 ### 18.7 域名访问正常，但登录或 OAuth 回调异常
 

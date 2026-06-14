@@ -119,6 +119,22 @@ class FeedService:
 
         return "single", True, normalized_url, None, None
 
+    def _placeholder_title(self, url: str) -> str:
+        parsed = urlparse(url)
+        return parsed.hostname or url
+
+    def _dispatch_feed_refresh(self, feed_id: int, *, browser: bool = False) -> None:
+        from app.tasks.feed_tasks import refresh_single_feed
+
+        queue_name = "browser" if browser else "feed"
+        refresh_single_feed.apply_async(args=[feed_id], queue=queue_name)
+
+    def _dispatch_custom_rule_execution(self, rule_id: int, *, browser: bool = False) -> None:
+        from app.tasks.feed_tasks import execute_single_custom_rule
+
+        queue_name = "browser" if browser else "feed"
+        execute_single_custom_rule.apply_async(args=[rule_id], queue=queue_name)
+
     async def _parse_feed_with_proxy(
         self,
         user_id: int,
@@ -199,22 +215,27 @@ class FeedService:
             data.proxy_pool_protocol,
         )
 
-        # Parse the feed
-        try:
-            parsed = await self._parse_feed_with_proxy(
-                user_id,
-                data.url,
-                browser_engine=browser_engine,
-                proxy_mode=proxy_mode,
-                proxy_url=proxy_url,
-                proxy_pool_country=proxy_pool_country,
-                proxy_pool_protocol=proxy_pool_protocol,
-            )
-        except FeedParserError as e:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=str(e)
-            )
+        browser_enabled = is_browser_engine_enabled(browser_engine)
+        parsed: ParsedFeed | None = None
+
+        if not browser_enabled:
+            # Parse regular HTTP feeds immediately. Browser feeds are parsed by the browser worker
+            # so the API/backend image does not need Playwright or CloakBrowser installed.
+            try:
+                parsed = await self._parse_feed_with_proxy(
+                    user_id,
+                    data.url,
+                    browser_engine=browser_engine,
+                    proxy_mode=proxy_mode,
+                    proxy_url=proxy_url,
+                    proxy_pool_country=proxy_pool_country,
+                    proxy_pool_protocol=proxy_pool_protocol,
+                )
+            except FeedParserError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=str(e)
+                )
         
         # Validate fetch interval
         validated_interval = await self._validate_fetch_interval(data.fetch_interval)
@@ -223,13 +244,13 @@ class FeedService:
         feed = await self.repo.create(
             user_id=user_id,
             url=data.url,
-            title=parsed.title,
-            description=parsed.description,
-            site_url=parsed.site_url,
-            icon_url=parsed.icon_url,
+            title=parsed.title if parsed else self._placeholder_title(data.url),
+            description=parsed.description if parsed else None,
+            site_url=parsed.site_url if parsed else None,
+            icon_url=parsed.icon_url if parsed else None,
             category_id=data.category_id,
             fetch_interval=validated_interval,
-            use_playwright=is_browser_engine_enabled(browser_engine),
+            use_playwright=browser_enabled,
             browser_engine=browser_engine,
             proxy_enabled=proxy_enabled,
             proxy_url=proxy_url,
@@ -243,8 +264,13 @@ class FeedService:
             translate_method=data.translate_method
         )
         
-        # Save articles from the feed
-        article_count = await self._save_articles(user_id, feed, parsed)
+        if parsed:
+            article_count = await self._save_articles(user_id, feed, parsed)
+        else:
+            await self.session.commit()
+            await self.session.refresh(feed)
+            self._dispatch_feed_refresh(feed.id, browser=True)
+            article_count = 0
         
         return self._to_response(feed, article_count=article_count)
 
@@ -384,17 +410,32 @@ class FeedService:
         
         if custom_rule:
             # Use custom rule service to refresh
-            from app.services.custom_rule_service import CustomRuleService
-            rule_service = CustomRuleService(self.session)
-            try:
-                await rule_service.execute_rule(custom_rule)
-            except Exception as e:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail=str(e)
-                )
+            if getattr(custom_rule, "use_playwright", False):
+                self._dispatch_custom_rule_execution(custom_rule.id, browser=True)
+            else:
+                from app.services.custom_rule_service import CustomRuleService
+                rule_service = CustomRuleService(self.session)
+                try:
+                    await rule_service.execute_rule(custom_rule)
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=str(e)
+                    )
         else:
             # Normal RSS feed refresh
+            if is_browser_engine_enabled(
+                getattr(feed, "browser_engine", None),
+                getattr(feed, "use_playwright", False),
+            ):
+                self._dispatch_feed_refresh(feed.id, browser=True)
+                counts = await self.repo.get_article_counts(user_id, [feed_id])
+                return self._to_response(
+                    feed,
+                    article_count=counts.get(feed_id, {}).get('article_count', 0),
+                    unread_count=counts.get(feed_id, {}).get('unread_count', 0)
+                )
+
             try:
                 parsed = await self._parse_feed_with_proxy(
                     user_id,
@@ -438,8 +479,20 @@ class FeedService:
         success = 0
         failed = 0
         new_articles = 0
+        queued = 0
         
         for feed in feeds:
+            if is_browser_engine_enabled(
+                getattr(feed, "browser_engine", None),
+                getattr(feed, "use_playwright", False),
+            ):
+                try:
+                    self._dispatch_feed_refresh(feed.id, browser=True)
+                    queued += 1
+                except Exception:
+                    failed += 1
+                continue
+
             try:
                 parsed = await self._parse_feed_with_proxy(
                     user_id,
@@ -469,6 +522,7 @@ class FeedService:
             "total": total,
             "success": success,
             "failed": failed,
+            "queued": queued,
             "new_articles": new_articles
         }
 
