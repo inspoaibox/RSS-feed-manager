@@ -59,6 +59,8 @@ docker compose -f docker-compose.prod.yml --env-file .env.production pull
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
+> 如果服务器没有 `.env.production`，可以先去掉 `--env-file .env.production`，Compose 会使用 `docker-compose.prod.yml` 中的默认值。公网部署仍建议创建 `.env.production` 并修改数据库密码、Redis 密码、`SECRET_KEY`、`CORS_ORIGINS` 和 `BASE_URL`。
+
 后端容器启动时会自动执行数据库迁移。需要手动确认或重跑迁移时：
 
 ```bash
@@ -71,7 +73,9 @@ docker exec -it rss_manager_backend alembic upgrade head
 - PostgreSQL 数据库
 - Redis 缓存
 - 后端 API
-- Celery 定时任务（自动抓取订阅源）
+- Celery 普通 Worker（RSS、翻译、自定义规则等后台任务）
+- Celery 浏览器 Worker（Playwright/CloakBrowser 抓取队列）
+- Celery Beat 定时调度器
 - 前端界面
 
 停止服务：
@@ -83,8 +87,8 @@ docker compose -f docker-compose.prod.yml down
 ```bash
 # 等 GitHub Actions 构建成功后，在服务器拉取最新配置和镜像
 git pull origin main
-docker compose -f docker-compose.prod.yml --env-file .env.production pull
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 
 # 如需手动确认数据库迁移
 docker exec -it rss_manager_backend alembic upgrade head
@@ -247,10 +251,11 @@ AI 分析功能允许你使用自然语言查询订阅的文章内容，系统�
 - 修改代码后，先推送到 GitHub 并等待 Actions 构建镜像成功，再在服务器拉取最新镜像并重启：
   ```bash
   git pull origin main
-  docker compose -f docker-compose.prod.yml --env-file .env.production pull
-  docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+  docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
+  docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
   ```
-- 如果修改了 Celery 任务、RSS 抓取逻辑或定时任务逻辑，也按同一套流程更新；`backend`、`celery_worker`、`celery_beat` 会使用同一个后端镜像。
+- 如果服务器没有 `.env.production`，去掉命令中的 `--env-file .env.production`。
+- 如果修改了 Celery 任务、RSS 抓取逻辑或定时任务逻辑，也按同一套流程更新；`backend`、`celery_worker`、`celery_browser_worker`、`celery_beat` 会使用同一个后端镜像。
 - `docker-compose.prod.build.yml` 会强制拉取 GHCR 镜像，不会在服务器本地构建；如需临时本地构建，可参考 [本地构建说明](docs/GITHUB_DOCKER_USAGE.md#14-需要在服务器本地构建时)。
 - **数据库结构变更时**，必须执行迁移：
   ```bash
@@ -267,8 +272,8 @@ docker exec rss_manager_postgres pg_dump -U rss_manager rss_manager > backup.sql
 git pull origin main
 
 # 3. 等 GitHub Actions 构建成功后，拉取镜像并启动
-docker compose -f docker-compose.prod.yml --env-file .env.production pull
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 
 # 4. 执行数据库迁移（添加 embedding 列和查询历史表）
 docker exec -it rss_manager_backend alembic upgrade head

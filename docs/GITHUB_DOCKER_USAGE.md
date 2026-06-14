@@ -25,6 +25,7 @@ GitHub Container Registry: ghcr.io
   |-- redis
   |-- backend
   |-- celery_worker
+  |-- celery_browser_worker
   |-- celery_beat
   |-- frontend
   v
@@ -183,6 +184,7 @@ RSS_MANAGER_IMAGE_TAG=latest
 
 重要说明：
 
+- 如果你暂时不创建 `.env.production`，可以省略命令里的 `--env-file .env.production`，Compose 会使用 `docker-compose.prod.yml` 中的默认值。
 - `POSTGRES_PASSWORD` 和 `REDIS_PASSWORD` 首次启动后会写入 Docker 数据卷。后续直接修改密码可能导致旧数据库连接失败，修改前请先备份数据。
 - `BASE_URL` 会影响 OAuth 回调等需要生成外部 URL 的功能，使用域名访问时应填写最终公网地址。
 - `RSS_MANAGER_IMAGE_TAG` 默认使用 GitHub Actions 发布的 `latest` 镜像。
@@ -206,7 +208,8 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 - `rss_manager_postgres`：PostgreSQL + pgvector 数据库
 - `rss_manager_redis`：Redis
 - `rss_manager_backend`：FastAPI 后端
-- `rss_manager_celery_worker`：后台任务 Worker
+- `rss_manager_celery_worker`：普通后台任务 Worker
+- `rss_manager_celery_browser_worker`：浏览器抓取 Worker，处理 Playwright/CloakBrowser 队列
 - `rss_manager_celery_beat`：定时任务调度器
 - `rss_manager_frontend`：前端 Nginx 与静态文件
 
@@ -292,6 +295,13 @@ docker compose -f docker-compose.prod.yml --env-file .env.production pull
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+```
+
+也可以使用兼容旧更新流程的强制拉取 override：
+
+```bash
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
 
 7. 检查当前容器使用的镜像
@@ -489,14 +499,16 @@ docker exec rss_manager_postgres pg_dump -U rss_manager rss_manager > rss_manage
 ```bash
 cd RSS-feed-manager
 git pull origin main
-docker compose -f docker-compose.prod.yml --env-file .env.production pull
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
+
+如果服务器没有 `.env.production`，去掉命令中的 `--env-file .env.production`。
 
 检查服务状态：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production ps
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production ps
 docker logs --tail 100 rss_manager_backend
 ```
 
@@ -610,6 +622,12 @@ docker logs -f rss_manager_backend
 
 ```bash
 docker logs -f rss_manager_celery_worker
+```
+
+查看浏览器抓取 Worker 日志：
+
+```bash
+docker logs -f rss_manager_celery_browser_worker
 ```
 
 查看 Celery Beat 日志：
@@ -732,8 +750,9 @@ docker logs --tail 100 rss_manager_postgres
 确认 Worker 和 Beat 正常：
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production ps celery_worker celery_beat
+docker compose -f docker-compose.prod.yml --env-file .env.production ps celery_worker celery_browser_worker celery_beat
 docker logs -f rss_manager_celery_worker
+docker logs -f rss_manager_celery_browser_worker
 docker logs -f rss_manager_celery_beat
 ```
 
