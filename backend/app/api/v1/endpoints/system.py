@@ -13,6 +13,7 @@ from app.services.browser_fetch_settings import (
     browser_fetch_settings_from_values,
     browser_worker_runtime_settings,
     load_browser_fetch_settings,
+    worker_runtime_settings,
 )
 
 router = APIRouter()
@@ -68,6 +69,14 @@ class BrowserWorkerRuntimeSettings(BaseModel):
     """Browser worker startup settings that require container restart."""
     browser_worker_concurrency: int
     browser_worker_max_tasks_per_child: int
+    browser_worker_cpus: float
+
+
+class WorkerRuntimeSettings(BaseModel):
+    """Regular worker startup settings that require container restart."""
+    worker_concurrency: int
+    worker_max_tasks_per_child: int
+    worker_cpus: float
 
 
 class SystemSettingsResponse(BaseModel):
@@ -82,6 +91,7 @@ class SystemSettingsResponse(BaseModel):
     show_ai_analysis_menu: bool
     show_recommendations_menu: bool
     browser_fetch: BrowserFetchSettingsPayload
+    worker_runtime: WorkerRuntimeSettings
     browser_worker_runtime: BrowserWorkerRuntimeSettings
 
 
@@ -221,6 +231,7 @@ async def build_system_settings_response(
         show_ai_analysis_menu=await settings_repo.get_bool('show_ai_analysis_menu', True),
         show_recommendations_menu=await settings_repo.get_bool('show_recommendations_menu', True),
         browser_fetch=BrowserFetchSettingsPayload(**browser_fetch.asdict()),
+        worker_runtime=WorkerRuntimeSettings(**worker_runtime_settings()),
         browser_worker_runtime=BrowserWorkerRuntimeSettings(**browser_worker_runtime_settings()),
     )
 

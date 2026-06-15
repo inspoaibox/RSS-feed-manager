@@ -4931,6 +4931,7 @@ interface SystemSettings {
   show_ai_analysis_menu: boolean
   show_recommendations_menu: boolean
   browser_fetch: BrowserFetchSettings
+  worker_runtime: WorkerRuntimeSettings
   browser_worker_runtime: BrowserWorkerRuntimeSettings
 }
 
@@ -4955,6 +4956,13 @@ interface BrowserFetchSettings {
 interface BrowserWorkerRuntimeSettings {
   browser_worker_concurrency: number
   browser_worker_max_tasks_per_child: number
+  browser_worker_cpus: number
+}
+
+interface WorkerRuntimeSettings {
+  worker_concurrency: number
+  worker_max_tasks_per_child: number
+  worker_cpus: number
 }
 
 const DEFAULT_BROWSER_FETCH_SETTINGS: BrowserFetchSettings = {
@@ -4979,7 +4987,12 @@ const BROWSER_WAIT_OPTIONS: Array<{ value: BrowserWaitUntil; label: string }> = 
   { value: 'networkidle', label: '网络空闲' },
 ]
 
-type SystemSubTab = 'general' | 'sync' | 'browser' | 'oauth' | 'recommendations' | 'notifications' | 'users'
+const formatCpuLimit = (value: number | null | undefined) => {
+  if (value === null || value === undefined) return '-'
+  return value <= 0 ? '不限制' : `${value} CPU`
+}
+
+type SystemSubTab = 'general' | 'sync' | 'workers' | 'browser' | 'oauth' | 'recommendations' | 'notifications' | 'users'
 
 // 所有可选的同步间隔
 const ALL_SYNC_INTERVALS: SyncIntervalOption[] = [

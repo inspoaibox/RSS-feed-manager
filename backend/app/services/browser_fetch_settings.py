@@ -92,6 +92,36 @@ def browser_worker_runtime_settings() -> dict:
             1,
             500,
         ),
+        "browser_worker_cpus": _coerce_float(
+            os.environ.get("BROWSER_WORKER_CPUS"),
+            0.0,
+            0.0,
+            64.0,
+        ),
+    }
+
+
+def worker_runtime_settings() -> dict:
+    """Return regular worker startup settings that require container restart to change."""
+    return {
+        "worker_concurrency": _coerce_int(
+            os.environ.get("WORKER_CONCURRENCY"),
+            5,
+            1,
+            64,
+        ),
+        "worker_max_tasks_per_child": _coerce_int(
+            os.environ.get("WORKER_MAX_TASKS_PER_CHILD"),
+            20,
+            1,
+            500,
+        ),
+        "worker_cpus": _coerce_float(
+            os.environ.get("WORKER_CPUS"),
+            1.0,
+            0.0,
+            64.0,
+        ),
     }
 
 
@@ -164,6 +194,19 @@ def browser_fetch_settings_from_values(values: dict[str, str | None]) -> Browser
 def _coerce_int(value: str | int | None, default: int, minimum: int, maximum: int) -> int:
     try:
         parsed = int(value) if value is not None else default
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(maximum, parsed))
+
+
+def _coerce_float(
+    value: str | float | int | None,
+    default: float,
+    minimum: float,
+    maximum: float,
+) -> float:
+    try:
+        parsed = float(value) if value is not None else default
     except (TypeError, ValueError):
         parsed = default
     return max(minimum, min(maximum, parsed))
