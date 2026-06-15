@@ -231,6 +231,8 @@ docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env
 
 如果需要抓取 Cloudflare 保护站点、Playwright 订阅源或 CloakBrowser 订阅源，使用 browser profile。该模式会额外拉取 `ghcr.io/inspoaibox/rss-feed-manager-browser`，并启动 `rss_manager_celery_browser_worker`。
 
+CloakBrowser 第一次运行时可能会下载自己的 stealth Chromium。该缓存会保存到 `cloakbrowser_data` 数据卷，后续容器重建后不会反复下载同一个浏览器内核。
+
 ```bash
 docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
 docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
@@ -324,7 +326,7 @@ docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.pr
 docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
 
-正常 `pull`、`up -d`、`restart` 只会更新和重建应用容器，不会删除 PostgreSQL、Redis、Argos 语言包等 Docker 数据卷。只有执行 `down -v` 才会删除数据卷。
+正常 `pull`、`up -d`、`restart` 只会更新和重建应用容器，不会删除 PostgreSQL、Redis、Argos 语言包、CloakBrowser 浏览器内核缓存等 Docker 数据卷。只有执行 `down -v` 才会删除数据卷。
 
 7. 检查当前容器使用的镜像
 
@@ -704,7 +706,7 @@ docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env
 docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production down
 ```
 
-停止服务并删除数据库、Redis 数据卷：
+停止服务并删除数据库、Redis、Argos、CloakBrowser 缓存等数据卷：
 
 ```bash
 docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production down -v
@@ -883,4 +885,4 @@ cd ..
 rm -rf RSS-feed-manager
 ```
 
-执行 `down -v` 会删除数据库和 Redis 数据，请确认已经备份。
+执行 `down -v` 会删除数据库、Redis、Argos 语言包和 CloakBrowser 浏览器内核缓存，请确认已经备份。

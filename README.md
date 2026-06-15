@@ -68,7 +68,7 @@ docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.pr
 
 > 如果服务器没有 `.env.production`，可以先去掉 `--env-file .env.production`，Compose 会使用 `docker-compose.prod.yml` 中的默认值。公网部署仍建议创建 `.env.production` 并修改数据库密码、Redis 密码、`SECRET_KEY`、`CORS_ORIGINS` 和 `BASE_URL`。
 > 浏览器抓取能力已拆到独立 browser 镜像。默认轻量模式不会拉取这个大镜像；只有添加 `--profile browser` 时才会拉取并启动 `rss_manager_celery_browser_worker`。
-> 更新或切换镜像只会替换应用容器，不会删除 PostgreSQL、Redis、Argos 语言包等 Docker 数据卷；只有执行 `down -v` 才会删除数据卷。
+> 更新或切换镜像只会替换应用容器，不会删除 PostgreSQL、Redis、Argos 语言包、CloakBrowser 浏览器内核缓存等 Docker 数据卷；只有执行 `down -v` 才会删除数据卷。
 
 后端容器启动时会自动执行数据库迁移。需要手动确认或重跑迁移时：
 
@@ -278,6 +278,7 @@ AI 分析功能允许你使用自然语言查询订阅的文章内容，系统�
 - 如果服务器没有 `.env.production`，去掉命令中的 `--env-file .env.production`。
 - 如果需要浏览器抓取模式，更新和启动命令都加上 `--profile browser`；否则不会拉取或启动 browser 大镜像。
 - 如果修改了 Celery 任务、RSS 抓取逻辑或定时任务逻辑，也按同一套流程更新；`backend`、`celery_worker`、`celery_beat` 使用小后端镜像，`celery_browser_worker` 使用独立 browser 镜像。
+- `celery_browser_worker` 会把 CloakBrowser 下载的 stealth Chromium 缓存在 `cloakbrowser_data` 数据卷，容器重建后不会反复下载。
 - `docker-compose.prod.build.yml` 会强制拉取 GHCR 镜像，不会在服务器本地构建；如需临时本地构建，可参考 [本地构建说明](docs/GITHUB_DOCKER_USAGE.md#14-需要在服务器本地构建时)。
 - 正常 `pull`、`up -d`、`restart` 不会清空数据库；不要在保留数据时执行 `docker compose ... down -v`。
 - **数据库结构变更时**，必须执行迁移：

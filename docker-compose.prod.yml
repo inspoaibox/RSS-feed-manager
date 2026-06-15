@@ -106,6 +106,7 @@ services:
       - CUSTOM_RULE_BROWSER_DISPATCH_LIMIT=${CUSTOM_RULE_BROWSER_DISPATCH_LIMIT:-1}
     volumes:
       - argos_data:/data/argos-translate
+      - cloakbrowser_data:/root/.cloakbrowser
     depends_on:
       postgres:
         condition: service_healthy
@@ -152,6 +153,7 @@ volumes:
   postgres_data:
   redis_data:
   argos_data:
+  cloakbrowser_data:
 
 networks:
   rss_network:
