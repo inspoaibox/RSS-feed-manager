@@ -8,6 +8,12 @@ from app.api.deps import get_current_user, get_db
 from app.models.user import User
 from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.repositories.user_repository import UserRepository
+from app.services.browser_fetch_settings import (
+    BROWSER_FETCH_SETTING_DESCRIPTIONS,
+    browser_fetch_settings_from_values,
+    browser_worker_runtime_settings,
+    load_browser_fetch_settings,
+)
 
 router = APIRouter()
 
@@ -41,6 +47,29 @@ class SyncIntervalOption(BaseModel):
     label: str
 
 
+class BrowserFetchSettingsPayload(BaseModel):
+    """Browser fetch settings that can be changed at runtime."""
+    feed_browser_refresh_dispatch_limit: int = 50
+    custom_rule_browser_dispatch_limit: int = 1
+    playwright_timeout_seconds: int = 90
+    cloakbrowser_timeout_seconds: int = 90
+    playwright_wait_until: str = "networkidle"
+    cloakbrowser_wait_until: str = "networkidle"
+    viewport_width: int = 1920
+    viewport_height: int = 1080
+    user_agent: str = ""
+    block_images: bool = False
+    block_media: bool = False
+    cloakbrowser_humanize: bool = True
+    cloakbrowser_geoip: bool = False
+
+
+class BrowserWorkerRuntimeSettings(BaseModel):
+    """Browser worker startup settings that require container restart."""
+    browser_worker_concurrency: int
+    browser_worker_max_tasks_per_child: int
+
+
 class SystemSettingsResponse(BaseModel):
     """Response schema for system settings."""
     allow_registration: bool
@@ -52,6 +81,8 @@ class SystemSettingsResponse(BaseModel):
     show_favorites_menu: bool
     show_ai_analysis_menu: bool
     show_recommendations_menu: bool
+    browser_fetch: BrowserFetchSettingsPayload
+    browser_worker_runtime: BrowserWorkerRuntimeSettings
 
 
 class SystemSettingsUpdate(BaseModel):
@@ -65,6 +96,7 @@ class SystemSettingsUpdate(BaseModel):
     show_favorites_menu: bool | None = None
     show_ai_analysis_menu: bool | None = None
     show_recommendations_menu: bool | None = None
+    browser_fetch: BrowserFetchSettingsPayload | None = None
 
 
 class PublicSettingsResponse(BaseModel):
@@ -170,17 +202,14 @@ async def get_sync_intervals(settings_repo: SystemSettingsRepository) -> list[Sy
     return [SyncIntervalOption(**item) for item in DEFAULT_SYNC_INTERVALS]
 
 
-@router.get("/settings", response_model=SystemSettingsResponse)
-async def get_system_settings(
-    db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin)
-):
-    """Get system settings (admin only)."""
-    settings_repo = SystemSettingsRepository(db)
-    
+async def build_system_settings_response(
+    settings_repo: SystemSettingsRepository,
+) -> SystemSettingsResponse:
+    """Build the complete admin settings response."""
     default_interval_str = await settings_repo.get('default_sync_interval')
     default_interval = int(default_interval_str) if default_interval_str else 3600
-    
+    browser_fetch = await load_browser_fetch_settings(settings_repo)
+
     return SystemSettingsResponse(
         allow_registration=await settings_repo.get_bool('allow_registration', True),
         site_name=await settings_repo.get('site_name') or 'RSS 管理器',
@@ -191,7 +220,26 @@ async def get_system_settings(
         show_favorites_menu=await settings_repo.get_bool('show_favorites_menu', True),
         show_ai_analysis_menu=await settings_repo.get_bool('show_ai_analysis_menu', True),
         show_recommendations_menu=await settings_repo.get_bool('show_recommendations_menu', True),
+        browser_fetch=BrowserFetchSettingsPayload(**browser_fetch.asdict()),
+        browser_worker_runtime=BrowserWorkerRuntimeSettings(**browser_worker_runtime_settings()),
     )
+
+
+def setting_value_to_string(value: object) -> str:
+    """Serialize a setting value for the key/value settings table."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+@router.get("/settings", response_model=SystemSettingsResponse)
+async def get_system_settings(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    """Get system settings (admin only)."""
+    settings_repo = SystemSettingsRepository(db)
+    return await build_system_settings_response(settings_repo)
 
 
 @router.put("/settings", response_model=SystemSettingsResponse)
@@ -266,23 +314,26 @@ async def update_system_settings(
             'true' if data.show_recommendations_menu else 'false',
             '是否在左侧菜单显示订阅推荐入口'
         )
+
+    if data.browser_fetch is not None:
+        raw_browser_fetch = data.browser_fetch.model_dump(exclude_unset=True)
+        current_browser_fetch = await load_browser_fetch_settings(settings_repo)
+        merged_browser_fetch = {
+            **current_browser_fetch.asdict(),
+            **raw_browser_fetch,
+        }
+        normalized_browser_fetch = browser_fetch_settings_from_values(
+            {key: setting_value_to_string(value) for key, value in merged_browser_fetch.items()}
+        )
+        for key, value in normalized_browser_fetch.asdict().items():
+            await settings_repo.set(
+                key,
+                setting_value_to_string(value),
+                BROWSER_FETCH_SETTING_DESCRIPTIONS.get(key),
+            )
     
     await db.commit()
-    
-    default_interval_str = await settings_repo.get('default_sync_interval')
-    default_interval = int(default_interval_str) if default_interval_str else 3600
-    
-    return SystemSettingsResponse(
-        allow_registration=await settings_repo.get_bool('allow_registration', True),
-        site_name=await settings_repo.get('site_name') or 'RSS 管理器',
-        oauth_linuxdo=await get_oauth_config(settings_repo, 'linuxdo'),
-        sync_intervals=await get_sync_intervals(settings_repo),
-        default_sync_interval=default_interval,
-        enable_feed_recommendations=await settings_repo.get_bool('enable_feed_recommendations', False),
-        show_favorites_menu=await settings_repo.get_bool('show_favorites_menu', True),
-        show_ai_analysis_menu=await settings_repo.get_bool('show_ai_analysis_menu', True),
-        show_recommendations_menu=await settings_repo.get_bool('show_recommendations_menu', True),
-    )
+    return await build_system_settings_response(settings_repo)
 
 
 @router.get("/users", response_model=list[UserListResponse])

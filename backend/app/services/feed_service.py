@@ -13,6 +13,7 @@ from app.repositories.feed_repository import FeedRepository
 from app.repositories.proxy_pool_repository import ProxyPoolRepository
 from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.schemas.feed import FeedCreate, FeedReorder, FeedResponse, FeedUpdate, OPMLImportResult
+from app.services.browser_fetch_settings import load_browser_fetch_settings
 from app.utils.feed_parser import (
     FeedParserError,
     ParsedFeed,
@@ -147,6 +148,12 @@ class FeedService:
         use_playwright: bool = False,
     ) -> ParsedFeed:
         """Parse a feed, rotating through proxy pool candidates when configured."""
+        browser_settings = (
+            await load_browser_fetch_settings(self.settings_repo)
+            if is_browser_engine_enabled(browser_engine, use_playwright)
+            else None
+        )
+
         if proxy_mode == "pool":
             candidates = await self.proxy_repo.get_candidates(
                 user_id,
@@ -164,6 +171,7 @@ class FeedService:
                         use_playwright=use_playwright,
                         browser_engine=browser_engine,
                         proxy_url=proxy.proxy_url,
+                        browser_settings=browser_settings,
                     )
                     await self.proxy_repo.record_success(proxy)
                     await self.session.commit()
@@ -180,6 +188,7 @@ class FeedService:
             use_playwright=use_playwright,
             browser_engine=browser_engine,
             proxy_url=proxy_url if proxy_mode == "single" else None,
+            browser_settings=browser_settings,
         )
 
     async def create(self, user_id: int, data: FeedCreate) -> FeedResponse:

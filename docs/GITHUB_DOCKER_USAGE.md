@@ -247,11 +247,7 @@ docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.pr
 docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production logs -f
 ```
 
-后端容器启动时会自动执行数据库迁移：
-
-```bash
-alembic upgrade head
-```
+后端容器启动时会在容器内部自动执行 `alembic upgrade head`。
 
 如需手动检查或重新执行迁移：
 
@@ -527,10 +523,12 @@ docker exec rss_manager_postgres pg_dump -U rss_manager rss_manager > rss_manage
 3. 在服务器执行：
 
 ```bash
-cd RSS-feed-manager
+cd /root/RSS-feed-manager  # 按实际安装目录调整
 git pull origin main
 docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
 docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
+docker exec rss_manager_backend alembic upgrade head
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production ps
 ```
 
 如果服务器没有 `.env.production`，去掉命令中的 `--env-file .env.production`。
@@ -538,14 +536,17 @@ docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env
 如果使用了 Playwright/CloakBrowser 订阅源或自定义规则，更新时加上 `--profile browser`：
 
 ```bash
+cd /root/RSS-feed-manager  # 按实际安装目录调整
+git pull origin main
 docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
 docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
+docker exec rss_manager_backend alembic upgrade head
+docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production ps
 ```
 
 检查服务状态：
 
 ```bash
-docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production ps
 docker logs --tail 100 rss_manager_backend
 ```
 

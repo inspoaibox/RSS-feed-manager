@@ -9,6 +9,8 @@ import feedparser
 import httpx
 from feedparser import FeedParserDict
 
+from app.services.browser_fetch_settings import BrowserFetchSettings, default_browser_fetch_settings
+
 FeedBrowserEngine = Literal["http", "playwright", "cloakbrowser"]
 
 
@@ -139,6 +141,33 @@ def _build_playwright_proxy(proxy_url: str | None) -> dict | None:
         proxy_config["password"] = unquote(parsed.password)
 
     return proxy_config
+
+
+def _blocked_resource_types(browser_settings: BrowserFetchSettings) -> set[str]:
+    resource_types: set[str] = set()
+    if browser_settings.block_images:
+        resource_types.add("image")
+    if browser_settings.block_media:
+        resource_types.update({"media", "font"})
+    return resource_types
+
+
+async def _apply_browser_resource_blocking(context, browser_settings: BrowserFetchSettings) -> None:
+    """Apply optional Playwright-compatible resource blocking to a context."""
+    blocked_types = _blocked_resource_types(browser_settings)
+    if not blocked_types:
+        return
+
+    async def handle_route(route):
+        if route.request.resource_type in blocked_types:
+            await route.abort()
+            return
+        await route.continue_()
+
+    try:
+        await context.route("**/*", handle_route)
+    except Exception:
+        pass
 
 
 async def fetch_feed_content(
@@ -292,8 +321,9 @@ def _parse_entry(entry: dict) -> ParsedArticle | None:
 
 async def fetch_feed_content_playwright(
     url: str,
-    timeout: float = 90.0,
+    timeout: float | None = None,
     proxy_url: str | None = None,
+    browser_settings: BrowserFetchSettings | None = None,
 ) -> str:
     """Fetch feed content using Playwright browser automation (for Cloudflare protected sites)."""
     try:
@@ -303,6 +333,8 @@ async def fetch_feed_content_playwright(
 
     from app.core.config import settings
 
+    browser_settings = browser_settings or default_browser_fetch_settings()
+    effective_timeout = float(timeout or browser_settings.playwright_timeout_seconds)
     response_body = None
     browser = None
     context = None
@@ -323,8 +355,11 @@ async def fetch_feed_content_playwright(
 
             browser = await p.chromium.launch(**launch_kwargs)
             context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                viewport={'width': 1920, 'height': 1080},
+                user_agent=browser_settings.user_agent,
+                viewport={
+                    'width': browser_settings.viewport_width,
+                    'height': browser_settings.viewport_height,
+                },
                 locale='en-US',
                 timezone_id='America/New_York',
                 extra_http_headers={
@@ -339,6 +374,7 @@ async def fetch_feed_content_playwright(
                 window.chrome = {runtime: {}};
             """)
 
+            await _apply_browser_resource_blocking(context, browser_settings)
             page = await context.new_page()
 
             # 拦截响应获取原始内容
@@ -353,7 +389,11 @@ async def fetch_feed_content_playwright(
             page.on("response", handle_response)
 
             # Navigate and wait for network idle (Cloudflare redirect)
-            response = await page.goto(url, wait_until="networkidle", timeout=timeout * 1000)
+            response = await page.goto(
+                url,
+                wait_until=browser_settings.playwright_wait_until,
+                timeout=effective_timeout * 1000,
+            )
 
             # 如果拦截没有获取到，尝试从响应直接获取
             if not response_body and response:
@@ -386,8 +426,9 @@ async def fetch_feed_content_playwright(
 
 async def fetch_feed_content_cloakbrowser(
     url: str,
-    timeout: float = 90.0,
+    timeout: float | None = None,
     proxy_url: str | None = None,
+    browser_settings: BrowserFetchSettings | None = None,
 ) -> str:
     """Fetch feed content using CloakBrowser's browser backend."""
     try:
@@ -397,6 +438,8 @@ async def fetch_feed_content_cloakbrowser(
 
     from app.core.config import settings
 
+    browser_settings = browser_settings or default_browser_fetch_settings()
+    effective_timeout = float(timeout or browser_settings.cloakbrowser_timeout_seconds)
     response_body = None
     browser = None
     context = None
@@ -413,13 +456,13 @@ async def fetch_feed_content_cloakbrowser(
 
         launch_kwargs = {
             "headless": settings.FEED_BROWSER_HEADLESS,
-            "humanize": settings.CLOAKBROWSER_HUMANIZE,
-            "geoip": settings.CLOAKBROWSER_GEOIP,
-            "user_agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            ),
-            "viewport": {"width": 1920, "height": 1080},
+            "humanize": browser_settings.cloakbrowser_humanize,
+            "geoip": browser_settings.cloakbrowser_geoip,
+            "user_agent": browser_settings.user_agent,
+            "viewport": {
+                "width": browser_settings.viewport_width,
+                "height": browser_settings.viewport_height,
+            },
             "locale": "en-US",
             "timezone": "America/New_York",
             "extra_http_headers": {
@@ -463,9 +506,13 @@ async def fetch_feed_content_cloakbrowser(
 
     try:
         browser, context = await _launch_context()
+        await _apply_browser_resource_blocking(context, browser_settings)
         page = await context.new_page()
         try:
-            await page.set_viewport_size({"width": 1920, "height": 1080})
+            await page.set_viewport_size({
+                "width": browser_settings.viewport_width,
+                "height": browser_settings.viewport_height,
+            })
         except Exception:
             pass
 
@@ -483,7 +530,11 @@ async def fetch_feed_content_cloakbrowser(
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         })
 
-        response = await page.goto(url, wait_until="networkidle", timeout=timeout * 1000)
+        response = await page.goto(
+            url,
+            wait_until=browser_settings.cloakbrowser_wait_until,
+            timeout=effective_timeout * 1000,
+        )
         if not response_body and response:
             try:
                 response_body = await response.text()
@@ -516,13 +567,22 @@ async def parse_feed(
     use_playwright: bool = False,
     browser_engine: str | None = None,
     proxy_url: str | None = None,
+    browser_settings: BrowserFetchSettings | None = None,
 ) -> ParsedFeed:
     """Fetch and parse a feed from URL."""
     engine = normalize_browser_engine(browser_engine, use_playwright)
     if engine == "playwright":
-        content = await fetch_feed_content_playwright(url, proxy_url=proxy_url)
+        content = await fetch_feed_content_playwright(
+            url,
+            proxy_url=proxy_url,
+            browser_settings=browser_settings,
+        )
     elif engine == "cloakbrowser":
-        content = await fetch_feed_content_cloakbrowser(url, proxy_url=proxy_url)
+        content = await fetch_feed_content_cloakbrowser(
+            url,
+            proxy_url=proxy_url,
+            browser_settings=browser_settings,
+        )
     else:
         content = await fetch_feed_content(url, proxy_url=proxy_url)
     return parse_feed_content(content, url)

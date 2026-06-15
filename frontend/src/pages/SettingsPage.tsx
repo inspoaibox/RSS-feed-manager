@@ -208,6 +208,7 @@ function FeedsTab() {
   // Filter states
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<number | 'all' | 'uncategorized'>('all')
+  const [refreshingFeedIds, setRefreshingFeedIds] = useState<Set<number>>(() => new Set())
 
   const { data: feeds = [] } = useQuery({
     queryKey: ['feeds'],
@@ -338,6 +339,13 @@ function FeedsTab() {
       const response = await api.post(`/feeds/${feedId}/refresh`)
       return response.data
     },
+    onMutate: (feedId) => {
+      setRefreshingFeedIds((prev) => {
+        const next = new Set(prev)
+        next.add(feedId)
+        return next
+      })
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['feeds'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
@@ -348,6 +356,13 @@ function FeedsTab() {
     onError: (err: any) => {
       const detail = err.response?.data?.detail
       setMessage({ type: 'error', text: detail || '刷新失败' })
+    },
+    onSettled: (_data, _error, feedId) => {
+      setRefreshingFeedIds((prev) => {
+        const next = new Set(prev)
+        next.delete(feedId)
+        return next
+      })
     },
   })
 
@@ -1027,14 +1042,19 @@ function FeedsTab() {
                     )}
                   </div>
                 </div>
-                <button
-                  onClick={() => refreshFeedMutation.mutate(feed.id)}
-                  disabled={refreshFeedMutation.isPending}
-                  className="p-2 text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded disabled:opacity-50"
-                  title="刷新订阅源"
-                >
-                  <RefreshCw className={`w-4 h-4 ${refreshFeedMutation.isPending ? 'animate-spin' : ''}`} />
-                </button>
+                {(() => {
+                  const isRefreshingThisFeed = refreshingFeedIds.has(feed.id)
+                  return (
+                    <button
+                      onClick={() => refreshFeedMutation.mutate(feed.id)}
+                      disabled={isRefreshingThisFeed}
+                      className="p-2 text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded disabled:opacity-50"
+                      title="刷新订阅源"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${isRefreshingThisFeed ? 'animate-spin' : ''}`} />
+                    </button>
+                  )
+                })()}
                 {(['ai', 'google', 'argos'] as TranslateMethod[]).includes(feed.translate_method) && (
                   <button
                     onClick={() => translateAllMutation.mutate(feed.id)}
@@ -4910,7 +4930,56 @@ interface SystemSettings {
   show_favorites_menu: boolean
   show_ai_analysis_menu: boolean
   show_recommendations_menu: boolean
+  browser_fetch: BrowserFetchSettings
+  browser_worker_runtime: BrowserWorkerRuntimeSettings
 }
+
+type BrowserWaitUntil = 'domcontentloaded' | 'load' | 'networkidle'
+
+interface BrowserFetchSettings {
+  feed_browser_refresh_dispatch_limit: number
+  custom_rule_browser_dispatch_limit: number
+  playwright_timeout_seconds: number
+  cloakbrowser_timeout_seconds: number
+  playwright_wait_until: BrowserWaitUntil
+  cloakbrowser_wait_until: BrowserWaitUntil
+  viewport_width: number
+  viewport_height: number
+  user_agent: string
+  block_images: boolean
+  block_media: boolean
+  cloakbrowser_humanize: boolean
+  cloakbrowser_geoip: boolean
+}
+
+interface BrowserWorkerRuntimeSettings {
+  browser_worker_concurrency: number
+  browser_worker_max_tasks_per_child: number
+}
+
+const DEFAULT_BROWSER_FETCH_SETTINGS: BrowserFetchSettings = {
+  feed_browser_refresh_dispatch_limit: 50,
+  custom_rule_browser_dispatch_limit: 1,
+  playwright_timeout_seconds: 90,
+  cloakbrowser_timeout_seconds: 90,
+  playwright_wait_until: 'networkidle',
+  cloakbrowser_wait_until: 'networkidle',
+  viewport_width: 1920,
+  viewport_height: 1080,
+  user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  block_images: false,
+  block_media: false,
+  cloakbrowser_humanize: true,
+  cloakbrowser_geoip: false,
+}
+
+const BROWSER_WAIT_OPTIONS: Array<{ value: BrowserWaitUntil; label: string }> = [
+  { value: 'domcontentloaded', label: 'DOM 加载完成' },
+  { value: 'load', label: '页面 Load' },
+  { value: 'networkidle', label: '网络空闲' },
+]
+
+type SystemSubTab = 'general' | 'sync' | 'browser' | 'oauth' | 'recommendations' | 'notifications' | 'users'
 
 // 所有可选的同步间隔
 const ALL_SYNC_INTERVALS: SyncIntervalOption[] = [
@@ -4934,6 +5003,7 @@ function SystemTab() {
   const [siteName, setSiteName] = useState('')
   const [syncIntervals, setSyncIntervals] = useState<SyncIntervalOption[]>([])
   const [defaultSyncInterval, setDefaultSyncInterval] = useState(3600)
+  const [browserFetchSettings, setBrowserFetchSettings] = useState<BrowserFetchSettings>(DEFAULT_BROWSER_FETCH_SETTINGS)
   const [oauthLinuxdo, setOauthLinuxdo] = useState<OAuthConfig>({
     enabled: false,
     client_id: '',
@@ -4956,6 +5026,9 @@ function SystemTab() {
       }
       if (response.data.default_sync_interval) {
         setDefaultSyncInterval(response.data.default_sync_interval)
+      }
+      if (response.data.browser_fetch) {
+        setBrowserFetchSettings(response.data.browser_fetch)
       }
       return response.data
     },
@@ -4988,6 +5061,7 @@ function SystemTab() {
       show_favorites_menu?: boolean
       show_ai_analysis_menu?: boolean
       show_recommendations_menu?: boolean
+      browser_fetch?: BrowserFetchSettings
     }) => {
       const response = await api.put('/system/settings', data)
       return response.data
@@ -5036,7 +5110,14 @@ function SystemTab() {
     },
   })
 
-  const [activeSubTab, setActiveSubTab] = useState<'general' | 'sync' | 'oauth' | 'recommendations' | 'notifications' | 'users'>('general')
+  const [activeSubTab, setActiveSubTab] = useState<SystemSubTab>('general')
+
+  const updateBrowserFetchSetting = <K extends keyof BrowserFetchSettings>(
+    key: K,
+    value: BrowserFetchSettings[K],
+  ) => {
+    setBrowserFetchSettings((prev) => ({ ...prev, [key]: value }))
+  }
 
   if (isLoading) {
     return <div className="text-center py-8 text-gray-500 dark:text-gray-400">加载中...</div>
@@ -5045,6 +5126,7 @@ function SystemTab() {
   const subTabs = [
     { id: 'general', label: '基本设置' },
     { id: 'sync', label: '同步设置' },
+    { id: 'browser', label: '浏览器抓取' },
     { id: 'oauth', label: '第三方登录' },
     { id: 'recommendations', label: '订阅推荐' },
     { id: 'notifications', label: '通知管理' },
@@ -5234,6 +5316,202 @@ function SystemTab() {
           </button>
         </div>
       </div>
+      )}
+
+      {/* 浏览器抓取设置 */}
+      {activeSubTab === 'browser' && (
+        <div className="p-4 border dark:border-gray-700 rounded-lg">
+          <h3 className="font-medium mb-4 dark:text-white flex items-center gap-2">
+            <RefreshCw className="w-5 h-5" />
+            浏览器抓取设置
+          </h3>
+
+          <div className="space-y-6">
+            <div>
+              <h4 className="text-sm font-medium dark:text-gray-200 mb-3">队列派发</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="block">
+                  <span className="block text-sm font-medium dark:text-gray-300 mb-1">RSS 浏览器每轮派发</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={browserFetchSettings.feed_browser_refresh_dispatch_limit}
+                    onChange={(e) => updateBrowserFetchSetting('feed_browser_refresh_dispatch_limit', Number(e.target.value))}
+                    className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-sm font-medium dark:text-gray-300 mb-1">自定义规则浏览器每轮派发</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={browserFetchSettings.custom_rule_browser_dispatch_limit}
+                    onChange={(e) => updateBrowserFetchSetting('custom_rule_browser_dispatch_limit', Number(e.target.value))}
+                    className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-sm font-medium dark:text-gray-200 mb-3">页面加载</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="block">
+                  <span className="block text-sm font-medium dark:text-gray-300 mb-1">Playwright 超时（秒）</span>
+                  <input
+                    type="number"
+                    min={5}
+                    max={300}
+                    value={browserFetchSettings.playwright_timeout_seconds}
+                    onChange={(e) => updateBrowserFetchSetting('playwright_timeout_seconds', Number(e.target.value))}
+                    className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-sm font-medium dark:text-gray-300 mb-1">CloakBrowser 超时（秒）</span>
+                  <input
+                    type="number"
+                    min={5}
+                    max={300}
+                    value={browserFetchSettings.cloakbrowser_timeout_seconds}
+                    onChange={(e) => updateBrowserFetchSetting('cloakbrowser_timeout_seconds', Number(e.target.value))}
+                    className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-sm font-medium dark:text-gray-300 mb-1">Playwright 等待策略</span>
+                  <select
+                    value={browserFetchSettings.playwright_wait_until}
+                    onChange={(e) => updateBrowserFetchSetting('playwright_wait_until', e.target.value as BrowserWaitUntil)}
+                    className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                  >
+                    {BROWSER_WAIT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="block text-sm font-medium dark:text-gray-300 mb-1">CloakBrowser 等待策略</span>
+                  <select
+                    value={browserFetchSettings.cloakbrowser_wait_until}
+                    onChange={(e) => updateBrowserFetchSetting('cloakbrowser_wait_until', e.target.value as BrowserWaitUntil)}
+                    className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                  >
+                    {BROWSER_WAIT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-sm font-medium dark:text-gray-200 mb-3">浏览器指纹</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="block">
+                  <span className="block text-sm font-medium dark:text-gray-300 mb-1">视口宽度</span>
+                  <input
+                    type="number"
+                    min={320}
+                    max={3840}
+                    value={browserFetchSettings.viewport_width}
+                    onChange={(e) => updateBrowserFetchSetting('viewport_width', Number(e.target.value))}
+                    className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-sm font-medium dark:text-gray-300 mb-1">视口高度</span>
+                  <input
+                    type="number"
+                    min={240}
+                    max={2160}
+                    value={browserFetchSettings.viewport_height}
+                    onChange={(e) => updateBrowserFetchSetting('viewport_height', Number(e.target.value))}
+                    className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                  />
+                </label>
+                <label className="block md:col-span-2">
+                  <span className="block text-sm font-medium dark:text-gray-300 mb-1">User-Agent</span>
+                  <textarea
+                    rows={2}
+                    value={browserFetchSettings.user_agent}
+                    onChange={(e) => updateBrowserFetchSetting('user_agent', e.target.value)}
+                    className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-sm font-medium dark:text-gray-200 mb-3">资源与增强模式</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={browserFetchSettings.block_images}
+                    onChange={(e) => updateBrowserFetchSetting('block_images', e.target.checked)}
+                    className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  <span className="font-medium dark:text-white">拦截图片</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={browserFetchSettings.block_media}
+                    onChange={(e) => updateBrowserFetchSetting('block_media', e.target.checked)}
+                    className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  <span className="font-medium dark:text-white">拦截媒体和字体</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={browserFetchSettings.cloakbrowser_humanize}
+                    onChange={(e) => updateBrowserFetchSetting('cloakbrowser_humanize', e.target.checked)}
+                    className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  <span className="font-medium dark:text-white">CloakBrowser humanize</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={browserFetchSettings.cloakbrowser_geoip}
+                    onChange={(e) => updateBrowserFetchSetting('cloakbrowser_geoip', e.target.checked)}
+                    className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  <span className="font-medium dark:text-white">CloakBrowser geoip</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="border-t dark:border-gray-700 pt-4">
+              <h4 className="text-sm font-medium dark:text-gray-200 mb-3">Browser Worker 当前启动值</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="block text-gray-500 dark:text-gray-400 mb-1">并发数</span>
+                  <span className="font-mono dark:text-white">{settings?.browser_worker_runtime.browser_worker_concurrency ?? '-'}</span>
+                </div>
+                <div>
+                  <span className="block text-gray-500 dark:text-gray-400 mb-1">每个子进程最多任务数</span>
+                  <span className="font-mono dark:text-white">{settings?.browser_worker_runtime.browser_worker_max_tasks_per_child ?? '-'}</span>
+                </div>
+              </div>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">
+                这两项来自 .env.production，修改后需要重启 celery_browser_worker。
+              </p>
+            </div>
+
+            <button
+              onClick={() => updateSettingsMutation.mutate({ browser_fetch: browserFetchSettings })}
+              disabled={updateSettingsMutation.isPending}
+              className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
+            >
+              {updateSettingsMutation.isPending ? '保存中...' : '保存浏览器抓取设置'}
+            </button>
+          </div>
+        </div>
       )}
 
       {/* OAuth 设置 - Linux.do */}

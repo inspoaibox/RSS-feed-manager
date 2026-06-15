@@ -16,7 +16,14 @@ from app.models.feed import Feed
 from app.models.custom_rule import CustomRule
 from app.models.proxy_pool import ProxyPoolEntry
 from app.models.ai_provider import AIModel, AIProvider
-from app.utils.feed_parser import FeedParserError, parse_feed, ParsedFeed, _build_playwright_proxy
+from app.services.browser_fetch_settings import load_browser_fetch_settings_sync
+from app.utils.feed_parser import (
+    FeedParserError,
+    ParsedFeed,
+    _apply_browser_resource_blocking,
+    _build_playwright_proxy,
+    parse_feed,
+)
 
 
 # Create sync engine for Celery tasks
@@ -37,9 +44,7 @@ FEED_REFRESH_QUEUE_LOCK_TTL = int(os.environ.get("FEED_REFRESH_QUEUE_LOCK_TTL", 
 ARTICLE_TRANSLATION_QUEUE_LOCK_TTL = int(os.environ.get("ARTICLE_TRANSLATION_QUEUE_LOCK_TTL", "14400"))
 CUSTOM_RULE_EXECUTION_QUEUE_LOCK_TTL = int(os.environ.get("CUSTOM_RULE_EXECUTION_QUEUE_LOCK_TTL", "14400"))
 FEED_REFRESH_DISPATCH_LIMIT = int(os.environ.get("FEED_REFRESH_DISPATCH_LIMIT", "100"))
-FEED_BROWSER_REFRESH_DISPATCH_LIMIT = int(os.environ.get("FEED_BROWSER_REFRESH_DISPATCH_LIMIT", "50"))
 CUSTOM_RULE_DISPATCH_LIMIT = int(os.environ.get("CUSTOM_RULE_DISPATCH_LIMIT", "10"))
-CUSTOM_RULE_BROWSER_DISPATCH_LIMIT = int(os.environ.get("CUSTOM_RULE_BROWSER_DISPATCH_LIMIT", "1"))
 
 
 def get_sync_session():
@@ -748,6 +753,7 @@ def _get_proxy_candidates_sync(db: Session, feed: Feed) -> list[ProxyPoolEntry]:
 
 def _parse_feed_for_sync_refresh(db: Session, feed: Feed) -> ParsedFeed:
     """Parse a feed for Celery refresh, rotating pool proxies when configured."""
+    browser_settings = load_browser_fetch_settings_sync(db) if _feed_uses_browser(feed) else None
     proxy_mode = getattr(
         feed,
         "proxy_mode",
@@ -771,6 +777,7 @@ def _parse_feed_for_sync_refresh(db: Session, feed: Feed) -> ParsedFeed:
                             use_playwright=feed.use_playwright,
                             browser_engine=_feed_browser_engine_for_parse(feed),
                             proxy_url=proxy.proxy_url,
+                            browser_settings=browser_settings,
                         )
                     )
                     _record_proxy_success_sync(db, proxy)
@@ -792,6 +799,7 @@ def _parse_feed_for_sync_refresh(db: Session, feed: Feed) -> ParsedFeed:
                 use_playwright=feed.use_playwright,
                 browser_engine=_feed_browser_engine_for_parse(feed),
                 proxy_url=proxy_url,
+                browser_settings=browser_settings,
             )
         )
     finally:
@@ -933,14 +941,25 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
         )
         print(f"[CustomRule] use_playwright={rule.use_playwright} for rule {rule.id}")
         print(f"[CustomRule] proxy_mode={proxy_mode} for rule {rule.id}")
+        browser_settings = load_browser_fetch_settings_sync(db) if rule.use_playwright else None
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             async def _fetch_with_playwright(proxy_url: str | None = None):
                 from playwright.async_api import async_playwright
+                from app.core.config import settings as app_settings
 
-                launch_kwargs = {"headless": True}
+                if browser_settings is None:
+                    raise RuntimeError("Browser settings unavailable")
+
+                launch_kwargs = {
+                    "headless": app_settings.FEED_BROWSER_HEADLESS,
+                    "args": [
+                        "--disable-dev-shm-usage",
+                        "--no-sandbox",
+                    ],
+                }
                 playwright_proxy = _build_playwright_proxy(proxy_url)
                 if playwright_proxy:
                     launch_kwargs["proxy"] = playwright_proxy
@@ -951,7 +970,18 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
                 try:
                     async with async_playwright() as p:
                         browser = await p.chromium.launch(**launch_kwargs)
-                        context = await browser.new_context()
+                        context = await browser.new_context(
+                            user_agent=browser_settings.user_agent,
+                            viewport={
+                                "width": browser_settings.viewport_width,
+                                "height": browser_settings.viewport_height,
+                            },
+                            locale="en-US",
+                            extra_http_headers={
+                                "Accept-Language": "en-US,en;q=0.9",
+                                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                            },
+                        )
                         if cookies_dict:
                             host = urlparse(rule.target_url).hostname or ""
                             cookie_list = [
@@ -959,8 +989,13 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
                                 for k, v in cookies_dict.items()
                             ]
                             await context.add_cookies(cookie_list)
+                        await _apply_browser_resource_blocking(context, browser_settings)
                         page = await context.new_page()
-                        await page.goto(rule.target_url, wait_until="networkidle", timeout=30000)
+                        await page.goto(
+                            rule.target_url,
+                            wait_until=browser_settings.playwright_wait_until,
+                            timeout=browser_settings.playwright_timeout_seconds * 1000,
+                        )
                         return await page.content()
                 finally:
                     if context:
@@ -1251,6 +1286,7 @@ def refresh_due_feeds(self) -> dict:
     
     try:
         with get_sync_session() as db:
+            browser_fetch_settings = load_browser_fetch_settings_sync(db)
             now = datetime.utcnow()
             
             # Get all active feeds
@@ -1280,7 +1316,10 @@ def refresh_due_feeds(self) -> dict:
                 if dispatched >= FEED_REFRESH_DISPATCH_LIMIT:
                     skipped_limited += 1
                     continue
-                if uses_browser and dispatched_browser >= FEED_BROWSER_REFRESH_DISPATCH_LIMIT:
+                if (
+                    uses_browser
+                    and dispatched_browser >= browser_fetch_settings.feed_browser_refresh_dispatch_limit
+                ):
                     skipped_limited += 1
                     continue
 
@@ -1419,6 +1458,7 @@ def execute_all_custom_rules(self) -> dict:
     
     try:
         with get_sync_session() as db:
+            browser_fetch_settings = load_browser_fetch_settings_sync(db)
             now = datetime.utcnow()
             
             rules = db.execute(
@@ -1447,7 +1487,10 @@ def execute_all_custom_rules(self) -> dict:
                 if dispatched >= CUSTOM_RULE_DISPATCH_LIMIT:
                     skipped_limited += 1
                     continue
-                if uses_browser and dispatched_browser >= CUSTOM_RULE_BROWSER_DISPATCH_LIMIT:
+                if (
+                    uses_browser
+                    and dispatched_browser >= browser_fetch_settings.custom_rule_browser_dispatch_limit
+                ):
                     skipped_limited += 1
                     continue
                 

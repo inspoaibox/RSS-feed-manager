@@ -20,7 +20,8 @@ from app.schemas.custom_rule import (
     CustomRuleTestResult,
     CustomRuleUpdate,
 )
-from app.utils.feed_parser import _build_playwright_proxy
+from app.services.browser_fetch_settings import load_browser_fetch_settings
+from app.utils.feed_parser import _apply_browser_resource_blocking, _build_playwright_proxy
 
 
 # 默认的同步间隔选项（秒）
@@ -106,7 +107,16 @@ class CustomRuleService:
                     "Enable the browser worker/profile for browser-backed fetching."
                 ) from exc
 
-            launch_kwargs = {"headless": True}
+            from app.core.config import settings as app_settings
+
+            browser_settings = await load_browser_fetch_settings(self.settings_repo)
+            launch_kwargs = {
+                "headless": app_settings.FEED_BROWSER_HEADLESS,
+                "args": [
+                    "--disable-dev-shm-usage",
+                    "--no-sandbox",
+                ],
+            }
             playwright_proxy = _build_playwright_proxy(proxy_url)
             if playwright_proxy:
                 launch_kwargs["proxy"] = playwright_proxy
@@ -116,7 +126,18 @@ class CustomRuleService:
             try:
                 async with async_playwright() as p:
                     browser = await p.chromium.launch(**launch_kwargs)
-                    context = await browser.new_context()
+                    context = await browser.new_context(
+                        user_agent=browser_settings.user_agent,
+                        viewport={
+                            "width": browser_settings.viewport_width,
+                            "height": browser_settings.viewport_height,
+                        },
+                        locale="en-US",
+                        extra_http_headers={
+                            "Accept-Language": "en-US,en;q=0.9",
+                            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        },
+                    )
                     if cookies_dict:
                         host = urlparse(url).hostname or ""
                         cookie_list = [
@@ -124,8 +145,13 @@ class CustomRuleService:
                             for key, value in cookies_dict.items()
                         ]
                         await context.add_cookies(cookie_list)
+                    await _apply_browser_resource_blocking(context, browser_settings)
                     page = await context.new_page()
-                    await page.goto(url, wait_until="networkidle", timeout=30000)
+                    await page.goto(
+                        url,
+                        wait_until=browser_settings.playwright_wait_until,
+                        timeout=browser_settings.playwright_timeout_seconds * 1000,
+                    )
                     return await page.content()
             finally:
                 if context:
@@ -809,14 +835,42 @@ HTML 内容:
                 ) from exc
             
             browser = None
+            context = None
             try:
+                from app.core.config import settings as app_settings
+
+                browser_settings = await load_browser_fetch_settings(self.settings_repo)
                 async with async_playwright() as p:
-                    browser = await p.chromium.launch(headless=True)
-                    page = await browser.new_page()
-                    await page.goto(target_url, wait_until="networkidle", timeout=30000)
+                    browser = await p.chromium.launch(
+                        headless=app_settings.FEED_BROWSER_HEADLESS,
+                        args=[
+                            "--disable-dev-shm-usage",
+                            "--no-sandbox",
+                        ],
+                    )
+                    context = await browser.new_context(
+                        user_agent=browser_settings.user_agent,
+                        viewport={
+                            "width": browser_settings.viewport_width,
+                            "height": browser_settings.viewport_height,
+                        },
+                        locale="en-US",
+                    )
+                    await _apply_browser_resource_blocking(context, browser_settings)
+                    page = await context.new_page()
+                    await page.goto(
+                        target_url,
+                        wait_until=browser_settings.playwright_wait_until,
+                        timeout=browser_settings.playwright_timeout_seconds * 1000,
+                    )
                     html_content = await page.content()
                     page_title = await page.title()
             finally:
+                if context:
+                    try:
+                        await context.close()
+                    except Exception:
+                        pass
                 if browser:
                     try:
                         await browser.close()

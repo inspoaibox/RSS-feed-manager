@@ -51,10 +51,14 @@
 **默认轻量模式（不启用浏览器抓取 Worker）：**
 
 ```bash
-# 1. 复制并编辑生产环境配置
+# 1. 拉取项目代码
+git clone https://github.com/inspoaibox/RSS-feed-manager.git
+cd RSS-feed-manager
+
+# 2. 复制并编辑生产环境配置
 cp .env.production.example .env.production
 
-# 2. 拉取 GitHub Container Registry 镜像并启动
+# 3. 拉取 GitHub Container Registry 镜像并启动
 docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
 docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
@@ -123,7 +127,7 @@ docker exec -it rss_manager_backend alembic upgrade head
 
 **反向代理部署：**
 
-生产环境建议使用独立域名，例如 `https://rss.example.com`，由服务器上的 Nginx/Caddy 代理到本机 `127.0.0.1:5666`。项目内部的前端 Nginx 已经负责把 `/api/` 转发给后端容器，因此外层反向代理只需要代理前端入口。完整 Nginx、Caddy 和 HTTPS 示例见：[反向代理说明](docs/GITHUB_DOCKER_USAGE.md#7-使用-nginx-反向代理)。
+生产环境建议使用独立域名，例如 `https://rss.example.com`，由服务器上的 Nginx/Caddy 代理到本机 `127.0.0.1:5666`。项目内部的前端 Nginx 已经负责把 `/api/` 转发给后端容器，因此外层反向代理只需要代理前端入口。完整 Nginx、Caddy 和 HTTPS 示例见：[反向代理说明](docs/GITHUB_DOCKER_USAGE.md#10-使用-nginx-反向代理)。
 
 ### 方式二：开发环境（SQLite，无需 Docker）
 
