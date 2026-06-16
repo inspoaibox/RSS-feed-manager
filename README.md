@@ -14,6 +14,7 @@
 - 🌐 可选 Playwright/CloakBrowser 浏览器抓取模式（支持 Cloudflare 保护的网站）
 - 🤖 AI 自动翻译和整理（支持 OpenAI、Gemini 及兼容 API）
 - 🧠 **AI 智能内容分析**（语义搜索 + AI 总结）
+- 🔔 **推送通知**（订阅 Feed/分组/关键词更新，浏览器/桌面实时推送）
 - 🕷️ 自定义抓取规则
 - 📦 OPML 导入导出
 - 💾 配置备份恢复
@@ -101,12 +102,16 @@ docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml down
 默认轻量模式：
 
 ```bash
-# 等 GitHub Actions 构建成功后，在服务器拉取最新配置和镜像
+# 1. 拉取最新代码
 git pull origin main
+
+# 2. 等 GitHub Actions 构建成功后，拉取最新镜像
 docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
+
+# 3. 重启服务
 docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 
-# 如需手动确认数据库迁移
+# 4. 执行数据库迁移（如有数据库变更）
 docker exec -it rss_manager_backend alembic upgrade head
 ```
 
@@ -118,6 +123,19 @@ docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.pr
 docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 docker exec -it rss_manager_backend alembic upgrade head
 ```
+
+> **更新流程说明**：
+> 1. GitHub Actions 自动构建并推送镜像到 GHCR（GitHub Container Registry）
+> 2. 服务器通过 `git pull` 拉取最新配置文件
+> 3. 使用 `docker compose pull` 拉取最新镜像
+> 4. 使用 `docker compose up -d` 重启容器（自动替换旧镜像）
+> 5. 数据库迁移会在容器启动时自动执行，如需手动确认可执行 `alembic upgrade head`
+> 
+> **注意**：
+> - 修改代码后先推送到 GitHub，等待 Actions 构建成功（约 5-10 分钟）
+> - `docker-compose.prod.build.yml` 用于强制拉取 GHCR 镜像，不会在服务器本地构建
+> - 更新只替换应用容器，数据库、Redis 数据卷不受影响
+> - 不要执行 `docker compose down -v`，会删除所有数据
 
 > `docker-compose.prod.build.yml` 现在用于强制拉取 GHCR 镜像，兼容旧更新命令但不会在服务器本地构建。
 > 如果需要临时在服务器本地构建，可以使用 `docker-compose.prod.local-build.yml`：
@@ -273,22 +291,38 @@ AI 分析功能允许你使用自然语言查询订阅的文章内容，系统�
 - 首个注册的用户将自动成为管理员
 
 ### 更新部署
-- 修改代码后，先推送到 GitHub 并等待 Actions 构建镜像成功，再在服务器拉取最新镜像并重启：
-  ```bash
-  git pull origin main
-  docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
-  docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
-  ```
-- 如果服务器没有 `.env.production`，去掉命令中的 `--env-file .env.production`。
-- 如果需要浏览器抓取模式，更新和启动命令都加上 `--profile browser`；否则不会拉取或启动 browser 大镜像。
-- 如果修改了 Celery 任务、RSS 抓取逻辑或定时任务逻辑，也按同一套流程更新；`backend`、`celery_worker`、`celery_beat` 使用小后端镜像，`celery_browser_worker` 使用独立 browser 镜像。
-- `celery_browser_worker` 会把 CloakBrowser 下载的 stealth Chromium 缓存在 `cloakbrowser_data` 数据卷，容器重建后不会反复下载。
-- `docker-compose.prod.build.yml` 会强制拉取 GHCR 镜像，不会在服务器本地构建；如需临时本地构建，可参考 [本地构建说明](docs/GITHUB_DOCKER_USAGE.md#14-需要在服务器本地构建时)。
-- 正常 `pull`、`up -d`、`restart` 不会清空数据库；不要在保留数据时执行 `docker compose ... down -v`。
-- **数据库结构变更时**，必须执行迁移：
-  ```bash
-  docker exec -it rss_manager_backend alembic upgrade head
-  ```
+**标准更新流程（推荐）：**
+1. 本地修改代码后，提交并推送到 GitHub
+2. 等待 GitHub Actions 构建完成（约 5-10 分钟，可在 Actions 页面查看进度）
+3. 在服务器执行以下命令：
+   ```bash
+   # 拉取最新代码和配置
+   git pull origin main
+   
+   # 拉取 GitHub Actions 构建的最新镜像
+   docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
+   
+   # 重启服务（自动使用新镜像）
+   docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
+   
+   # 如有数据库变更，执行迁移
+   docker exec -it rss_manager_backend alembic upgrade head
+   ```
+4. 如果启用浏览器抓取模式，所有命令添加 `--profile browser` 参数
+
+**更新说明**：
+- GitHub Actions 自动构建镜像并推送到 GHCR（GitHub Container Registry）
+- 服务器只需 pull 镜像，不会在服务器本地构建（节省资源）
+- 更新只替换应用容器，数据库、Redis、文件等数据不受影响
+- 如果服务器没有 `.env.production`，去掉 `--env-file .env.production` 参数
+- `celery_browser_worker` 的 CloakBrowser 缓存在 `cloakbrowser_data` 数据卷，重启不会重新下载
+- 正常 `pull`、`up -d`、`restart` 不会清空数据；不要在保留数据时执行 `docker compose down -v`
+
+**数据库迁移说明**：
+- 容器启动时会自动执行 `alembic upgrade head`
+- 如果添加了新功能（如推送通知），需要确保迁移已执行
+- 查看迁移状态：`docker exec -it rss_manager_backend alembic current`
+- 手动执行迁移：`docker exec -it rss_manager_backend alembic upgrade head`
 
 ### 从旧版本升级（添加 AI 分析功能）
 如果你是从不支持 AI 分析的旧版本升级，需要执行以下步骤：
