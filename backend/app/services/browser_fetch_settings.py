@@ -1,5 +1,5 @@
 """Browser-backed fetch settings helpers."""
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import os
 
 from sqlalchemy import select
@@ -31,6 +31,8 @@ class BrowserFetchSettings:
     viewport_width: int = 1920
     viewport_height: int = 1080
     user_agent: str = DEFAULT_BROWSER_USER_AGENT
+    user_agent_pool: list[str] = field(default_factory=list)  # User-Agent 池
+    user_agent_rotate: bool = False  # 是否随机轮换 UA
     block_images: bool = False
     block_media: bool = False
     cloakbrowser_humanize: bool = True
@@ -50,6 +52,8 @@ BROWSER_FETCH_SETTING_DESCRIPTIONS = {
     "viewport_width": "浏览器视口宽度",
     "viewport_height": "浏览器视口高度",
     "user_agent": "浏览器默认 User-Agent",
+    "user_agent_pool": "User-Agent 池（JSON 数组）",
+    "user_agent_rotate": "是否随机轮换 User-Agent",
     "block_images": "浏览器抓取是否拦截图片",
     "block_media": "浏览器抓取是否拦截媒体和字体",
     "cloakbrowser_humanize": "CloakBrowser humanize 开关",
@@ -144,7 +148,20 @@ def load_browser_fetch_settings_sync(db: Session) -> BrowserFetchSettings:
 
 def browser_fetch_settings_from_values(values: dict[str, str | None]) -> BrowserFetchSettings:
     """Coerce raw key/value settings into a typed settings object."""
+    import json
     defaults = default_browser_fetch_settings()
+
+    # 解析 user_agent_pool
+    user_agent_pool = []
+    pool_value = values.get("user_agent_pool")
+    if pool_value:
+        try:
+            parsed = json.loads(pool_value)
+            if isinstance(parsed, list):
+                user_agent_pool = [str(ua) for ua in parsed if ua]
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     return BrowserFetchSettings(
         feed_browser_refresh_dispatch_limit=_coerce_int(
             values.get("feed_browser_refresh_dispatch_limit"),
@@ -181,6 +198,8 @@ def browser_fetch_settings_from_values(values: dict[str, str | None]) -> Browser
         viewport_width=_coerce_int(values.get("viewport_width"), defaults.viewport_width, 320, 3840),
         viewport_height=_coerce_int(values.get("viewport_height"), defaults.viewport_height, 240, 2160),
         user_agent=_coerce_str(values.get("user_agent"), defaults.user_agent, 500),
+        user_agent_pool=user_agent_pool,
+        user_agent_rotate=_coerce_bool(values.get("user_agent_rotate"), False),
         block_images=_coerce_bool(values.get("block_images"), defaults.block_images),
         block_media=_coerce_bool(values.get("block_media"), defaults.block_media),
         cloakbrowser_humanize=_coerce_bool(

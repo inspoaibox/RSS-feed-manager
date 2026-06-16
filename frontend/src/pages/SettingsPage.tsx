@@ -1014,21 +1014,6 @@ function FeedsTab() {
                     AI 整理
                   </label>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => updateFeedMutation.mutate({ id: feed.id, data: editData })}
-                    disabled={updateFeedMutation.isPending || (editData.proxy_mode === 'single' && !editData.proxy_url.trim())}
-                    className="p-2 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 rounded"
-                  >
-                    <Check className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setEditingId(null)}
-                    className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
 
                 {editData.translate_method !== 'none' && (
                   <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded">
@@ -1065,6 +1050,22 @@ function FeedsTab() {
                     </label>
                   </div>
                 )}
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => updateFeedMutation.mutate({ id: feed.id, data: editData })}
+                    disabled={updateFeedMutation.isPending || (editData.proxy_mode === 'single' && !editData.proxy_url.trim())}
+                    className="p-2 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 rounded"
+                  >
+                    <Check className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setEditingId(null)}
+                    className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="flex items-center gap-4">
@@ -5030,6 +5031,8 @@ interface BrowserFetchSettings {
   viewport_width: number
   viewport_height: number
   user_agent: string
+  user_agent_pool: string[]
+  user_agent_rotate: boolean
   block_images: boolean
   block_media: boolean
   cloakbrowser_humanize: boolean
@@ -5058,6 +5061,8 @@ const DEFAULT_BROWSER_FETCH_SETTINGS: BrowserFetchSettings = {
   viewport_width: 1920,
   viewport_height: 1080,
   user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  user_agent_pool: [],
+  user_agent_rotate: false,
   block_images: false,
   block_media: false,
   cloakbrowser_humanize: true,
@@ -5068,6 +5073,16 @@ const BROWSER_WAIT_OPTIONS: Array<{ value: BrowserWaitUntil; label: string }> = 
   { value: 'domcontentloaded', label: 'DOM 加载完成' },
   { value: 'load', label: '页面 Load' },
   { value: 'networkidle', label: '网络空闲' },
+]
+
+const USER_AGENT_TEMPLATES = [
+  { label: 'Chrome Windows', value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+  { label: 'Chrome macOS', value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+  { label: 'Firefox Windows', value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0' },
+  { label: 'Safari macOS', value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15' },
+  { label: 'Edge Windows', value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0' },
+  { label: 'iPhone Safari', value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1' },
+  { label: 'Android Chrome', value: 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36' },
 ]
 
 const formatCpuLimit = (value: number | null | undefined) => {
@@ -5677,39 +5692,98 @@ function SystemTab() {
             </div>
 
             <div>
-              <h4 className="text-sm font-medium dark:text-gray-200 mb-3">浏览器指纹</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <label className="block">
-                  <span className="block text-sm font-medium dark:text-gray-300 mb-1">视口宽度</span>
+              <h4 className="text-sm font-medium dark:text-gray-200 mb-3">User-Agent 池</h4>
+
+              <div className="space-y-3">
+                {/* 随机轮换开关 */}
+                <label className="flex items-center gap-3 cursor-pointer">
                   <input
-                    type="number"
-                    min={320}
-                    max={3840}
-                    value={browserFetchSettings.viewport_width}
-                    onChange={(e) => updateBrowserFetchSetting('viewport_width', Number(e.target.value))}
-                    className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                    type="checkbox"
+                    checked={browserFetchSettings.user_agent_rotate}
+                    onChange={(e) => updateBrowserFetchSetting('user_agent_rotate', e.target.checked)}
+                    className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                   />
+                  <span className="font-medium dark:text-white">随机轮换 User-Agent</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">每次抓取随机选择一个 UA</span>
                 </label>
-                <label className="block">
-                  <span className="block text-sm font-medium dark:text-gray-300 mb-1">视口高度</span>
-                  <input
-                    type="number"
-                    min={240}
-                    max={2160}
-                    value={browserFetchSettings.viewport_height}
-                    onChange={(e) => updateBrowserFetchSetting('viewport_height', Number(e.target.value))}
-                    className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
-                  />
-                </label>
-                <label className="block md:col-span-2">
-                  <span className="block text-sm font-medium dark:text-gray-300 mb-1">User-Agent</span>
-                  <textarea
-                    rows={2}
-                    value={browserFetchSettings.user_agent}
-                    onChange={(e) => updateBrowserFetchSetting('user_agent', e.target.value)}
-                    className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
-                  />
-                </label>
+
+                {/* UA 列表 */}
+                <div className="space-y-2">
+                  {(browserFetchSettings.user_agent_pool || []).map((ua, index) => (
+                    <div key={index} className="flex gap-2">
+                      <input
+                        type="text"
+                        value={ua}
+                        onChange={(e) => {
+                          const newPool = [...(browserFetchSettings.user_agent_pool || [])]
+                          newPool[index] = e.target.value
+                          updateBrowserFetchSetting('user_agent_pool', newPool)
+                        }}
+                        placeholder="输入 User-Agent"
+                        className="flex-1 px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white text-sm"
+                      />
+                      <button
+                        onClick={() => {
+                          const newPool = (browserFetchSettings.user_agent_pool || []).filter((_, i) => i !== index)
+                          updateBrowserFetchSetting('user_agent_pool', newPool)
+                        }}
+                        className="px-3 py-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded"
+                        title="删除"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 添加 UA 按钮 */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      const newPool = [...(browserFetchSettings.user_agent_pool || []), '']
+                      updateBrowserFetchSetting('user_agent_pool', newPool)
+                    }}
+                    className="px-3 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
+                  >
+                    <Plus className="w-4 h-4 inline mr-1" />
+                    添加自定义 UA
+                  </button>
+                </div>
+
+                {/* 预设模板 */}
+                <div className="border-t dark:border-gray-700 pt-3">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">快速添加常用 User-Agent：</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {USER_AGENT_TEMPLATES.map((template) => (
+                      <button
+                        key={template.label}
+                        onClick={() => {
+                          const newPool = [...(browserFetchSettings.user_agent_pool || []), template.value]
+                          updateBrowserFetchSetting('user_agent_pool', newPool)
+                        }}
+                        className="px-3 py-2 text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50"
+                      >
+                        {template.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 后备 UA */}
+                <div className="border-t dark:border-gray-700 pt-3">
+                  <label className="block">
+                    <span className="block text-sm font-medium dark:text-gray-300 mb-1">
+                      后备 User-Agent
+                      <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">（当 UA 池为空时使用）</span>
+                    </span>
+                    <textarea
+                      rows={2}
+                      value={browserFetchSettings.user_agent}
+                      onChange={(e) => updateBrowserFetchSetting('user_agent', e.target.value)}
+                      className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white text-sm"
+                    />
+                  </label>
+                </div>
               </div>
             </div>
 

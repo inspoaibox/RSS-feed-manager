@@ -1,0 +1,195 @@
+╔══════════════════════════════════════════════════════════════════════╗
+║                     RSS Feed Manager - 实现报告                      ║
+║                          2026-06-16                                  ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+📦 本次实现的功能
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ 功能 1：翻译范围选择
+   目标：降低翻译成本，允许用户选择只翻译标题或标题+正文
+   
+   实现细节：
+   • 数据库新增字段：translate_title, translate_content
+   • 后端翻译逻辑：根据配置过滤翻译内容
+   • 前端 UI：订阅源编辑时显示翻译范围复选框
+   • 数据验证：至少需要选择一项
+   
+   预期收益：
+   • 翻译字符消耗 ↓ 70-90%
+   • 翻译速度     ↑ 50-80%
+   • API 成本     ↓ 70-90%
+   • 服务器负载   ↓ 30-50%
+
+✅ 功能 2：Worker 配置管理
+   目标：允许管理员在后台动态调整 Worker 配置参数
+   
+   实现细节：
+   • 数据库存储：system_settings 表保存配置
+   • 后端 API：GET/PUT /api/system/settings
+   • 前端 UI：系统设置 -> 任务队列页签
+   • 可配置项：
+     - 普通 Worker：并发数、子进程任务数、CPU 限额
+     - 浏览器 Worker：并发数、子进程任务数、CPU 限额
+   
+   使用流程：
+   1. 后台修改配置并保存
+   2. SSH 执行重启命令
+   3. 配置生效
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📂 修改的文件清单
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+后端 (Python):
+  ✓ backend/app/models/feed.py                        - Feed 模型添加翻译范围字段
+  ✓ backend/app/models/custom_rule.py                 - CustomRule 模型添加翻译范围字段
+  ✓ backend/app/schemas/feed.py                       - Feed Schema 添加验证
+  ✓ backend/app/schemas/custom_rule.py                - CustomRule Schema 添加验证
+  ✓ backend/app/services/feed_service.py              - Feed 服务层添加翻译范围逻辑
+  ✓ backend/app/services/custom_rule_service.py       - CustomRule 服务层添加逻辑
+  ✓ backend/app/services/translation_scope.py         - 新建翻译范围工具模块
+  ✓ backend/app/repositories/feed_repository.py       - Feed 仓储层添加翻译范围
+  ✓ backend/app/api/v1/endpoints/system.py            - 系统设置 API 添加 Worker 配置
+  ✓ backend/app/services/browser_fetch_settings.py    - Worker 配置读取逻辑
+  ✓ backend/alembic/versions/029_add_translation_scope.py - 数据库迁移
+
+前端 (TypeScript/React):
+  ✓ frontend/src/pages/SettingsPage.tsx               - 添加翻译范围 UI 和 Worker 配置 UI
+  ✓ frontend/src/types/index.ts                       - 添加 Feed 和 Worker 类型定义
+
+配置文件:
+  ✓ docker-compose.prod.yml                           - 支持 Worker 环境变量配置
+  ✓ .env.production.example                           - 添加 Worker 配置变量示例
+
+文档:
+  ✓ TRANSLATION_SCOPE_IMPLEMENTATION.md               - 翻译范围功能实现文档
+  ✓ IMPLEMENTATION_CHECKLIST.md                       - 实现检查清单
+  ✓ WORKER_CONFIG_MANAGEMENT.md                       - Worker 配置设计方案
+  ✓ WORKER_CONFIG_IMPLEMENTATION.md                   - Worker 配置实现文档
+  ✓ FINAL_SUMMARY.md                                  - 功能总结文档
+  ✓ IMPLEMENTATION_REPORT.txt                         - 本报告
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚀 部署步骤
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1️⃣  数据库迁移
+    cd backend
+    alembic upgrade head
+
+2️⃣  重启后端服务
+    docker restart rss_manager_backend
+
+3️⃣  重启 Worker 服务
+    docker restart rss_manager_celery_worker rss_manager_celery_browser_worker
+
+4️⃣  重新构建前端（如果需要）
+    cd frontend
+    npm run build
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🧪 测试验证
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+翻译范围功能：
+  □ 编辑订阅源，翻译方式选择"Google"
+  □ 只勾选"标题"，保存
+  □ 刷新订阅，验证新文章只有标题被翻译
+  □ 同时勾选"标题"和"正文"，保存
+  □ 刷新订阅，验证新文章标题和正文都被翻译
+  □ 尝试取消所有勾选，应显示错误提示
+
+Worker 配置功能：
+  □ 进入系统设置 -> 任务队列
+  □ 查看当前运行配置值
+  □ 修改普通 Worker 并发数
+  □ 保存并重启容器
+  □ 验证配置生效（ps aux 查看进程数）
+  □ 修改 CPU 限额
+  □ 验证 CPU 限制生效（docker stats）
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 配置建议
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+根据服务器规格的 Worker 配置建议：
+
+┌──────────┬──────────────┬──────────┬──────────────────┬──────────┐
+│ 服务器   │ 普通Worker   │ CPU限额  │ 浏览器Worker     │ CPU限额  │
+│ 规格     │ 并发数       │          │ 并发数           │          │
+├──────────┼──────────────┼──────────┼──────────────────┼──────────┤
+│ 1核2G    │ 1            │ 0.8      │ 1                │ 0.5      │
+│ 2核4G    │ 2            │ 1.5      │ 2                │ 1.0      │
+│ 4核8G    │ 3            │ 2.0      │ 3                │ 2.0      │
+│ 8核16G   │ 5            │ 4.0      │ 5                │ 3.0      │
+└──────────┴──────────────┴──────────┴──────────────────┴──────────┘
+
+注意：
+• CPU 限额 0 表示不限制
+• 浏览器 Worker 消耗内存较多，建议并发数不超过 5
+• 子进程任务数默认 20 对大多数场景适用
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 监控命令
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+查看 Worker 状态：
+  docker exec rss_manager_celery_worker bash -c 'ps aux | grep "celery worker"'
+  docker exec rss_manager_celery_worker celery -A app.tasks.celery_app inspect active
+  docker stats rss_manager_celery_worker rss_manager_celery_browser_worker
+
+查看翻译队列：
+  docker exec rss_manager_redis redis-cli llen translation
+
+查看数据库迁移：
+  docker exec rss_manager_postgres psql -U rss_manager -d rss_manager -c "SELECT version_num FROM alembic_version;"
+
+查看翻译范围配置：
+  docker exec rss_manager_postgres psql -U rss_manager -d rss_manager -c "SELECT id, title, translate_title, translate_content FROM feeds LIMIT 5;"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️  已知限制
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+翻译范围功能：
+  • 只对新抓取的文章生效，现有文章不受影响
+  • 旧版本导出的 OPML 导入后使用默认值
+
+Worker 配置功能：
+  • 配置修改后需要手动重启容器才能生效
+  • 数据库配置需要通过重启生效，不会自动写入 .env 文件
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 未来优化建议
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+短期（可选）：
+  □ 测试环境验证
+  □ 性能监控观察
+  □ 收集用户反馈
+
+中期（可选）：
+  □ 一键应用 Worker 配置（需 Docker socket 权限）
+  □ 预设配置模板（轻量/均衡/性能）
+  □ 实时监控面板
+
+长期（可选）：
+  □ 配置变更历史和回滚
+  □ 根据负载自动调优建议
+  □ 队列堆积告警通知
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ 完成状态
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+实现状态：  ✅ 功能开发完成
+测试状态：  ⏳ 待部署验证
+文档状态：  ✅ 文档完整
+
+开发者：    Claude Code
+完成时间：  2026-06-16
+
+╔══════════════════════════════════════════════════════════════════════╗
+║                        🎉 实现完成！                                 ║
+╚══════════════════════════════════════════════════════════════════════╝

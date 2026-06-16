@@ -266,8 +266,11 @@ async def build_system_settings_response(
 
 def setting_value_to_string(value: object) -> str:
     """Serialize a setting value for the key/value settings table."""
+    import json
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, list):
+        return json.dumps(value)
     return str(value)
 
 

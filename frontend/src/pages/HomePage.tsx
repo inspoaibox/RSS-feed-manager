@@ -704,19 +704,33 @@ export default function HomePage() {
                 <div className="ml-auto flex items-center gap-1">
                   {(() => {
                     const translationStatus = getTranslationStatus(selectedArticle)
-                    const translationBusy = translateMutation.isPending || isTranslationActive(translationStatus)
+                    const translationBusy = translateMutation.isPending || (translationStatus === 'queued' || translationStatus === 'translating')
+                    const translatedData = parseTranslation(selectedArticle.translation)
+                    const hasTranslatedContent = translatedData.content && translatedData.content.trim() !== ''
+
+                    // 按钮文本逻辑：
+                    // - 如果正在翻译：显示状态文本
+                    // - 如果翻译失败：显示"重新翻译"
+                    // - 如果只翻译了标题（没有正文）：显示"翻译正文"
+                    // - 如果已完成：显示"重新翻译"
+                    // - 否则：显示"翻译"
+                    let buttonTitle = '翻译'
+                    if (translationBusy) {
+                      buttonTitle = getTranslationStatusText(translationStatus)
+                    } else if (translationStatus === 'failed') {
+                      buttonTitle = '重新翻译'
+                    } else if (translationStatus === 'completed' && !hasTranslatedContent) {
+                      buttonTitle = '翻译正文'
+                    } else if (translationStatus === 'completed') {
+                      buttonTitle = '重新翻译'
+                    }
+
                     return (
                       <button
                         onClick={() => translateMutation.mutate(selectedArticle.id)}
                         disabled={translationBusy}
                         className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-purple-600 dark:text-purple-400 disabled:opacity-50"
-                        title={
-                          translationStatus === 'failed'
-                            ? '重新翻译'
-                            : translationBusy
-                              ? getTranslationStatusText(translationStatus)
-                              : '翻译'
-                        }
+                        title={buttonTitle}
                       >
                         {translationBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Languages className="w-4 h-4" />}
                       </button>
@@ -746,13 +760,15 @@ export default function HomePage() {
             <article className="p-6 max-w-3xl mx-auto">
                 {(() => {
                   const translatedData = parseTranslation(selectedArticle.translation)
-                  const showingTranslation = selectedArticle.translation && showTranslation
+                  const hasTranslatedContent = translatedData.content && translatedData.content.trim() !== ''
+                  const hasTranslatedTitle = translatedData.title && translatedData.title.trim() !== ''
+                  const showingTranslation = selectedArticle.translation && showTranslation && (hasTranslatedTitle || hasTranslatedContent)
                   const translationStatus = getTranslationStatus(selectedArticle)
-                  
+
                   return (
                     <>
                       <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-                        {showingTranslation && translatedData.title ? translatedData.title : selectedArticle.title}
+                        {showingTranslation && hasTranslatedTitle ? translatedData.title : selectedArticle.title}
                       </h1>
                       <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 mb-6">
                         <span>{new Date(selectedArticle.published_at).toLocaleString()}</span>
@@ -782,7 +798,7 @@ export default function HomePage() {
                           </div>
                         </div>
                       )}
-                      {selectedArticle.translation && (
+                      {selectedArticle.translation && (hasTranslatedTitle || hasTranslatedContent) && (
                         <div className="mb-4 flex gap-2">
                           <button
                             onClick={() => setShowTranslation(true)}
@@ -804,7 +820,7 @@ export default function HomePage() {
                           </button>
                         </div>
                       )}
-                      {showingTranslation ? (
+                      {showingTranslation && hasTranslatedContent ? (
                         <div
                           className="prose prose-sm dark:prose-invert max-w-none dark:text-gray-200"
                           dangerouslySetInnerHTML={{
