@@ -750,41 +750,6 @@ function FeedsTab() {
                 <option value="ko">한국어</option>
               </select>
             )}
-            {newFeedTranslateMethod !== 'none' && (
-              <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded">
-                <span className="text-sm dark:text-blue-200">翻译范围:</span>
-                <label className="flex items-center gap-1">
-                  <input
-                    type="checkbox"
-                    checked={newFeedTranslateTitle}
-                    onChange={(e) => {
-                      const checked = e.target.checked
-                      if (!checked && !newFeedTranslateContent) {
-                        setMessage({ type: 'error', text: '至少需要翻译标题或正文' })
-                        return
-                      }
-                      setNewFeedTranslateTitle(checked)
-                    }}
-                  />
-                  <span className="text-sm dark:text-blue-200">标题</span>
-                </label>
-                <label className="flex items-center gap-1">
-                  <input
-                    type="checkbox"
-                    checked={newFeedTranslateContent}
-                    onChange={(e) => {
-                      const checked = e.target.checked
-                      if (!checked && !newFeedTranslateTitle) {
-                        setMessage({ type: 'error', text: '至少需要翻译标题或正文' })
-                        return
-                      }
-                      setNewFeedTranslateContent(checked)
-                    }}
-                  />
-                  <span className="text-sm dark:text-blue-200">正文</span>
-                </label>
-              </div>
-            )}
             <label className={`flex items-center gap-2 p-2 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded ${!hasDefaultModel ? 'opacity-50' : ''}`}>
               <input
                 type="checkbox"
@@ -1030,41 +995,6 @@ function FeedsTab() {
                   </button>
                 </div>
               </div>
-                  {editData.translate_method !== 'none' && (
-                    <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded">
-                      <span className="text-sm dark:text-blue-200">翻译范围:</span>
-                      <label className="flex items-center gap-1">
-                        <input
-                          type="checkbox"
-                          checked={editData.translate_title}
-                          onChange={(e) => {
-                            const checked = e.target.checked
-                            if (!checked && !editData.translate_content) {
-                              setMessage({ type: 'error', text: '至少需要翻译标题或正文' })
-                              return
-                            }
-                            setEditData({ ...editData, translate_title: checked })
-                          }}
-                        />
-                        <span className="text-sm dark:text-blue-200">标题</span>
-                      </label>
-                      <label className="flex items-center gap-1">
-                        <input
-                          type="checkbox"
-                          checked={editData.translate_content}
-                          onChange={(e) => {
-                            const checked = e.target.checked
-                            if (!checked && !editData.translate_title) {
-                              setMessage({ type: 'error', text: '至少需要翻译标题或正文' })
-                              return
-                            }
-                            setEditData({ ...editData, translate_content: checked })
-                          }}
-                        />
-                        <span className="text-sm dark:text-blue-200">正文</span>
-                      </label>
-                    </div>
-                  )}
             ) : (
               <div className="flex items-center gap-4">
                 {/* Sort buttons - hide only when searching */}

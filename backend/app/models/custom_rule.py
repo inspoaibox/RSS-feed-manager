@@ -59,6 +59,8 @@ class CustomRule(BaseModel):
     source_language: Mapped[str | None] = mapped_column(String(10), nullable=True)
     target_language: Mapped[str | None] = mapped_column(String(10), nullable=True)
     translate_method: Mapped[str] = mapped_column(String(20), default='none')  # none, ai, google, argos
+    translate_title: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    translate_content: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     
     # Status
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

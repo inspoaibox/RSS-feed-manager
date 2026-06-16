@@ -33,6 +33,8 @@ class CustomRuleBase(BaseModel):
     source_language: str | None = Field(None, max_length=10)
     target_language: str | None = Field(None, max_length=10)
     translate_method: TranslateMethod = Field(default='none', pattern=TRANSLATE_METHOD_PATTERN)
+    translate_title: bool = True
+    translate_content: bool = False
     is_active: bool = True
 
 
@@ -65,6 +67,8 @@ class CustomRuleUpdate(BaseModel):
     source_language: str | None = Field(None, max_length=10)
     target_language: str | None = Field(None, max_length=10)
     translate_method: TranslateMethod | None = Field(None, pattern=TRANSLATE_METHOD_PATTERN)
+    translate_title: bool | None = None
+    translate_content: bool | None = None
     is_active: bool | None = None
 
 
@@ -95,6 +99,8 @@ class CustomRuleResponse(BaseModel):
     source_language: str | None
     target_language: str | None
     translate_method: str = 'none'
+    translate_title: bool = True
+    translate_content: bool = False
     is_active: bool
     last_fetched_at: datetime | None
     last_error: str | None

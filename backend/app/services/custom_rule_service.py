@@ -284,6 +284,8 @@ class CustomRuleService:
             source_language=data.source_language,
             target_language=data.target_language,
             translate_method=data.translate_method,
+            translate_title=data.translate_title,
+            translate_content=data.translate_content,
             proxy_mode=proxy_mode,
             proxy_enabled=proxy_enabled,
             proxy_url=proxy_url,
@@ -385,6 +387,10 @@ class CustomRuleService:
                     feed.target_language = update_data['target_language']
                 if 'translate_method' in update_data:
                     feed.translate_method = update_data['translate_method']
+                if 'translate_title' in update_data:
+                    feed.translate_title = update_data['translate_title']
+                if 'translate_content' in update_data:
+                    feed.translate_content = update_data['translate_content']
                 if 'proxy_mode' in update_data:
                     feed.proxy_mode = update_data['proxy_mode']
                 if 'proxy_enabled' in update_data:
@@ -519,6 +525,8 @@ class CustomRuleService:
             source_language=getattr(rule, 'source_language', None),
             target_language=rule.target_language,
             translate_method=getattr(rule, 'translate_method', 'none'),
+            translate_title=getattr(rule, 'translate_title', True),
+            translate_content=getattr(rule, 'translate_content', False),
             proxy_enabled=getattr(rule, "proxy_enabled", False),
             proxy_url=getattr(rule, "proxy_url", None),
             proxy_mode=getattr(

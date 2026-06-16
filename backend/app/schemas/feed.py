@@ -27,6 +27,8 @@ class FeedCreate(BaseModel):
     source_language: str | None = Field(None, max_length=10)  # Source language for local translation
     target_language: str | None = Field(None, max_length=10)  # Target language for translation
     translate_method: FeedTranslateMethod = "none"  # Translation method
+    translate_title: bool = True
+    translate_content: bool = False
 
     @property
     def resolved_browser_engine(self) -> FeedBrowserEngine:
@@ -45,6 +47,8 @@ class FeedUpdate(BaseModel):
     source_language: str | None = Field(None, max_length=10)
     target_language: str | None = Field(None, max_length=10)
     translate_method: FeedTranslateMethod | None = None
+    translate_title: bool | None = None
+    translate_content: bool | None = None
     is_active: bool | None = None
     use_playwright: bool | None = None
     browser_engine: FeedBrowserEngine | None = None
@@ -77,6 +81,8 @@ class FeedResponse(BaseModel):
     source_language: str | None
     target_language: str | None
     translate_method: FeedTranslateMethod = "none"
+    translate_title: bool = True
+    translate_content: bool = False
     is_active: bool
     use_playwright: bool = False
     browser_engine: FeedBrowserEngine = "http"

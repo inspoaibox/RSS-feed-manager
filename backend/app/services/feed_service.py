@@ -14,6 +14,7 @@ from app.repositories.proxy_pool_repository import ProxyPoolRepository
 from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.schemas.feed import FeedCreate, FeedReorder, FeedResponse, FeedUpdate, OPMLImportResult
 from app.services.browser_fetch_settings import load_browser_fetch_settings
+from app.services.translation_scope import has_translatable_article_text
 from app.utils.feed_parser import (
     FeedParserError,
     ParsedFeed,
@@ -270,7 +271,9 @@ class FeedService:
             auto_summarize=data.auto_summarize,
             source_language=data.source_language,
             target_language=data.target_language,
-            translate_method=data.translate_method
+            translate_method=data.translate_method,
+            translate_title=data.translate_title,
+            translate_content=data.translate_content,
         )
         
         if parsed:
@@ -649,7 +652,7 @@ class FeedService:
         if translate_method == 'none' or not feed.target_language:
             return False
 
-        if not ((article.title or "").strip() or (article.content or "").strip()):
+        if not has_translatable_article_text(article, feed):
             article.translation_status = "failed"
             article.translation_error = "Article has no content to translate"
             await self.session.flush()
@@ -714,6 +717,8 @@ class FeedService:
             source_language=getattr(feed, "source_language", None),
             target_language=feed.target_language,
             translate_method=getattr(feed, 'translate_method', 'none'),
+            translate_title=getattr(feed, 'translate_title', True),
+            translate_content=getattr(feed, 'translate_content', False),
             is_active=feed.is_active,
             use_playwright=feed.use_playwright,
             browser_engine=getattr(

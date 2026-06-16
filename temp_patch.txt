@@ -1,0 +1,48 @@
+            {newFeedTranslateMethod !== 'none' && (
+              <>
+                <select
+                  value={newFeedTargetLanguage}
+                  onChange={(e) => setNewFeedTargetLanguage(e.target.value)}
+                  className="px-3 py-2 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-800 dark:text-white"
+                >
+                  <option value="zh-CN">简体中文</option>
+                  <option value="zh-TW">繁体中文</option>
+                  <option value="en">English</option>
+                  <option value="ja">日本語</option>
+                  <option value="ko">한국어</option>
+                </select>
+                <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded">
+                  <span className="text-sm dark:text-blue-200">翻译范围:</span>
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={newFeedTranslateTitle}
+                      onChange={(e) => {
+                        const checked = e.target.checked
+                        if (!checked && !newFeedTranslateContent) {
+                          setMessage({ type: 'error', text: '至少需要翻译标题或正文' })
+                          return
+                        }
+                        setNewFeedTranslateTitle(checked)
+                      }}
+                    />
+                    <span className="text-sm dark:text-blue-200">标题</span>
+                  </label>
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={newFeedTranslateContent}
+                      onChange={(e) => {
+                        const checked = e.target.checked
+                        if (!checked && !newFeedTranslateTitle) {
+                          setMessage({ type: 'error', text: '至少需要翻译标题或正文' })
+                          return
+                        }
+                        setNewFeedTranslateContent(checked)
+                      }}
+                    />
+                    <span className="text-sm dark:text-blue-200">正文</span>
+                  </label>
+                </div>
+              </>
+            )}

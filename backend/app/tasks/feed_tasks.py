@@ -512,14 +512,20 @@ def _perform_article_translation_sync(
 ) -> tuple[str, str]:
     """Translate article title/content with the feed's configured translation provider."""
     from app.models.user import User
+    from app.services.translation_scope import translation_targets_for_source
 
     translate_method = _translation_method_for_feed(feed)
     target = target_language or feed.target_language
     if translate_method == "none" or not target:
         raise ValueError("Feed does not have translation enabled")
 
-    title = article.title or ""
-    content = article.content or ""
+    # Get translation scope from feed settings
+    translate_title, translate_content = translation_targets_for_source(feed)
+
+    # Prepare input based on translation scope
+    title = (article.title or "") if translate_title else ""
+    content = (article.content or "") if translate_content else ""
+
     if not title and not content:
         raise ValueError("Article has no content to translate")
 
