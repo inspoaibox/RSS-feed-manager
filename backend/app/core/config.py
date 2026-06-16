@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     CLOAKBROWSER_GEOIP: bool = False
     CLOAKBROWSER_HUMANIZE: bool = True
 
+    # Push Notification (Web Push)
+    VAPID_PUBLIC_KEY: str | None = None
+    VAPID_PRIVATE_KEY: str | None = None
+    VAPID_CONTACT_EMAIL: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

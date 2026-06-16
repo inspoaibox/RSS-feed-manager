@@ -377,6 +377,22 @@ def _generate_article_embedding_sync(db: Session, article: Article, user_id: int
         print(f"Failed to generate embedding for article {article.id}: {e}")
 
 
+def _trigger_push_notifications(db: Session, article: Article) -> None:
+    """Trigger push notifications for a new article."""
+    try:
+        from app.services.push_notification_service import PushNotificationService
+
+        service = PushNotificationService(db)
+        pushes_sent = service.check_and_trigger_pushes(article)
+
+        if pushes_sent > 0:
+            print(f"Sent {pushes_sent} push notifications for article {article.id}: {article.title[:50]}")
+
+    except Exception as e:
+        # Don't fail the article save if push notification fails
+        print(f"Failed to trigger push notifications for article {article.id}: {e}")
+
+
 def _process_article_with_ai(db: Session, article: Article, feed: Feed) -> bool:
     """Queue article translation and summarize if enabled."""
     from app.models.user import User
@@ -897,14 +913,17 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
             )
             db.add(article)
             db.flush()  # Get article ID
-            
+
             # Queue translation and process summary if enabled.
             if _process_article_with_ai(db, article, feed):
                 queued_translation_article_ids.append(article.id)
-            
+
             # Generate embedding for the new article (async, non-blocking)
             _generate_article_embedding_sync(db, article, feed.user_id)
-            
+
+            # Trigger push notifications for new article
+            _trigger_push_notifications(db, article)
+
             new_count += 1
         
         feed.last_fetched_at = datetime.utcnow()
@@ -1241,7 +1260,11 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
             )
             db.add(article)
             new_articles.append({"title": title, "link": link, "content": content})
-        
+
+            # Trigger push notifications for new article
+            db.flush()  # Ensure article has ID
+            _trigger_push_notifications(db, article)
+
         print(f"[CustomRule] Skipped {skipped_no_title_link} (no title/link), {skipped_existing} (existing), added {len(new_articles)} new")
         
         # Update rule and feed status

@@ -7,6 +7,7 @@ import { useThemeStore, type ThemeColor } from '@/stores/themeStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useSyncIntervals } from '@/hooks/useSyncIntervals'
 import NotificationManagement from '@/components/NotificationManagement'
+import PushNotificationSettings from '@/components/PushNotificationSettings'
 
 type Tab = 'feeds' | 'categories' | 'ai' | 'rules' | 'proxies' | 'backup' | 'appearance' | 'system'
 
@@ -5090,7 +5091,7 @@ const formatCpuLimit = (value: number | null | undefined) => {
   return value <= 0 ? '不限制' : `${value} CPU`
 }
 
-type SystemSubTab = 'general' | 'sync' | 'workers' | 'browser' | 'oauth' | 'recommendations' | 'notifications' | 'users'
+type SystemSubTab = 'general' | 'sync' | 'workers' | 'browser' | 'oauth' | 'recommendations' | 'announcements' | 'push-notifications' | 'users'
 
 // 所有可选的同步间隔
 const ALL_SYNC_INTERVALS: SyncIntervalOption[] = [
@@ -5259,7 +5260,8 @@ function SystemTab() {
     { id: 'browser', label: '浏览器抓取' },
     { id: 'oauth', label: '第三方登录' },
     { id: 'recommendations', label: '订阅推荐' },
-    { id: 'notifications', label: '通知管理' },
+    { id: 'announcements', label: '公告管理' },
+    { id: 'push-notifications', label: '推送通知' },
     { id: 'users', label: '用户管理' },
   ]
 
@@ -5949,10 +5951,17 @@ function SystemTab() {
         />
       )}
 
-      {/* 通知管理 */}
-      {activeSubTab === 'notifications' && (
+      {/* 公告管理 */}
+      {activeSubTab === 'announcements' && (
         <div className="p-4 border dark:border-gray-700 rounded-lg">
           <NotificationManagement />
+        </div>
+      )}
+
+      {/* 推送通知 */}
+      {activeSubTab === 'push-notifications' && (
+        <div className="p-4 border dark:border-gray-700 rounded-lg">
+          <PushNotificationSettings />
         </div>
       )}
 

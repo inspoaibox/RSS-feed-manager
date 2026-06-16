@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from app.models.feed import Feed
     from app.models.google_translate_key import GoogleTranslateKey
     from app.models.keyword_subscription import KeywordSubscription
+    from app.models.push_notification import NotificationSubscription, WebPushSubscription
 
 
 class User(BaseModel):
@@ -74,6 +75,12 @@ class User(BaseModel):
     )
     google_translate_keys: Mapped[List["GoogleTranslateKey"]] = relationship(
         "GoogleTranslateKey", back_populates="user", cascade="all, delete-orphan"
+    )
+    push_subscriptions: Mapped[List["NotificationSubscription"]] = relationship(
+        "NotificationSubscription", back_populates="user", cascade="all, delete-orphan"
+    )
+    web_push_subscriptions: Mapped[List["WebPushSubscription"]] = relationship(
+        "WebPushSubscription", back_populates="user", cascade="all, delete-orphan"
     )
 
     def set_password(self, password: str) -> None:
