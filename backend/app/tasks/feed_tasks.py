@@ -267,8 +267,14 @@ def _mark_article_translation_queued(
     return True
 
 
-def dispatch_article_translation(article_id: int, target_language: str | None = None) -> tuple[bool, str | None]:
-    """Dispatch a single-article translation task with a Redis dedupe lock."""
+def dispatch_article_translation(article_id: int, target_language: str | None = None, force_full: bool = False) -> tuple[bool, str | None]:
+    """Dispatch a single-article translation task with a Redis dedupe lock.
+
+    Args:
+        article_id: Article ID
+        target_language: Target language code
+        force_full: 如果为 True，强制翻译标题+正文，忽略 Feed 的 translate_title/translate_content 配置
+    """
     owner = str(uuid.uuid4())
     redis_client = None
     lock_acquired = False
@@ -279,7 +285,12 @@ def dispatch_article_translation(article_id: int, target_language: str | None = 
         if not lock_acquired:
             return False, "duplicate"
 
-        kwargs = {"target_language": target_language} if target_language else {}
+        kwargs = {}
+        if target_language:
+            kwargs["target_language"] = target_language
+        if force_full:
+            kwargs["force_full"] = True
+
         from app.tasks.celery_app import celery_app
 
         celery_app.send_task(
@@ -509,8 +520,17 @@ def _perform_article_translation_sync(
     article: Article,
     feed: Feed,
     target_language: str | None = None,
+    force_full: bool = False,
 ) -> tuple[str, str]:
-    """Translate article title/content with the feed's configured translation provider."""
+    """Translate article title/content with the feed's configured translation provider.
+
+    Args:
+        db: Database session
+        article: Article to translate
+        feed: Feed configuration
+        target_language: Target language code
+        force_full: 如果为 True，强制翻译标题+正文，忽略 Feed 的 translate_title/translate_content 配置
+    """
     from app.models.user import User
     from app.services.translation_scope import translation_targets_for_source
 
@@ -520,7 +540,12 @@ def _perform_article_translation_sync(
         raise ValueError("Feed does not have translation enabled")
 
     # Get translation scope from feed settings
-    translate_title, translate_content = translation_targets_for_source(feed)
+    if force_full:
+        # 手动触发时，强制翻译标题+正文
+        translate_title, translate_content = True, True
+    else:
+        # 自动翻译时，遵循 Feed 配置
+        translate_title, translate_content = translation_targets_for_source(feed)
 
     # Prepare input based on translation scope
     title = (article.title or "") if translate_title else ""
@@ -616,8 +641,14 @@ def _perform_article_translation_sync(
 
 
 @shared_task(name="app.tasks.feed_tasks.translate_article", bind=True)
-def translate_article_task(self, article_id: int, target_language: str | None = None) -> dict:
-    """Translate one article in the background and persist translation status."""
+def translate_article_task(self, article_id: int, target_language: str | None = None, force_full: bool = False) -> dict:
+    """Translate one article in the background and persist translation status.
+
+    Args:
+        article_id: Article ID
+        target_language: Target language code
+        force_full: 如果为 True，强制翻译标题+正文，忽略 Feed 的 translate_title/translate_content 配置
+    """
     owner = self.request.id or ""
     redis_client = None
 
@@ -682,6 +713,7 @@ def translate_article_task(self, article_id: int, target_language: str | None = 
                 article,
                 feed,
                 target_language=target,
+                force_full=force_full,
             )
             completed_at = datetime.utcnow()
             article.translation = translation_data

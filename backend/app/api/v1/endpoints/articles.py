@@ -117,11 +117,12 @@ async def translate_article(
     article_id: int,
     user_id: CurrentUserId,
     db: DbSession,
-    target_language: str = Query("zh-CN")
+    target_language: str = Query("zh-CN"),
+    force_full: bool = Query(True, description="强制翻译标题+正文（手动触发时默认为 True）")
 ):
     """Queue article content translation."""
     service = ArticleService(db)
-    result = await service.translate_article(user_id, article_id, target_language)
+    result = await service.translate_article(user_id, article_id, target_language, force_full=force_full)
     return result
 
 

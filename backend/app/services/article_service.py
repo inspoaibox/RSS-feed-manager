@@ -247,8 +247,15 @@ class ArticleService:
         text = re.sub(r'\n{3,}', '\n\n', text)
         return text.strip()
 
-    async def translate_article(self, user_id: int, article_id: int, target_language: str) -> dict:
-        """Queue article title/content translation using the feed's configured provider."""
+    async def translate_article(self, user_id: int, article_id: int, target_language: str, force_full: bool = False) -> dict:
+        """Queue article title/content translation using the feed's configured provider.
+
+        Args:
+            user_id: User ID
+            article_id: Article ID
+            target_language: Target language code
+            force_full: 如果为 True，强制翻译标题+正文，忽略 Feed 的 translate_title/translate_content 配置
+        """
         article = await self._verify_article_access(user_id, article_id)
         
         content = article.content or ""
@@ -290,7 +297,7 @@ class ArticleService:
         await self.session.commit()
 
         from app.tasks.feed_tasks import dispatch_article_translation
-        queued, error = dispatch_article_translation(article.id, target_language=target_language)
+        queued, error = dispatch_article_translation(article.id, target_language=target_language, force_full=force_full)
         if not queued and error != "duplicate":
             article.translation_status = "failed"
             article.translation_error = f"Translation queue dispatch failed: {error}"[:1000]
