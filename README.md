@@ -58,8 +58,19 @@ cd RSS-feed-manager
 
 # 2. 复制并编辑生产环境配置
 cp .env.production.example .env.production
+# 编辑 .env.production，修改密码、域名等配置
 
-# 3. 拉取 GitHub Container Registry 镜像并启动
+# 3. 生成 VAPID 密钥（用于推送通知功能）
+cd backend
+python3 -c "from py_vapid import Vapid; v = Vapid(); v.generate_keys(); print('Public:', v.public_key.savePublicKey().decode()); print('Private:', v.private_key.savePrivateKey().decode())"
+cd ..
+
+# 把生成的密钥添加到 .env.production
+# VAPID_PUBLIC_KEY=生成的公钥
+# VAPID_PRIVATE_KEY=生成的私钥
+# VAPID_CONTACT_EMAIL=你的邮箱
+
+# 4. 拉取 GitHub Container Registry 镜像并启动
 docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
 docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
@@ -67,6 +78,7 @@ docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env
 **启用浏览器抓取模式（需要 Playwright/CloakBrowser 时使用）：**
 
 ```bash
+# 生成 VAPID 密钥后
 docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production pull
 docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
