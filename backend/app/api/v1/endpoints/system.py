@@ -107,6 +107,8 @@ class SystemSettingsUpdate(BaseModel):
     show_ai_analysis_menu: bool | None = None
     show_recommendations_menu: bool | None = None
     browser_fetch: BrowserFetchSettingsPayload | None = None
+    worker_runtime: WorkerRuntimeSettings | None = None
+    browser_worker_runtime: BrowserWorkerRuntimeSettings | None = None
 
 
 class PublicSettingsResponse(BaseModel):
@@ -220,6 +222,32 @@ async def build_system_settings_response(
     default_interval = int(default_interval_str) if default_interval_str else 3600
     browser_fetch = await load_browser_fetch_settings(settings_repo)
 
+    # Load worker runtime settings from database (for pending changes) or environment (current values)
+    worker_concurrency_db = await settings_repo.get('worker_concurrency')
+    worker_max_tasks_db = await settings_repo.get('worker_max_tasks_per_child')
+    worker_cpus_db = await settings_repo.get('worker_cpus')
+
+    browser_worker_concurrency_db = await settings_repo.get('browser_worker_concurrency')
+    browser_worker_max_tasks_db = await settings_repo.get('browser_worker_max_tasks_per_child')
+    browser_worker_cpus_db = await settings_repo.get('browser_worker_cpus')
+
+    # Get current runtime values
+    runtime_worker = worker_runtime_settings()
+    runtime_browser_worker = browser_worker_runtime_settings()
+
+    # Use database values if available, otherwise use current runtime values
+    worker_config = WorkerRuntimeSettings(
+        worker_concurrency=int(worker_concurrency_db) if worker_concurrency_db else runtime_worker['worker_concurrency'],
+        worker_max_tasks_per_child=int(worker_max_tasks_db) if worker_max_tasks_db else runtime_worker['worker_max_tasks_per_child'],
+        worker_cpus=float(worker_cpus_db) if worker_cpus_db else runtime_worker['worker_cpus'],
+    )
+
+    browser_worker_config = BrowserWorkerRuntimeSettings(
+        browser_worker_concurrency=int(browser_worker_concurrency_db) if browser_worker_concurrency_db else runtime_browser_worker['browser_worker_concurrency'],
+        browser_worker_max_tasks_per_child=int(browser_worker_max_tasks_db) if browser_worker_max_tasks_db else runtime_browser_worker['browser_worker_max_tasks_per_child'],
+        browser_worker_cpus=float(browser_worker_cpus_db) if browser_worker_cpus_db else runtime_browser_worker['browser_worker_cpus'],
+    )
+
     return SystemSettingsResponse(
         allow_registration=await settings_repo.get_bool('allow_registration', True),
         site_name=await settings_repo.get('site_name') or 'RSS 管理器',
@@ -231,8 +259,8 @@ async def build_system_settings_response(
         show_ai_analysis_menu=await settings_repo.get_bool('show_ai_analysis_menu', True),
         show_recommendations_menu=await settings_repo.get_bool('show_recommendations_menu', True),
         browser_fetch=BrowserFetchSettingsPayload(**browser_fetch.asdict()),
-        worker_runtime=WorkerRuntimeSettings(**worker_runtime_settings()),
-        browser_worker_runtime=BrowserWorkerRuntimeSettings(**browser_worker_runtime_settings()),
+        worker_runtime=worker_config,
+        browser_worker_runtime=browser_worker_config,
     )
 
 
@@ -342,7 +370,43 @@ async def update_system_settings(
                 setting_value_to_string(value),
                 BROWSER_FETCH_SETTING_DESCRIPTIONS.get(key),
             )
-    
+
+    # Save worker runtime settings to database
+    if data.worker_runtime is not None:
+        await settings_repo.set(
+            'worker_concurrency',
+            str(data.worker_runtime.worker_concurrency),
+            '普通 Worker 并发数'
+        )
+        await settings_repo.set(
+            'worker_max_tasks_per_child',
+            str(data.worker_runtime.worker_max_tasks_per_child),
+            '普通 Worker 子进程最大任务数'
+        )
+        await settings_repo.set(
+            'worker_cpus',
+            str(data.worker_runtime.worker_cpus),
+            '普通 Worker CPU 限额 (0=不限制)'
+        )
+
+    # Save browser worker runtime settings to database
+    if data.browser_worker_runtime is not None:
+        await settings_repo.set(
+            'browser_worker_concurrency',
+            str(data.browser_worker_runtime.browser_worker_concurrency),
+            '浏览器 Worker 并发数'
+        )
+        await settings_repo.set(
+            'browser_worker_max_tasks_per_child',
+            str(data.browser_worker_runtime.browser_worker_max_tasks_per_child),
+            '浏览器 Worker 子进程最大任务数'
+        )
+        await settings_repo.set(
+            'browser_worker_cpus',
+            str(data.browser_worker_runtime.browser_worker_cpus),
+            '浏览器 Worker CPU 限额 (0=不限制)'
+        )
+
     await db.commit()
     return await build_system_settings_response(settings_repo)
 

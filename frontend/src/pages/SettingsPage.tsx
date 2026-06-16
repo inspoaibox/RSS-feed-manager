@@ -1029,42 +1029,43 @@ function FeedsTab() {
                     <X className="w-4 h-4" />
                   </button>
                 </div>
+
+                {editData.translate_method !== 'none' && (
+                  <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded">
+                    <span className="text-sm dark:text-blue-200">翻译范围:</span>
+                    <label className="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={editData.translate_title}
+                        onChange={(e) => {
+                          const checked = e.target.checked
+                          if (!checked && !editData.translate_content) {
+                            setMessage({ type: 'error', text: '至少需要翻译标题或正文' })
+                            return
+                          }
+                          setEditData({ ...editData, translate_title: checked })
+                        }}
+                      />
+                      <span className="text-sm dark:text-blue-200">标题</span>
+                    </label>
+                    <label className="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={editData.translate_content}
+                        onChange={(e) => {
+                          const checked = e.target.checked
+                          if (!checked && !editData.translate_title) {
+                            setMessage({ type: 'error', text: '至少需要翻译标题或正文' })
+                            return
+                          }
+                          setEditData({ ...editData, translate_content: checked })
+                        }}
+                      />
+                      <span className="text-sm dark:text-blue-200">正文</span>
+                    </label>
+                  </div>
+                )}
               </div>
-                  {editData.translate_method !== 'none' && (
-                    <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded">
-                      <span className="text-sm dark:text-blue-200">翻译范围:</span>
-                      <label className="flex items-center gap-1">
-                        <input
-                          type="checkbox"
-                          checked={editData.translate_title}
-                          onChange={(e) => {
-                            const checked = e.target.checked
-                            if (!checked && !editData.translate_content) {
-                              setMessage({ type: 'error', text: '至少需要翻译标题或正文' })
-                              return
-                            }
-                            setEditData({ ...editData, translate_title: checked })
-                          }}
-                        />
-                        <span className="text-sm dark:text-blue-200">标题</span>
-                      </label>
-                      <label className="flex items-center gap-1">
-                        <input
-                          type="checkbox"
-                          checked={editData.translate_content}
-                          onChange={(e) => {
-                            const checked = e.target.checked
-                            if (!checked && !editData.translate_title) {
-                              setMessage({ type: 'error', text: '至少需要翻译标题或正文' })
-                              return
-                            }
-                            setEditData({ ...editData, translate_content: checked })
-                          }}
-                        />
-                        <span className="text-sm dark:text-blue-200">正文</span>
-                      </label>
-                    </div>
-                  )}
             ) : (
               <div className="flex items-center gap-4">
                 {/* Sort buttons - hide only when searching */}
@@ -5099,6 +5100,16 @@ function SystemTab() {
   const [syncIntervals, setSyncIntervals] = useState<SyncIntervalOption[]>([])
   const [defaultSyncInterval, setDefaultSyncInterval] = useState(3600)
   const [browserFetchSettings, setBrowserFetchSettings] = useState<BrowserFetchSettings>(DEFAULT_BROWSER_FETCH_SETTINGS)
+  const [workerSettings, setWorkerSettings] = useState<WorkerRuntimeSettings>({
+    worker_concurrency: 5,
+    worker_max_tasks_per_child: 20,
+    worker_cpus: 1.0,
+  })
+  const [browserWorkerSettings, setBrowserWorkerSettings] = useState<BrowserWorkerRuntimeSettings>({
+    browser_worker_concurrency: 3,
+    browser_worker_max_tasks_per_child: 20,
+    browser_worker_cpus: 0,
+  })
   const [oauthLinuxdo, setOauthLinuxdo] = useState<OAuthConfig>({
     enabled: false,
     client_id: '',
@@ -5125,6 +5136,12 @@ function SystemTab() {
       if (response.data.browser_fetch) {
         setBrowserFetchSettings(response.data.browser_fetch)
       }
+      if (response.data.worker_runtime) {
+        setWorkerSettings(response.data.worker_runtime)
+      }
+      if (response.data.browser_worker_runtime) {
+        setBrowserWorkerSettings(response.data.browser_worker_runtime)
+      }
       return response.data
     },
   })
@@ -5146,7 +5163,7 @@ function SystemTab() {
   })
 
   const updateSettingsMutation = useMutation({
-    mutationFn: async (data: { 
+    mutationFn: async (data: {
       allow_registration?: boolean
       site_name?: string
       oauth_linuxdo?: OAuthConfig
@@ -5157,6 +5174,8 @@ function SystemTab() {
       show_ai_analysis_menu?: boolean
       show_recommendations_menu?: boolean
       browser_fetch?: BrowserFetchSettings
+      worker_runtime?: WorkerRuntimeSettings
+      browser_worker_runtime?: BrowserWorkerRuntimeSettings
     }) => {
       const response = await api.put('/system/settings', data)
       return response.data
@@ -5419,66 +5438,152 @@ function SystemTab() {
         <div className="p-4 border dark:border-gray-700 rounded-lg">
           <h3 className="font-medium mb-4 dark:text-white flex items-center gap-2">
             <RefreshCw className="w-5 h-5" />
-            任务队列启动参数
+            任务队列配置
           </h3>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded">
+          <div className="space-y-6">
+            {/* 普通 Worker 配置 */}
+            <div className="p-4 border dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <h4 className="font-medium dark:text-gray-100">普通 Worker</h4>
                 <span className="text-xs font-mono text-gray-500 dark:text-gray-400">feed, translation, celery</span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-                <div>
-                  <span className="block text-gray-500 dark:text-gray-400 mb-1">并发数</span>
-                  <span className="font-mono dark:text-white">{settings?.worker_runtime?.worker_concurrency ?? '-'}</span>
-                </div>
-                <div>
-                  <span className="block text-gray-500 dark:text-gray-400 mb-1">子进程任务数</span>
-                  <span className="font-mono dark:text-white">{settings?.worker_runtime?.worker_max_tasks_per_child ?? '-'}</span>
-                </div>
-                <div>
-                  <span className="block text-gray-500 dark:text-gray-400 mb-1">CPU 限额</span>
-                  <span className="font-mono dark:text-white">{formatCpuLimit(settings?.worker_runtime?.worker_cpus)}</span>
-                </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <label className="block">
+                  <span className="block text-sm font-medium dark:text-gray-300 mb-1">并发数</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={workerSettings.worker_concurrency}
+                    onChange={(e) => setWorkerSettings({ ...workerSettings, worker_concurrency: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">当前: {settings?.worker_runtime?.worker_concurrency ?? '-'}</p>
+                </label>
+
+                <label className="block">
+                  <span className="block text-sm font-medium dark:text-gray-300 mb-1">子进程最大任务数</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={workerSettings.worker_max_tasks_per_child}
+                    onChange={(e) => setWorkerSettings({ ...workerSettings, worker_max_tasks_per_child: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">当前: {settings?.worker_runtime?.worker_max_tasks_per_child ?? '-'}</p>
+                </label>
+
+                <label className="block">
+                  <span className="block text-sm font-medium dark:text-gray-300 mb-1">CPU 限额</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={16}
+                    step={0.1}
+                    value={workerSettings.worker_cpus}
+                    onChange={(e) => setWorkerSettings({ ...workerSettings, worker_cpus: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">当前: {formatCpuLimit(settings?.worker_runtime?.worker_cpus)}</p>
+                </label>
               </div>
-              <div className="mt-4 grid grid-cols-1 gap-2 text-xs text-gray-500 dark:text-gray-400">
-                <code>WORKER_CONCURRENCY</code>
-                <code>WORKER_MAX_TASKS_PER_CHILD</code>
-                <code>WORKER_CPUS</code>
-              </div>
+
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
+                提示：0 表示不限制 CPU，建议根据服务器性能调整
+              </p>
             </div>
 
-            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded">
+            {/* 浏览器 Worker 配置 */}
+            <div className="p-4 border dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800">
               <div className="flex items-center justify-between gap-3 mb-4">
-                <h4 className="font-medium dark:text-gray-100">Browser Worker</h4>
+                <h4 className="font-medium dark:text-gray-100">浏览器 Worker</h4>
                 <span className="text-xs font-mono text-gray-500 dark:text-gray-400">browser</span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-                <div>
-                  <span className="block text-gray-500 dark:text-gray-400 mb-1">并发数</span>
-                  <span className="font-mono dark:text-white">{settings?.browser_worker_runtime?.browser_worker_concurrency ?? '-'}</span>
-                </div>
-                <div>
-                  <span className="block text-gray-500 dark:text-gray-400 mb-1">子进程任务数</span>
-                  <span className="font-mono dark:text-white">{settings?.browser_worker_runtime?.browser_worker_max_tasks_per_child ?? '-'}</span>
-                </div>
-                <div>
-                  <span className="block text-gray-500 dark:text-gray-400 mb-1">CPU 限额</span>
-                  <span className="font-mono dark:text-white">{formatCpuLimit(settings?.browser_worker_runtime?.browser_worker_cpus)}</span>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <label className="block">
+                  <span className="block text-sm font-medium dark:text-gray-300 mb-1">并发数</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={browserWorkerSettings.browser_worker_concurrency}
+                    onChange={(e) => setBrowserWorkerSettings({ ...browserWorkerSettings, browser_worker_concurrency: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">当前: {settings?.browser_worker_runtime?.browser_worker_concurrency ?? '-'}</p>
+                </label>
+
+                <label className="block">
+                  <span className="block text-sm font-medium dark:text-gray-300 mb-1">子进程最大任务数</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={browserWorkerSettings.browser_worker_max_tasks_per_child}
+                    onChange={(e) => setBrowserWorkerSettings({ ...browserWorkerSettings, browser_worker_max_tasks_per_child: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">当前: {settings?.browser_worker_runtime?.browser_worker_max_tasks_per_child ?? '-'}</p>
+                </label>
+
+                <label className="block">
+                  <span className="block text-sm font-medium dark:text-gray-300 mb-1">CPU 限额</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={16}
+                    step={0.1}
+                    value={browserWorkerSettings.browser_worker_cpus}
+                    onChange={(e) => setBrowserWorkerSettings({ ...browserWorkerSettings, browser_worker_cpus: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">当前: {formatCpuLimit(settings?.browser_worker_runtime?.browser_worker_cpus)}</p>
+                </label>
+              </div>
+
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
+                提示：浏览器 Worker 消耗内存较多，建议并发数不超过 5
+              </p>
+            </div>
+
+            {/* 保存按钮和说明 */}
+            <div className="border-t dark:border-gray-700 pt-4">
+              <button
+                onClick={() => updateSettingsMutation.mutate({
+                  worker_runtime: workerSettings,
+                  browser_worker_runtime: browserWorkerSettings
+                })}
+                disabled={updateSettingsMutation.isPending}
+                className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50 transition-colors"
+              >
+                {updateSettingsMutation.isPending ? '保存中...' : '保存配置'}
+              </button>
+
+              <div className="mt-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded">
+                <h5 className="font-medium text-yellow-800 dark:text-yellow-200 mb-2">⚠️ 重要提示</h5>
+                <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-3">
+                  配置保存后需要重启对应的 Worker 容器才能生效。请在服务器上执行以下命令：
+                </p>
+                <div className="bg-gray-900 dark:bg-gray-950 text-gray-100 p-3 rounded font-mono text-xs overflow-x-auto">
+                  docker restart rss_manager_celery_worker rss_manager_celery_browser_worker
                 </div>
               </div>
-              <div className="mt-4 grid grid-cols-1 gap-2 text-xs text-gray-500 dark:text-gray-400">
-                <code>BROWSER_WORKER_CONCURRENCY</code>
-                <code>BROWSER_WORKER_MAX_TASKS_PER_CHILD</code>
-                <code>BROWSER_WORKER_CPUS</code>
+
+              <div className="mt-4 text-sm text-gray-600 dark:text-gray-400">
+                <p className="font-medium mb-2">配置建议（根据服务器规格）：</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                  <div>• 1核2G: 普通Worker并发1, CPU 0.8</div>
+                  <div>• 2核4G: 普通Worker并发2, CPU 1.5</div>
+                  <div>• 4核8G: 普通Worker并发3, CPU 2.0</div>
+                  <div>• 8核16G: 普通Worker并发5, CPU 4.0</div>
+                </div>
               </div>
             </div>
           </div>
-
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-4">
-            这些值来自 .env.production，修改后重建对应 worker 容器生效。
-          </p>
         </div>
       )}
 

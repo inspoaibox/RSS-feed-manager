@@ -58,6 +58,8 @@ export interface Feed {
   source_language: string | null
   target_language: string | null
   translate_method: TranslateMethod
+  translate_title: boolean
+  translate_content: boolean
   use_playwright: boolean
   browser_engine: FeedBrowserEngine
   proxy_enabled: boolean
@@ -273,6 +275,8 @@ export interface CustomRule {
   source_language: string | null
   target_language: string | null
   translate_method: TranslateMethod
+  translate_title: boolean
+  translate_content: boolean
   is_active: boolean
   category_id: number | null
   last_fetched_at: string | null
