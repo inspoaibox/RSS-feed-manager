@@ -42,6 +42,16 @@ export default function AddSubscriptionModal({ onClose, onSubmit, isLoading }: A
     enabled: formData.subscription_type === 'category',
   })
 
+  // Fetch keywords
+  const { data: keywordsData } = useQuery({
+    queryKey: ['keywords'],
+    queryFn: async () => {
+      const response = await api.get<{ id: number; name: string; keyword: string }[]>('/keywords')
+      return response.data
+    },
+    enabled: formData.subscription_type === 'keyword',
+  })
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -180,6 +190,34 @@ export default function AddSubscriptionModal({ onClose, onSubmit, isLoading }: A
               <label className="block text-sm font-medium dark:text-gray-300 mb-1">
                 关键词 <span className="text-red-500">*</span>
               </label>
+
+              {keywordsData && keywordsData.length > 0 ? (
+                <>
+                  <select
+                    value={formData.keyword || ''}
+                    onChange={(e) => {
+                      const selectedKeyword = keywordsData.find(k => k.keyword === e.target.value)
+                      setFormData({
+                        ...formData,
+                        keyword: e.target.value,
+                        name: selectedKeyword?.name || formData.name
+                      })
+                    }}
+                    className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-700 dark:text-white mb-2"
+                  >
+                    <option value="">选择已有关键词...</option>
+                    {keywordsData.map((kw) => (
+                      <option key={kw.id} value={kw.keyword}>
+                        {kw.name} ({kw.keyword})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    或手动输入新关键词：
+                  </p>
+                </>
+              ) : null}
+
               <input
                 type="text"
                 value={formData.keyword || ''}
