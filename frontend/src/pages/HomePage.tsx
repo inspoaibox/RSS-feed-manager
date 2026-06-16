@@ -798,7 +798,8 @@ export default function HomePage() {
                           </div>
                         </div>
                       )}
-                      {selectedArticle.translation && (hasTranslatedTitle || hasTranslatedContent) && (
+                      {/* 只有当标题和正文都有翻译时，才显示译文/原文切换按钮 */}
+                      {selectedArticle.translation && hasTranslatedTitle && hasTranslatedContent && (
                         <div className="mb-4 flex gap-2">
                           <button
                             onClick={() => setShowTranslation(true)}
@@ -818,6 +819,12 @@ export default function HomePage() {
                           >
                             原文
                           </button>
+                        </div>
+                      )}
+                      {/* 如果只翻译了标题，显示提示 */}
+                      {selectedArticle.translation && hasTranslatedTitle && !hasTranslatedContent && (
+                        <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded text-sm text-blue-700 dark:text-blue-300">
+                          💡 当前仅翻译了标题，正文显示原文。点击右上角 <Languages className="w-3 h-3 inline mx-1" /> 按钮可翻译全文。
                         </div>
                       )}
                       {showingTranslation && hasTranslatedContent ? (
