@@ -201,7 +201,7 @@ async def toggle_subscription(
 async def get_pushes(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
-    status: str | None = Query(None, regex="^(sent|read|clicked|failed)$"),
+    status: str | None = Query(None, pattern="^(sent|read|clicked|failed)$"),
     user_id: int = CurrentUserId,
     db: AsyncSession = DbSession,
 ):
