@@ -12,6 +12,7 @@ from app.models.keyword_subscription import KeywordSubscription
 from app.models.proxy_pool import ProxyPoolEntry
 from app.models.google_translate_key import GoogleTranslateKey
 from app.models.argos_translation_log import ArgosTranslationLog
+from app.models.push_notification import NotificationSubscription, NotificationPush, WebPushSubscription
 
 __all__ = [
     "User",
@@ -29,4 +30,7 @@ __all__ = [
     "ProxyPoolEntry",
     "GoogleTranslateKey",
     "ArgosTranslationLog",
+    "NotificationSubscription",
+    "NotificationPush",
+    "WebPushSubscription",
 ]
