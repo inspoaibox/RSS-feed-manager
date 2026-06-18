@@ -36,6 +36,7 @@ from app.schemas.google_translate_key import (
     GoogleTranslateKeyUpdate,
 )
 from app.models.argos_translation_log import ArgosTranslationLog
+from app.models.user import User
 from app.services.ai_service import AIService
 from app.services.argos_translate_service import (
     ArgosTranslateError,
@@ -47,6 +48,7 @@ from app.services.argos_translate_service import (
 from app.services.content_analysis_service import ContentAnalysisService
 from app.services.embedding_service import EmbeddingService
 from app.services.google_translate_key_service import GoogleTranslateKeyService
+from app.services.mc_translation_service import McTranslationError, McTranslationService
 from app.repositories.analysis_query_repository import AnalysisQueryRepository
 from app.repositories.ai_repository import AIProviderRepository
 from app.services.ai_client import create_ai_client
@@ -194,6 +196,31 @@ async def update_ai_settings(
     """Update AI prompt settings."""
     service = AIService(db)
     return await service.update_settings(user_id, data)
+
+
+@router.post("/mc-translation/test")
+async def test_mc_translation(user_id: CurrentUserId, db: DbSession):
+    """Test Mc-Translation settings for the current user."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    try:
+        translation = await McTranslationService(
+            api_key=user.mc_translation_api_key,
+            base_url=user.mc_translation_base_url,
+            model=user.mc_translation_model,
+            source_language="en",
+        ).translate("Hello", "zh", "en")
+    except McTranslationError as exc:
+        return {"success": False, "message": str(exc), "translation": None}
+
+    return {
+        "success": bool(translation),
+        "message": "Mc-Translation connection successful",
+        "translation": translation,
+    }
 
 
 @router.get("/argos/packages", response_model=ArgosPackagesResponse)

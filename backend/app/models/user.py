@@ -54,6 +54,11 @@ class User(BaseModel):
     # Argos Translate default source language (optional, e.g. auto, en, ja)
     argos_source_language: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
+    # Mc-Translation settings
+    mc_translation_api_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    mc_translation_base_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    mc_translation_model: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     # Relationships
     categories: Mapped[List["Category"]] = relationship(
         "Category", back_populates="user", cascade="all, delete-orphan"

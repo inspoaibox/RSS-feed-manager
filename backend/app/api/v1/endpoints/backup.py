@@ -338,6 +338,9 @@ async def generate_backup_data(db: DbSession, user_id: int) -> dict:
             "embedding_model": getattr(user, "embedding_model", None),
             "google_translate_api_key": getattr(user, "google_translate_api_key", None),
             "argos_source_language": getattr(user, "argos_source_language", None),
+            "mc_translation_api_key": getattr(user, "mc_translation_api_key", None),
+            "mc_translation_base_url": getattr(user, "mc_translation_base_url", None),
+            "mc_translation_model": getattr(user, "mc_translation_model", None),
             "webdav_config": webdav_config,
         },
         "categories": [
@@ -852,6 +855,9 @@ async def import_backup_data(db: DbSession, user_id: int, data: dict) -> ImportR
                     "embedding_model": user_settings.get("embedding_model"),
                     "google_translate_api_key": user_settings.get("google_translate_api_key"),
                     "argos_source_language": user_settings.get("argos_source_language"),
+                    "mc_translation_api_key": user_settings.get("mc_translation_api_key"),
+                    "mc_translation_base_url": user_settings.get("mc_translation_base_url"),
+                    "mc_translation_model": user_settings.get("mc_translation_model"),
                 }
                 if _apply_attrs(user, values, list(values.keys())):
                     _increment(import_result, "updated")

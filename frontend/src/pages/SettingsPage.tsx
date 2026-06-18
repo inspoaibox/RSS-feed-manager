@@ -48,6 +48,10 @@ const getTranslationLanguageLabel = (value: string | null | undefined) => {
   return translationSourceLanguages.find((language) => language.value === value)?.label || value
 }
 
+const sourceLanguageTranslateMethods = new Set<TranslateMethod>(['argos', 'mc_translation'])
+const activeTranslateMethods: TranslateMethod[] = ['ai', 'google', 'argos', 'mc_translation']
+const usesSourceLanguage = (method: TranslateMethod) => sourceLanguageTranslateMethods.has(method)
+
 type ProxyUpdatePayload = {
   raw?: string
   default_protocol?: ProxyProtocol
@@ -264,7 +268,7 @@ function FeedsTab() {
         proxy_pool_protocol: newFeedProxyMode === 'pool' && newFeedProxyPoolProtocol ? newFeedProxyPoolProtocol : null,
         auto_translate: newFeedTranslateMethod !== 'none',
         auto_summarize: newFeedAutoSummarize,
-        source_language: newFeedTranslateMethod === 'argos' && newFeedSourceLanguage ? newFeedSourceLanguage : null,
+        source_language: usesSourceLanguage(newFeedTranslateMethod) && newFeedSourceLanguage ? newFeedSourceLanguage : null,
         target_language: newFeedTranslateMethod !== 'none' ? newFeedTargetLanguage : null,
         translate_method: newFeedTranslateMethod,
         translate_title: newFeedTranslateTitle,
@@ -309,7 +313,7 @@ function FeedsTab() {
         proxy_url: data.proxy_mode === 'single' ? data.proxy_url.trim() : null,
         proxy_pool_country: data.proxy_mode === 'pool' && data.proxy_pool_country ? data.proxy_pool_country : null,
         proxy_pool_protocol: data.proxy_mode === 'pool' && data.proxy_pool_protocol ? data.proxy_pool_protocol : null,
-        source_language: data.translate_method === 'argos' && data.source_language ? data.source_language : null,
+        source_language: usesSourceLanguage(data.translate_method) && data.source_language ? data.source_language : null,
       })
       return response.data
     },
@@ -723,10 +727,11 @@ function FeedsTab() {
                 <option value="none">不翻译</option>
                 <option value="google">Google 翻译</option>
                 <option value="argos">本地翻译</option>
+                <option value="mc_translation">Mc-Translation</option>
                 <option value="ai" disabled={!hasDefaultModel}>AI 翻译{!hasDefaultModel ? ' (需配置)' : ''}</option>
               </select>
             </div>
-            {newFeedTranslateMethod === 'argos' && (
+            {usesSourceLanguage(newFeedTranslateMethod) && (
               <select
                 value={newFeedSourceLanguage}
                 onChange={(e) => setNewFeedSourceLanguage(e.target.value)}
@@ -964,7 +969,7 @@ function FeedsTab() {
                           ...editData,
                           translate_method: method,
                           auto_translate: method !== 'none',
-                          source_language: method === 'argos' ? editData.source_language : '',
+                          source_language: usesSourceLanguage(method) ? editData.source_language : '',
                         })
                       }}
                       className="px-2 py-1 border dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-800 dark:text-white"
@@ -972,10 +977,11 @@ function FeedsTab() {
                       <option value="none">不翻译</option>
                       <option value="google">Google</option>
                       <option value="argos">本地</option>
+                      <option value="mc_translation">Mc-Translation</option>
                       <option value="ai" disabled={!hasDefaultModel}>AI{!hasDefaultModel ? ' (需配置)' : ''}</option>
                     </select>
                   </div>
-                  {editData.translate_method === 'argos' && (
+                  {usesSourceLanguage(editData.translate_method) && (
                     <select
                       value={editData.source_language}
                       onChange={(e) => setEditData({ ...editData, source_language: e.target.value })}
@@ -1122,6 +1128,9 @@ function FeedsTab() {
                     {feed.translate_method === 'argos' && (
                       <span className="text-emerald-600 dark:text-emerald-400">本地翻译</span>
                     )}
+                    {feed.translate_method === 'mc_translation' && (
+                      <span className="text-cyan-600 dark:text-cyan-400">Mc-Translation</span>
+                    )}
                     {feed.auto_summarize && (
                       <span className="text-green-600 dark:text-green-400">📝 AI整理</span>
                     )}
@@ -1140,7 +1149,7 @@ function FeedsTab() {
                     </button>
                   )
                 })()}
-                {(['ai', 'google', 'argos'] as TranslateMethod[]).includes(feed.translate_method) && (
+                {activeTranslateMethods.includes(feed.translate_method) && (
                   <button
                     onClick={() => translateAllMutation.mutate(feed.id)}
                     disabled={translateAllMutation.isPending}
@@ -2018,6 +2027,9 @@ function AITab() {
         embedding_provider_id: number | null
         embedding_model: string | null
         argos_source_language: string | null
+        mc_translation_api_key: string | null
+        mc_translation_base_url: string | null
+        mc_translation_model: string | null
       }>('/ai/settings')
       return response.data
     },
@@ -2068,6 +2080,17 @@ function AITab() {
     text: 'Hello world',
   })
   const [argosTestResult, setArgosTestResult] = useState<ArgosPackageTestResult | null>(null)
+  const [mcTranslationConfig, setMcTranslationConfig] = useState({
+    api_key: '',
+    base_url: 'https://fanyi.aboen.com',
+    model: 'argos',
+  })
+  const [mcTranslationLoaded, setMcTranslationLoaded] = useState(false)
+  const [mcTranslationTestResult, setMcTranslationTestResult] = useState<{
+    success: boolean
+    message: string
+    translation: string | null
+  } | null>(null)
 
   const buildGoogleKeyPayload = (form: typeof newGoogleKey, includeApiKey: boolean) => ({
     name: form.name.trim(),
@@ -2099,6 +2122,15 @@ function AITab() {
   if (settings && !argosSettingsLoaded) {
     setArgosSourceLanguage(settings.argos_source_language || 'en')
     setArgosSettingsLoaded(true)
+  }
+
+  if (settings && !mcTranslationLoaded) {
+    setMcTranslationConfig({
+      api_key: settings.mc_translation_api_key || '',
+      base_url: settings.mc_translation_base_url || 'https://fanyi.aboen.com',
+      model: settings.mc_translation_model || 'argos',
+    })
+    setMcTranslationLoaded(true)
   }
   const addProviderMutation = useMutation({
     mutationFn: async () => {
@@ -2200,6 +2232,46 @@ function AITab() {
     },
     onError: (err: any) => {
       setMessage({ type: 'error', text: err.response?.data?.detail || '保存失败' })
+    },
+  })
+
+  const saveMcTranslationConfigMutation = useMutation({
+    mutationFn: async () => {
+      await api.put('/ai/settings', {
+        mc_translation_api_key: mcTranslationConfig.api_key.trim() || null,
+        mc_translation_base_url: mcTranslationConfig.base_url.trim() || 'https://fanyi.aboen.com',
+        mc_translation_model: mcTranslationConfig.model.trim() || 'argos',
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ai-settings'] })
+      setMessage({ type: 'success', text: 'Mc-Translation 设置已保存' })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: any) => {
+      setMessage({ type: 'error', text: err.response?.data?.detail || '保存失败' })
+    },
+  })
+
+  const testMcTranslationMutation = useMutation({
+    mutationFn: async () => {
+      await api.put('/ai/settings', {
+        mc_translation_api_key: mcTranslationConfig.api_key.trim() || null,
+        mc_translation_base_url: mcTranslationConfig.base_url.trim() || 'https://fanyi.aboen.com',
+        mc_translation_model: mcTranslationConfig.model.trim() || 'argos',
+      })
+      const response = await api.post<{ success: boolean; message: string; translation: string | null }>('/ai/mc-translation/test')
+      return response.data
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['ai-settings'] })
+      setMcTranslationTestResult(data)
+      setMessage({ type: data.success ? 'success' : 'error', text: data.message })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: unknown) => {
+      setMcTranslationTestResult(null)
+      setMessage({ type: 'error', text: getApiErrorMessage(err, 'Mc-Translation 测试失败') })
     },
   })
 
@@ -2829,6 +2901,66 @@ function AITab() {
         </div>
       </div>
 
+      {/* Mc-Translation Configuration */}
+      <div className="p-4 border dark:border-gray-700 rounded bg-cyan-50 dark:bg-cyan-900/30">
+        <h2 className="text-lg font-semibold mb-3 dark:text-white flex items-center gap-2">
+          <Languages className="w-5 h-5" /> Mc-Translation
+        </h2>
+        <div className="space-y-3">
+          <div className="grid gap-2 md:grid-cols-[1fr_160px_1fr]">
+            <input
+              type="text"
+              value={mcTranslationConfig.base_url}
+              onChange={(e) => setMcTranslationConfig({ ...mcTranslationConfig, base_url: e.target.value })}
+              placeholder="https://fanyi.aboen.com"
+              className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+            />
+            <input
+              type="text"
+              value={mcTranslationConfig.model}
+              onChange={(e) => setMcTranslationConfig({ ...mcTranslationConfig, model: e.target.value })}
+              placeholder="argos"
+              className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+            />
+            <input
+              type="password"
+              value={mcTranslationConfig.api_key}
+              onChange={(e) => setMcTranslationConfig({ ...mcTranslationConfig, api_key: e.target.value })}
+              placeholder="API Key"
+              className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+            />
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => saveMcTranslationConfigMutation.mutate()}
+              disabled={saveMcTranslationConfigMutation.isPending}
+              className="px-4 py-2 bg-cyan-600 text-white rounded hover:bg-cyan-700 disabled:opacity-50"
+            >
+              保存 Mc-Translation
+            </button>
+            <button
+              onClick={() => testMcTranslationMutation.mutate()}
+              disabled={testMcTranslationMutation.isPending || !mcTranslationConfig.api_key.trim()}
+              className="px-4 py-2 border border-cyan-300 dark:border-cyan-700 text-cyan-700 dark:text-cyan-300 rounded hover:bg-cyan-100 dark:hover:bg-cyan-900/50 disabled:opacity-50"
+            >
+              测试连接
+            </button>
+          </div>
+          {mcTranslationTestResult && (
+            <div className={`p-2 text-sm border rounded ${
+              mcTranslationTestResult.success
+                ? 'text-cyan-700 dark:text-cyan-300 bg-cyan-50 dark:bg-cyan-900/30 border-cyan-200 dark:border-cyan-800'
+                : 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-800'
+            }`}>
+              <div>{mcTranslationTestResult.message}</div>
+              {mcTranslationTestResult.translation && (
+                <div className="mt-1 text-gray-700 dark:text-gray-200 break-words">{mcTranslationTestResult.translation}</div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Google Translate API Keys */}
       <div className="p-4 border dark:border-gray-700 rounded bg-yellow-50 dark:bg-yellow-900/30">
         <h2 className="text-lg font-semibold mb-3 dark:text-white flex items-center gap-2">
@@ -3325,7 +3457,7 @@ function RulesTab() {
         proxy_pool_country: formData.proxy_mode === 'pool' && formData.proxy_pool_country ? formData.proxy_pool_country : null,
         proxy_pool_protocol: formData.proxy_mode === 'pool' && formData.proxy_pool_protocol ? formData.proxy_pool_protocol : null,
         auto_translate: formData.translate_method !== 'none',
-        source_language: formData.translate_method === 'argos' && formData.source_language ? formData.source_language : null,
+        source_language: usesSourceLanguage(formData.translate_method) && formData.source_language ? formData.source_language : null,
         target_language: formData.translate_method !== 'none' ? formData.target_language : null,
       }
       await api.post('/rules', payload)
@@ -3358,7 +3490,7 @@ function RulesTab() {
         proxy_pool_country: data.proxy_mode === 'pool' && data.proxy_pool_country ? data.proxy_pool_country : null,
         proxy_pool_protocol: data.proxy_mode === 'pool' && data.proxy_pool_protocol ? data.proxy_pool_protocol : null,
         auto_translate: data.translate_method !== 'none',
-        source_language: data.translate_method === 'argos' && data.source_language ? data.source_language : null,
+        source_language: usesSourceLanguage(data.translate_method) && data.source_language ? data.source_language : null,
         target_language: data.translate_method !== 'none' ? data.target_language : null,
       }
       await api.put(`/rules/${id}`, payload)
@@ -3682,7 +3814,7 @@ function RulesTab() {
                 ...formData,
                 translate_method: method,
                 auto_translate: method !== 'none',
-                source_language: method === 'argos' ? formData.source_language : '',
+                source_language: usesSourceLanguage(method) ? formData.source_language : '',
               })
             }}
             className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
@@ -3690,9 +3822,10 @@ function RulesTab() {
             <option value="none">不翻译</option>
             <option value="google">Google 翻译</option>
             <option value="argos">本地翻译</option>
+            <option value="mc_translation">Mc-Translation</option>
             <option value="ai" disabled={!hasDefaultModel}>AI 翻译{!hasDefaultModel ? ' (需配置)' : ''}</option>
           </select>
-          {formData.translate_method === 'argos' && (
+          {usesSourceLanguage(formData.translate_method) && (
             <select
               value={formData.source_language}
               onChange={(e) => setFormData({ ...formData, source_language: e.target.value })}
@@ -3961,6 +4094,7 @@ function RulesTab() {
                       {rule.translate_method === 'google' && <span>Google翻译</span>}
                       {rule.translate_method === 'ai' && <span>AI翻译</span>}
                       {rule.translate_method === 'argos' && <span>本地翻译</span>}
+                      {rule.translate_method === 'mc_translation' && <span>Mc-Translation</span>}
                       {rule.proxy_mode === 'single' && <span>单个代理</span>}
                       {rule.proxy_mode === 'pool' && (
                         <span>

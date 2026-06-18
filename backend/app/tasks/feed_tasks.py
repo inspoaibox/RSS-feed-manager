@@ -604,6 +604,19 @@ def _perform_article_translation_sync(
                 source_language
             ).translate_article_sync(title, content, target)
 
+        elif translate_method == "mc_translation":
+            from app.services.mc_translation_service import McTranslationService
+
+            source_language = getattr(feed, "source_language", None) or "en"
+            translated_title, translated_content = loop.run_until_complete(
+                McTranslationService(
+                    api_key=user.mc_translation_api_key if user else None,
+                    base_url=user.mc_translation_base_url if user else None,
+                    model=user.mc_translation_model if user else None,
+                    source_language=source_language,
+                ).translate_article(title, content, target, source_language)
+            )
+
         elif translate_method == "ai":
             default_model = db.execute(
                 select(AIModel)

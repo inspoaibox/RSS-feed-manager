@@ -309,6 +309,9 @@ class AIService:
             "embedding_model": user.embedding_model if user else None,
             "google_translate_api_key": user.google_translate_api_key if user else None,
             "argos_source_language": (user.argos_source_language or "en") if user else "en",
+            "mc_translation_api_key": user.mc_translation_api_key if user else None,
+            "mc_translation_base_url": (user.mc_translation_base_url or "https://fanyi.aboen.com") if user else "https://fanyi.aboen.com",
+            "mc_translation_model": (user.mc_translation_model or "argos") if user else "argos",
         }
 
     async def update_settings(self, user_id: int, data: dict) -> dict:
@@ -334,6 +337,12 @@ class AIService:
             user.google_translate_api_key = data["google_translate_api_key"]
         if "argos_source_language" in data:
             user.argos_source_language = data["argos_source_language"]
+        if "mc_translation_api_key" in data:
+            user.mc_translation_api_key = data["mc_translation_api_key"]
+        if "mc_translation_base_url" in data:
+            user.mc_translation_base_url = data["mc_translation_base_url"]
+        if "mc_translation_model" in data:
+            user.mc_translation_model = data["mc_translation_model"]
         
         await self.session.commit()
         

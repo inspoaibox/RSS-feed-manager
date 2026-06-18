@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, HttpUrl
 FeedBrowserEngine = Literal["http", "playwright", "cloakbrowser"]
 FeedProxyMode = Literal["none", "single", "pool"]
 FeedProxyProtocol = Literal["http", "https", "socks4", "socks5", "socks5h"]
-FeedTranslateMethod = Literal["none", "ai", "google", "argos"]
+FeedTranslateMethod = Literal["none", "ai", "google", "argos", "mc_translation"]
 
 
 class FeedCreate(BaseModel):
