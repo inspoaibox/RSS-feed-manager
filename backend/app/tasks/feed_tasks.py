@@ -16,6 +16,11 @@ from app.models.feed import Feed
 from app.models.custom_rule import CustomRule
 from app.models.proxy_pool import ProxyPoolEntry
 from app.models.ai_provider import AIModel, AIProvider
+from app.services.ai_translation_service import (
+    plain_text_to_html,
+    select_translation_body_input,
+    translate_text_with_chunking,
+)
 from app.services.browser_fetch_settings import load_browser_fetch_settings_sync
 from app.utils.feed_parser import (
     FeedParserError,
@@ -225,7 +230,11 @@ def _translation_method_for_feed(feed: Feed) -> str:
 
 
 def _has_translatable_article_text(article: Article) -> bool:
-    return bool((article.title or "").strip() or (article.content or "").strip())
+    return bool(
+        (article.title or "").strip()
+        or (article.full_content or "").strip()
+        or (article.content or "").strip()
+    )
 
 
 def _mark_article_translation_queued(
@@ -566,8 +575,14 @@ def _perform_article_translation_sync(
     # Prepare input based on translation scope
     title = (article.title or "") if translate_title else ""
     content = (article.content or "") if translate_content else ""
+    ai_content = (
+        select_translation_body_input(article.full_content, article.content)
+        if translate_method == "ai" and translate_content
+        else content
+    )
+    effective_content = ai_content if translate_method == "ai" else content
 
-    if not title and not content:
+    if not title and not effective_content:
         raise ValueError("Article has no content to translate")
 
     user = db.execute(
@@ -647,15 +662,20 @@ def _perform_article_translation_sync(
                 default_model.model_id,
             )
             translated_title = (
-                loop.run_until_complete(client.translate(title, target, translate_prompt))
+                loop.run_until_complete(
+                    translate_text_with_chunking(client, title, target, translate_prompt)
+                )
                 if title
                 else ""
             )
-            translated_content = (
-                loop.run_until_complete(client.translate(content, target, translate_prompt))
-                if content
+            translated_content_text = (
+                loop.run_until_complete(
+                    translate_text_with_chunking(client, ai_content, target, translate_prompt)
+                )
+                if ai_content
                 else ""
             )
+            translated_content = plain_text_to_html(translated_content_text) if translated_content_text else ""
 
         else:
             raise ValueError(f"Unsupported translate method: {translate_method}")

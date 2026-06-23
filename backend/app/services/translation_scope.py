@@ -19,7 +19,13 @@ def has_translatable_article_text(article: Any, source: Any) -> bool:
     translate_title, translate_content = translation_targets_for_source(source)
     return bool(
         (translate_title and (getattr(article, "title", None) or "").strip())
-        or (translate_content and (getattr(article, "content", None) or "").strip())
+        or (
+            translate_content
+            and (
+                (getattr(article, "full_content", None) or "").strip()
+                or (getattr(article, "content", None) or "").strip()
+            )
+        )
     )
 
 

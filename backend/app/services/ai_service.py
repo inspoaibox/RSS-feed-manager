@@ -1,6 +1,8 @@
 """AI service for managing providers, models, and AI operations."""
 from datetime import datetime
+import re
 from typing import List
+from urllib.parse import urlparse
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +19,56 @@ from app.schemas.ai import (
     AIProviderUpdate,
 )
 from app.services.ai_client import AIClientError, create_ai_client
+from app.services.ai_translation_service import translate_text_with_chunking
+
+
+_OPENAI_COMPATIBLE_ENDPOINT_SUFFIXES = (
+    "/chat/completions",
+    "/responses",
+    "/models",
+    "/embeddings",
+    "/completions",
+)
+
+
+def _normalize_provider_base_url(provider_type: str, base_url: str | None, *, required: bool) -> str | None:
+    """Normalize and validate provider base URLs."""
+    normalized = base_url.strip() if isinstance(base_url, str) else None
+    if normalized == "":
+        normalized = None
+
+    if provider_type != "openai_compatible":
+        return None
+
+    if not normalized:
+        if required:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="OpenAI 兼容渠道必须填写 Base URL",
+            )
+        return None
+
+    parsed = urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Base URL 必须是完整的 http(s) 地址，例如 https://api.example.com/v1",
+        )
+
+    normalized_path = (parsed.path or "").rstrip("/")
+    lowered_path = normalized_path.lower()
+    if any(lowered_path.endswith(suffix) for suffix in _OPENAI_COMPATIBLE_ENDPOINT_SUFFIXES):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Base URL 请填写到 API 根路径，不要直接填写 /chat/completions、/models 等具体接口",
+        )
+
+    if not re.search(r"/v\d+([a-z0-9._-]*)?$", lowered_path):
+        normalized = f"{normalized.rstrip('/')}/v1"
+    else:
+        normalized = normalized.rstrip("/")
+
+    return normalized
 
 
 class AIService:
@@ -31,12 +83,17 @@ class AIService:
     # Provider operations
     async def create_provider(self, user_id: int, data: AIProviderCreate) -> AIProviderResponse:
         """Create a new AI provider."""
+        normalized_base_url = _normalize_provider_base_url(
+            data.type,
+            data.base_url,
+            required=data.type == "openai_compatible",
+        )
         provider = await self.provider_repo.create(
             user_id=user_id,
             name=data.name,
             type=data.type,
             api_key=data.api_key,
-            base_url=data.base_url
+            base_url=normalized_base_url
         )
 
         provider = await self.provider_repo.get_with_models(provider.id, user_id)
@@ -63,6 +120,17 @@ class AIService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found")
         
         update_data = data.model_dump(exclude_unset=True)
+        if "base_url" in update_data:
+            update_data["base_url"] = _normalize_provider_base_url(
+                provider.type,
+                update_data["base_url"],
+                required=provider.type == "openai_compatible",
+            )
+        elif provider.type == "openai_compatible" and not provider.base_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="OpenAI 兼容渠道必须填写 Base URL",
+            )
         provider = await self.provider_repo.update(provider, **update_data)
         provider = await self.provider_repo.get_with_models(provider_id, user_id)
         return self._provider_to_response(provider)
@@ -220,7 +288,7 @@ class AIService:
             article.translation_started_at = datetime.utcnow()
             article.translation_completed_at = None
             await self.article_repo.session.flush()
-            translation = await client.translate(content, target_language)
+            translation = await translate_text_with_chunking(client, content, target_language)
             await self.article_repo.update_content(article, translation=translation)
             article.translation_status = "completed"
             article.translation_error = None

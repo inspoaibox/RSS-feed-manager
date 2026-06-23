@@ -28,6 +28,13 @@ class AIClientError(Exception):
     pass
 
 
+def _raise_if_truncated(finish_reason: str | None) -> None:
+    """Raise a typed client error when the model output was cut short."""
+    normalized = (finish_reason or "").strip().lower()
+    if normalized in {"length", "max_tokens"}:
+        raise AIClientError(f"AI response truncated (finish_reason={finish_reason})")
+
+
 class BaseAIClient(ABC):
     """Base class for AI clients."""
     
@@ -116,7 +123,15 @@ class OpenAIClient(BaseAIClient):
             "temperature": 0.3
         }
         result = await self._request("chat/completions", data)
-        return result["choices"][0]["message"]["content"]
+        choices = result.get("choices") or []
+        if not choices:
+            raise AIClientError("AI response did not include any choices")
+        choice = choices[0]
+        _raise_if_truncated(choice.get("finish_reason"))
+        content = ((choice.get("message") or {}).get("content") or "").strip()
+        if not content:
+            raise AIClientError("AI response did not include translated content")
+        return content
     
     async def summarize(self, text: str, custom_prompt: str | None = None) -> str:
         """Generate summary using ChatGPT."""
@@ -130,7 +145,15 @@ class OpenAIClient(BaseAIClient):
             "temperature": 0.5
         }
         result = await self._request("chat/completions", data)
-        return result["choices"][0]["message"]["content"]
+        choices = result.get("choices") or []
+        if not choices:
+            raise AIClientError("AI response did not include any choices")
+        choice = choices[0]
+        _raise_if_truncated(choice.get("finish_reason"))
+        content = ((choice.get("message") or {}).get("content") or "").strip()
+        if not content:
+            raise AIClientError("AI response did not include summary content")
+        return content
     
     async def chat(self, prompt: str) -> str:
         """Send a chat message and get response."""
@@ -142,7 +165,15 @@ class OpenAIClient(BaseAIClient):
             "temperature": 0.3
         }
         result = await self._request("chat/completions", data)
-        return result["choices"][0]["message"]["content"]
+        choices = result.get("choices") or []
+        if not choices:
+            raise AIClientError("AI response did not include any choices")
+        choice = choices[0]
+        _raise_if_truncated(choice.get("finish_reason"))
+        content = ((choice.get("message") or {}).get("content") or "").strip()
+        if not content:
+            raise AIClientError("AI response did not include chat content")
+        return content
     
     async def test_connection(self) -> bool:
         """Test connection by listing models."""
@@ -195,7 +226,15 @@ class GeminiClient(BaseAIClient):
             }]
         }
         result = await self._request(f"models/{self.model}:generateContent", data)
-        return result["candidates"][0]["content"]["parts"][0]["text"]
+        candidates = result.get("candidates") or []
+        if not candidates:
+            raise AIClientError("AI response did not include any candidates")
+        candidate = candidates[0]
+        _raise_if_truncated(candidate.get("finishReason"))
+        parts = ((candidate.get("content") or {}).get("parts")) or []
+        if not parts or not parts[0].get("text"):
+            raise AIClientError("AI response did not include translated content")
+        return parts[0]["text"].strip()
     
     async def summarize(self, text: str, custom_prompt: str | None = None) -> str:
         """Generate summary using Gemini."""
@@ -208,7 +247,15 @@ class GeminiClient(BaseAIClient):
             }]
         }
         result = await self._request(f"models/{self.model}:generateContent", data)
-        return result["candidates"][0]["content"]["parts"][0]["text"]
+        candidates = result.get("candidates") or []
+        if not candidates:
+            raise AIClientError("AI response did not include any candidates")
+        candidate = candidates[0]
+        _raise_if_truncated(candidate.get("finishReason"))
+        parts = ((candidate.get("content") or {}).get("parts")) or []
+        if not parts or not parts[0].get("text"):
+            raise AIClientError("AI response did not include summary content")
+        return parts[0]["text"].strip()
     
     async def chat(self, prompt: str) -> str:
         """Send a chat message and get response."""
@@ -220,7 +267,15 @@ class GeminiClient(BaseAIClient):
             }]
         }
         result = await self._request(f"models/{self.model}:generateContent", data)
-        return result["candidates"][0]["content"]["parts"][0]["text"]
+        candidates = result.get("candidates") or []
+        if not candidates:
+            raise AIClientError("AI response did not include any candidates")
+        candidate = candidates[0]
+        _raise_if_truncated(candidate.get("finishReason"))
+        parts = ((candidate.get("content") or {}).get("parts")) or []
+        if not parts or not parts[0].get("text"):
+            raise AIClientError("AI response did not include chat content")
+        return parts[0]["text"].strip()
     
     async def test_connection(self) -> bool:
         """Test connection."""
