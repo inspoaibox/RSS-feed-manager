@@ -38,17 +38,7 @@ class AIService:
             api_key=data.api_key,
             base_url=data.base_url
         )
-        
-        # Try to fetch available models
-        try:
-            client = create_ai_client(data.type, data.api_key, data.base_url)
-            models = await client.list_models()
-            if models:
-                await self.model_repo.bulk_create(provider.id, models)
-        except (AIClientError, ValueError):
-            pass  # Ignore errors, user can add models manually
-        
-        # Reload with models
+
         provider = await self.provider_repo.get_with_models(provider.id, user_id)
         return self._provider_to_response(provider)
 

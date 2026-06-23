@@ -779,7 +779,6 @@ def translate_article_task(self, article_id: int, target_language: str | None = 
 
 def _record_proxy_success_sync(db: Session, proxy: ProxyPoolEntry) -> None:
     proxy.fail_count = 0
-    proxy.is_active = True
     proxy.last_error = None
     proxy.last_used_at = datetime.utcnow()
     proxy.last_tested_at = datetime.utcnow()
@@ -788,8 +787,6 @@ def _record_proxy_success_sync(db: Session, proxy: ProxyPoolEntry) -> None:
 
 def _record_proxy_failure_sync(db: Session, proxy: ProxyPoolEntry, error: str) -> None:
     proxy.fail_count += 1
-    if proxy.fail_count >= 5:
-        proxy.is_active = False
     proxy.last_error = error[:1000]
     proxy.last_used_at = datetime.utcnow()
     proxy.last_tested_at = datetime.utcnow()

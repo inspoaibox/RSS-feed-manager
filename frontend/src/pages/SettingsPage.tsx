@@ -10,12 +10,25 @@ import NotificationManagement from '@/components/NotificationManagement'
 import PushNotificationSettings from '@/components/PushNotificationSettings'
 
 type Tab = 'feeds' | 'categories' | 'ai' | 'rules' | 'proxies' | 'backup' | 'appearance' | 'system'
+type AIProviderFormState = {
+  name: string
+  type: 'openai' | 'gemini' | 'openai_compatible'
+  api_key: string
+  base_url: string
+}
 
 const feedBrowserEngineLabels: Record<FeedBrowserEngine, string> = {
   http: '普通抓取',
   playwright: 'Playwright',
   cloakbrowser: 'CloakBrowser',
 }
+
+const createEmptyAIProviderForm = (): AIProviderFormState => ({
+  name: '',
+  type: 'openai',
+  api_key: '',
+  base_url: '',
+})
 
 const proxyProtocols: ProxyProtocol[] = ['http', 'https', 'socks4', 'socks5', 'socks5h']
 const translationSourceLanguages = [
@@ -1969,14 +1982,10 @@ function CategoriesTab() {
 
 function AITab() {
   const queryClient = useQueryClient()
-  const [showAddProvider, setShowAddProvider] = useState(false)
+  const [showProviderForm, setShowProviderForm] = useState(false)
+  const [editingProviderId, setEditingProviderId] = useState<number | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [newProvider, setNewProvider] = useState({
-    name: '',
-    type: 'openai' as 'openai' | 'gemini' | 'openai_compatible',
-    api_key: '',
-    base_url: '',
-  })
+  const [providerForm, setProviderForm] = useState<AIProviderFormState>(createEmptyAIProviderForm())
   const [prompts, setPrompts] = useState({
     translate: '',
     summarize: '',
@@ -2017,6 +2026,15 @@ function AITab() {
       return response.data
     },
   })
+  const editingProvider = useMemo(
+    () => providers.find((provider) => provider.id === editingProviderId) ?? null,
+    [providers, editingProviderId]
+  )
+  const editingProviderModels = useMemo(
+    () => (editingProviderId === null ? [] : models.filter((model) => model.provider_id === editingProviderId)),
+    [models, editingProviderId]
+  )
+  const isEditingProvider = editingProviderId !== null
 
   const { data: settings } = useQuery({
     queryKey: ['ai-settings'],
@@ -2132,15 +2150,53 @@ function AITab() {
     })
     setMcTranslationLoaded(true)
   }
+  const resetProviderForm = () => {
+    setProviderForm(createEmptyAIProviderForm())
+    setEditingProviderId(null)
+  }
+
+  const closeProviderForm = () => {
+    resetProviderForm()
+    setShowProviderForm(false)
+  }
+
+  const openCreateProviderForm = () => {
+    resetProviderForm()
+    setShowProviderForm(true)
+  }
+
+  const openEditProviderForm = (provider: AIProvider) => {
+    setEditingProviderId(provider.id)
+    setProviderForm({
+      name: provider.name,
+      type: provider.type,
+      api_key: '',
+      base_url: provider.base_url || '',
+    })
+    setShowProviderForm(true)
+  }
+
   const addProviderMutation = useMutation({
-    mutationFn: async () => {
-      await api.post('/ai/providers', newProvider)
+    mutationFn: async (payload: AIProviderFormState) => {
+      const response = await api.post<AIProvider>('/ai/providers', {
+        name: payload.name.trim(),
+        type: payload.type,
+        api_key: payload.api_key.trim(),
+        base_url: payload.base_url.trim() || undefined,
+      })
+      return response.data
     },
-    onSuccess: () => {
+    onSuccess: (provider) => {
       queryClient.invalidateQueries({ queryKey: ['ai-providers'] })
-      setShowAddProvider(false)
-      setNewProvider({ name: '', type: 'openai', api_key: '', base_url: '' })
-      setMessage({ type: 'success', text: '渠道添加成功' })
+      setEditingProviderId(provider.id)
+      setShowProviderForm(true)
+      setProviderForm({
+        name: provider.name,
+        type: provider.type,
+        api_key: '',
+        base_url: provider.base_url || '',
+      })
+      setMessage({ type: 'success', text: '渠道添加成功，可继续在此获取所有模型' })
       setTimeout(() => setMessage(null), 3000)
     },
     onError: (err: any) => {
@@ -2148,13 +2204,42 @@ function AITab() {
     },
   })
 
+  const updateProviderMutation = useMutation({
+    mutationFn: async ({ id, payload }: { id: number; payload: AIProviderFormState }) => {
+      const response = await api.put<AIProvider>(`/ai/providers/${id}`, {
+        name: payload.name.trim(),
+        api_key: payload.api_key.trim() || undefined,
+        base_url: payload.base_url.trim(),
+      })
+      return response.data
+    },
+    onSuccess: (provider) => {
+      queryClient.invalidateQueries({ queryKey: ['ai-providers'] })
+      setEditingProviderId(provider.id)
+      setProviderForm({
+        name: provider.name,
+        type: provider.type,
+        api_key: '',
+        base_url: provider.base_url || '',
+      })
+      setMessage({ type: 'success', text: '渠道已更新' })
+      setTimeout(() => setMessage(null), 3000)
+    },
+    onError: (err: any) => {
+      setMessage({ type: 'error', text: err.response?.data?.detail || '更新失败' })
+    },
+  })
+
   const deleteProviderMutation = useMutation({
     mutationFn: async (id: number) => {
       await api.delete(`/ai/providers/${id}`)
     },
-    onSuccess: () => {
+    onSuccess: (_, deletedId) => {
       queryClient.invalidateQueries({ queryKey: ['ai-providers'] })
       queryClient.invalidateQueries({ queryKey: ['ai-models'] })
+      if (editingProviderId === deletedId) {
+        closeProviderForm()
+      }
       setMessage({ type: 'success', text: '渠道已删除' })
       setTimeout(() => setMessage(null), 3000)
     },
@@ -2176,6 +2261,7 @@ function AITab() {
       await api.post(`/ai/providers/${providerId}/fetch-models`)
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ai-providers'] })
       queryClient.invalidateQueries({ queryKey: ['ai-models'] })
       setMessage({ type: 'success', text: '模型列表已更新' })
       setTimeout(() => setMessage(null), 3000)
@@ -2184,6 +2270,18 @@ function AITab() {
       setMessage({ type: 'error', text: err.response?.data?.detail || '获取模型失败' })
     },
   })
+
+  const isSavingProvider = addProviderMutation.isPending || updateProviderMutation.isPending
+  const canSubmitProvider = providerForm.name.trim() !== '' && (isEditingProvider || providerForm.api_key.trim() !== '')
+
+  const submitProviderForm = () => {
+    if (!canSubmitProvider) return
+    if (isEditingProvider && editingProviderId !== null) {
+      updateProviderMutation.mutate({ id: editingProviderId, payload: providerForm })
+      return
+    }
+    addProviderMutation.mutate(providerForm)
+  }
 
   const savePromptsMutation = useMutation({
     mutationFn: async () => {
@@ -2511,7 +2609,7 @@ function AITab() {
           })}
         </select>
         {models.length === 0 && (
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">请先添加 AI 渠道并获取模型</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">请先添加 AI 渠道，并在渠道表单中获取所有模型</p>
         )}
       </div>
 
@@ -3222,26 +3320,42 @@ function AITab() {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold dark:text-white">AI 渠道</h2>
           <button
-            onClick={() => setShowAddProvider(true)}
+            onClick={openCreateProviderForm}
             className="flex items-center gap-1 px-3 py-2 bg-primary-600 text-white rounded hover:bg-primary-700"
           >
             <Plus className="w-4 h-4" /> 添加渠道
           </button>
         </div>
 
-        {showAddProvider && (
+        {showProviderForm && (
           <div className="mb-4 p-4 border dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-700 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="font-medium dark:text-white">{isEditingProvider ? '编辑渠道' : '添加渠道'}</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {isEditingProvider
+                    ? '可在这里修改渠道配置，并手动获取所有模型。'
+                    : '先保存渠道，再在这里手动获取所有模型。'}
+                </p>
+              </div>
+              {editingProvider && (
+                <span className="text-xs px-2 py-1 rounded bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-300 border dark:border-gray-600">
+                  当前模型 {editingProviderModels.length}
+                </span>
+              )}
+            </div>
             <input
               type="text"
               placeholder="渠道名称"
-              value={newProvider.name}
-              onChange={(e) => setNewProvider({ ...newProvider, name: e.target.value })}
+              value={providerForm.name}
+              onChange={(e) => setProviderForm({ ...providerForm, name: e.target.value })}
               className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
             />
             <select
-              value={newProvider.type}
-              onChange={(e) => setNewProvider({ ...newProvider, type: e.target.value as any })}
-              className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+              value={providerForm.type}
+              onChange={(e) => setProviderForm({ ...providerForm, type: e.target.value as AIProviderFormState['type'] })}
+              disabled={isEditingProvider}
+              className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white disabled:opacity-60"
             >
               <option value="openai">OpenAI</option>
               <option value="gemini">Google Gemini</option>
@@ -3249,30 +3363,42 @@ function AITab() {
             </select>
             <input
               type="password"
-              placeholder="API Key"
-              value={newProvider.api_key}
-              onChange={(e) => setNewProvider({ ...newProvider, api_key: e.target.value })}
+              placeholder={isEditingProvider ? '留空则保持当前 API Key 不变' : 'API Key'}
+              value={providerForm.api_key}
+              onChange={(e) => setProviderForm({ ...providerForm, api_key: e.target.value })}
               className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
             />
-            {newProvider.type === 'openai_compatible' && (
+            {isEditingProvider && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                渠道类型创建后不可修改，API Key 留空时会沿用当前值。
+              </p>
+            )}
+            {providerForm.type === 'openai_compatible' && (
               <input
                 type="url"
                 placeholder="Base URL (如 https://api.example.com/v1)"
-                value={newProvider.base_url}
-                onChange={(e) => setNewProvider({ ...newProvider, base_url: e.target.value })}
+                value={providerForm.base_url}
+                onChange={(e) => setProviderForm({ ...providerForm, base_url: e.target.value })}
                 className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
               />
             )}
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <button
-                onClick={() => addProviderMutation.mutate()}
-                disabled={!newProvider.name || !newProvider.api_key || addProviderMutation.isPending}
+                onClick={submitProviderForm}
+                disabled={!canSubmitProvider || isSavingProvider}
                 className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
               >
-                保存
+                {isSavingProvider ? '保存中...' : isEditingProvider ? '保存修改' : '保存渠道'}
               </button>
               <button
-                onClick={() => setShowAddProvider(false)}
+                onClick={() => editingProviderId !== null && fetchModelsMutation.mutate(editingProviderId)}
+                disabled={editingProviderId === null || fetchModelsMutation.isPending || isSavingProvider}
+                className="px-4 py-2 border dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600 dark:text-gray-200 disabled:opacity-50"
+              >
+                {fetchModelsMutation.isPending ? '获取中...' : '获取所有模型'}
+              </button>
+              <button
+                onClick={closeProviderForm}
                 className="px-4 py-2 border dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600 dark:text-gray-200"
               >
                 取消
@@ -3285,18 +3411,21 @@ function AITab() {
           {providers.map((provider) => {
             const providerModels = models.filter(m => m.provider_id === provider.id)
             return (
-              <div key={provider.id} className="p-4">
+              <div
+                key={provider.id}
+                className={`p-4 ${editingProviderId === provider.id && showProviderForm ? 'bg-primary-50 dark:bg-primary-900/20' : ''}`}
+              >
                 <div className="flex items-center gap-4 mb-2">
                   <div className="flex-1">
                     <h3 className="font-medium dark:text-white">{provider.name}</h3>
                     <p className="text-sm text-gray-500 dark:text-gray-400">{provider.type}</p>
                   </div>
                   <button
-                    onClick={() => fetchModelsMutation.mutate(provider.id)}
-                    disabled={fetchModelsMutation.isPending}
-                    className="px-3 py-1 text-sm border dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200"
+                    onClick={() => openEditProviderForm(provider)}
+                    className="flex items-center gap-1 px-3 py-1 text-sm border dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200"
                   >
-                    获取模型
+                    <Edit2 className="w-4 h-4" />
+                    编辑
                   </button>
                   <button
                     onClick={() => deleteProviderMutation.mutate(provider.id)}

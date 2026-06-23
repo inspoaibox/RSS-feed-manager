@@ -144,7 +144,6 @@ class ProxyPoolRepository:
 
     async def record_success(self, entry: ProxyPoolEntry, latency_ms: int | None = None) -> None:
         entry.fail_count = 0
-        entry.is_active = True
         entry.last_latency_ms = latency_ms
         entry.last_error = None
         entry.last_used_at = datetime.utcnow()
@@ -153,8 +152,6 @@ class ProxyPoolRepository:
 
     async def record_failure(self, entry: ProxyPoolEntry, error: str) -> None:
         entry.fail_count += 1
-        if entry.fail_count >= 5:
-            entry.is_active = False
         entry.last_error = error[:1000]
         entry.last_used_at = datetime.utcnow()
         entry.last_tested_at = datetime.utcnow()
