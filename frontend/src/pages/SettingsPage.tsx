@@ -82,6 +82,14 @@ type ProxyUpdatePayload = {
   fail_count?: number
 }
 
+type ProxyEditState = {
+  raw: string
+  default_protocol: ProxyProtocol
+  country: string
+  is_active: boolean
+  fail_count: string
+}
+
 const resolveFeedBrowserEngine = (feed: Feed): FeedBrowserEngine => {
   return feed.browser_engine || (feed.use_playwright ? 'playwright' : 'http')
 }
@@ -1226,13 +1234,14 @@ function ProxyPoolTab() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [importErrors, setImportErrors] = useState<string[]>([])
   const [editingProxyId, setEditingProxyId] = useState<number | null>(null)
-  const [proxyEdit, setProxyEdit] = useState({
+  const [proxyEdit, setProxyEdit] = useState<ProxyEditState>({
     raw: '',
     default_protocol: 'http' as ProxyProtocol,
     country: '',
     is_active: true,
     fail_count: '0',
   })
+  const [proxyEditOriginal, setProxyEditOriginal] = useState<ProxyPoolEntry | null>(null)
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
 
@@ -1321,6 +1330,7 @@ function ProxyPoolTab() {
     onSuccess: () => {
       invalidateProxyData()
       setEditingProxyId(null)
+      setProxyEditOriginal(null)
     },
     onError: (err: unknown) => {
       showMessage('error', getApiErrorMessage(err, '更新代理失败'))
@@ -1417,6 +1427,7 @@ function ProxyPoolTab() {
 
   const startProxyEdit = (proxy: ProxyPoolEntry) => {
     setEditingProxyId(proxy.id)
+    setProxyEditOriginal(proxy)
     setProxyEdit({
       raw: proxy.proxy_url,
       default_protocol: proxy.protocol,
@@ -1432,15 +1443,43 @@ function ProxyPoolTab() {
       return
     }
 
+    if (!proxyEditOriginal || proxyEditOriginal.id !== id) {
+      showMessage('error', '代理编辑状态已过期，请重新打开编辑')
+      setEditingProxyId(null)
+      setProxyEditOriginal(null)
+      return
+    }
+
+    const nextRaw = proxyEdit.raw.trim()
+    const nextCountry = proxyEdit.country.trim() ? proxyEdit.country.trim() : null
+    const nextFailCount = Math.max(0, parseInt(proxyEdit.fail_count) || 0)
+    const payload: ProxyUpdatePayload = {}
+
+    if (nextRaw !== proxyEditOriginal.proxy_url) {
+      payload.raw = nextRaw
+    }
+    if (proxyEdit.default_protocol !== proxyEditOriginal.protocol) {
+      payload.default_protocol = proxyEdit.default_protocol
+    }
+    if ((proxyEditOriginal.country || null) !== nextCountry) {
+      payload.country = nextCountry
+    }
+    if (proxyEdit.is_active !== proxyEditOriginal.is_active) {
+      payload.is_active = proxyEdit.is_active
+    }
+    if (nextFailCount !== proxyEditOriginal.fail_count) {
+      payload.fail_count = nextFailCount
+    }
+
+    if (Object.keys(payload).length === 0) {
+      setEditingProxyId(null)
+      setProxyEditOriginal(null)
+      return
+    }
+
     updateMutation.mutate({
       id,
-      data: {
-        raw: proxyEdit.raw.trim(),
-        default_protocol: proxyEdit.default_protocol,
-        country: proxyEdit.country.trim() ? proxyEdit.country.trim() : null,
-        is_active: proxyEdit.is_active,
-        fail_count: Math.max(0, parseInt(proxyEdit.fail_count) || 0),
-      },
+      data: payload,
     })
   }
 
@@ -1710,7 +1749,10 @@ function ProxyPoolTab() {
                           <Check className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => setEditingProxyId(null)}
+                          onClick={() => {
+                            setEditingProxyId(null)
+                            setProxyEditOriginal(null)
+                          }}
                           className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
                           title="取消"
                         >
