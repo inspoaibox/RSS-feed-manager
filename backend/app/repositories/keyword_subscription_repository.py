@@ -36,6 +36,22 @@ def build_keyword_conditions(keyword: KeywordSubscription) -> list:
     return conditions or [Article.title.ilike(pattern)]
 
 
+def build_keyword_source_conditions(keyword: KeywordSubscription) -> list:
+    """Build source-scope conditions for a keyword subscription."""
+    excluded_feed_ids = list(getattr(keyword, "excluded_feed_ids", None) or [])
+    excluded_category_ids = list(getattr(keyword, "excluded_category_ids", None) or [])
+    conditions = []
+
+    if excluded_feed_ids:
+        conditions.append(~Article.feed_id.in_(excluded_feed_ids))
+    if excluded_category_ids:
+        conditions.append(
+            or_(Feed.category_id.is_(None), ~Feed.category_id.in_(excluded_category_ids))
+        )
+
+    return conditions
+
+
 class KeywordSubscriptionRepository:
     """Repository for keyword subscription operations."""
 
@@ -52,6 +68,8 @@ class KeywordSubscriptionRepository:
         match_content: bool = True,
         match_author: bool = False,
         match_feed_title: bool = False,
+        excluded_category_ids: list[int] | None = None,
+        excluded_feed_ids: list[int] | None = None,
     ) -> KeywordSubscription:
         """Create a keyword subscription."""
         result = await self.session.execute(
@@ -69,6 +87,8 @@ class KeywordSubscriptionRepository:
             match_content=match_content,
             match_author=match_author,
             match_feed_title=match_feed_title,
+            excluded_category_ids=list(excluded_category_ids or []),
+            excluded_feed_ids=list(excluded_feed_ids or []),
             position=max_position + 1,
         )
         self.session.add(subscription)
@@ -141,6 +161,7 @@ class KeywordSubscriptionRepository:
 
         for subscription in sub_list:
             conditions = build_keyword_conditions(subscription)
+            source_conditions = build_keyword_source_conditions(subscription)
             if not conditions:
                 counts[subscription.id] = {"article_count": 0, "unread_count": 0}
                 continue
@@ -150,7 +171,7 @@ class KeywordSubscriptionRepository:
                 .add_columns(literal(subscription.id).label("sub_id"))
                 .select_from(Article)
                 .join(Feed, Article.feed_id == Feed.id)
-                .where(Feed.user_id == user_id, or_(*conditions))
+                .where(Feed.user_id == user_id, or_(*conditions), *source_conditions)
             )
 
             unread_queries.append(
@@ -168,6 +189,7 @@ class KeywordSubscriptionRepository:
                 .where(
                     Feed.user_id == user_id,
                     or_(*conditions),
+                    *source_conditions,
                     or_(UserArticle.is_read == False, UserArticle.is_read == None),
                 )
             )

@@ -14,6 +14,8 @@ class KeywordSubscriptionCreate(BaseModel):
     match_content: bool = True
     match_author: bool = False
     match_feed_title: bool = False
+    excluded_category_ids: list[int] = Field(default_factory=list)
+    excluded_feed_ids: list[int] = Field(default_factory=list)
 
 
 class KeywordSubscriptionUpdate(BaseModel):
@@ -26,6 +28,8 @@ class KeywordSubscriptionUpdate(BaseModel):
     match_content: bool | None = None
     match_author: bool | None = None
     match_feed_title: bool | None = None
+    excluded_category_ids: list[int] | None = None
+    excluded_feed_ids: list[int] | None = None
     position: int | None = None
 
 
@@ -40,6 +44,8 @@ class KeywordSubscriptionResponse(BaseModel):
     match_content: bool
     match_author: bool
     match_feed_title: bool
+    excluded_category_ids: list[int] = Field(default_factory=list)
+    excluded_feed_ids: list[int] = Field(default_factory=list)
     position: int
     article_count: int = 0
     unread_count: int = 0

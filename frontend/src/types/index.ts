@@ -196,6 +196,8 @@ export interface KeywordSubscription {
   match_content: boolean
   match_author: boolean
   match_feed_title: boolean
+  excluded_category_ids: number[]
+  excluded_feed_ids: number[]
   position: number
   article_count: number
   unread_count: number

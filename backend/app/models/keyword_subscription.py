@@ -1,7 +1,7 @@
 """Keyword subscription model for saved article filters."""
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import BaseModel
@@ -28,6 +28,8 @@ class KeywordSubscription(BaseModel):
     match_content: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     match_author: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     match_feed_title: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    excluded_category_ids: Mapped[list[int]] = mapped_column(JSON, default=list, nullable=False)
+    excluded_feed_ids: Mapped[list[int]] = mapped_column(JSON, default=list, nullable=False)
     position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     user: Mapped["User"] = relationship("User", back_populates="keyword_subscriptions")

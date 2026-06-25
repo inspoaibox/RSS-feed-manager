@@ -5,6 +5,8 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.keyword_subscription import KeywordSubscription
+from app.repositories.category_repository import CategoryRepository
+from app.repositories.feed_repository import FeedRepository
 from app.repositories.keyword_subscription_repository import KeywordSubscriptionRepository
 from app.schemas.keyword_subscription import (
     KeywordSubscriptionCountResponse,
@@ -20,6 +22,8 @@ class KeywordSubscriptionService:
     def __init__(self, session: AsyncSession):
         self.session = session
         self.repo = KeywordSubscriptionRepository(session)
+        self.category_repo = CategoryRepository(session)
+        self.feed_repo = FeedRepository(session)
 
     async def get_all(
         self,
@@ -82,6 +86,12 @@ class KeywordSubscriptionService:
                 detail="Keyword subscription already exists",
             )
 
+        excluded_category_ids, excluded_feed_ids = await self._validate_source_filters(
+            user_id,
+            data.excluded_category_ids,
+            data.excluded_feed_ids,
+        )
+
         subscription = await self.repo.create(
             user_id=user_id,
             keyword=keyword,
@@ -91,6 +101,8 @@ class KeywordSubscriptionService:
             match_content=data.match_content,
             match_author=data.match_author,
             match_feed_title=data.match_feed_title,
+            excluded_category_ids=excluded_category_ids,
+            excluded_feed_ids=excluded_feed_ids,
         )
         return self._to_response(subscription)
 
@@ -122,6 +134,20 @@ class KeywordSubscriptionService:
                 )
         if "name" in update_data and update_data["name"] is not None:
             update_data["name"] = update_data["name"].strip()
+        if "excluded_category_ids" in update_data or "excluded_feed_ids" in update_data:
+            excluded_category_ids, excluded_feed_ids = await self._validate_source_filters(
+                user_id,
+                update_data.get(
+                    "excluded_category_ids",
+                    getattr(subscription, "excluded_category_ids", []) or [],
+                ),
+                update_data.get(
+                    "excluded_feed_ids",
+                    getattr(subscription, "excluded_feed_ids", []) or [],
+                ),
+            )
+            update_data["excluded_category_ids"] = excluded_category_ids
+            update_data["excluded_feed_ids"] = excluded_feed_ids
 
         subscription = await self.repo.update(subscription, **update_data)
         return self._to_response(subscription)
@@ -152,9 +178,61 @@ class KeywordSubscriptionService:
             match_content=subscription.match_content,
             match_author=subscription.match_author,
             match_feed_title=subscription.match_feed_title,
+            excluded_category_ids=list(getattr(subscription, "excluded_category_ids", []) or []),
+            excluded_feed_ids=list(getattr(subscription, "excluded_feed_ids", []) or []),
             position=subscription.position,
             article_count=article_count,
             unread_count=unread_count,
             created_at=subscription.created_at,
             updated_at=subscription.updated_at,
         )
+
+    def _normalize_id_list(self, values: list[int] | None) -> list[int]:
+        """Normalize ID lists by removing duplicates while preserving order."""
+        normalized: list[int] = []
+        seen: set[int] = set()
+        for raw_value in values or []:
+            value = int(raw_value)
+            if value <= 0 or value in seen:
+                continue
+            seen.add(value)
+            normalized.append(value)
+        return normalized
+
+    async def _validate_source_filters(
+        self,
+        user_id: int,
+        excluded_category_ids: list[int] | None,
+        excluded_feed_ids: list[int] | None,
+    ) -> tuple[list[int], list[int]]:
+        """Validate that excluded categories and feeds belong to the user."""
+        normalized_category_ids = self._normalize_id_list(excluded_category_ids)
+        normalized_feed_ids = self._normalize_id_list(excluded_feed_ids)
+
+        if normalized_category_ids:
+            categories = await self.category_repo.get_all_by_user(user_id)
+            allowed_category_ids = {category.id for category in categories}
+            invalid_category_ids = [
+                category_id
+                for category_id in normalized_category_ids
+                if category_id not in allowed_category_ids
+            ]
+            if invalid_category_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="来源筛选包含无效的分类",
+                )
+
+        if normalized_feed_ids:
+            feeds = await self.feed_repo.get_all_by_user(user_id)
+            allowed_feed_ids = {feed.id for feed in feeds}
+            invalid_feed_ids = [
+                feed_id for feed_id in normalized_feed_ids if feed_id not in allowed_feed_ids
+            ]
+            if invalid_feed_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="来源筛选包含无效的订阅源",
+                )
+
+        return normalized_category_ids, normalized_feed_ids

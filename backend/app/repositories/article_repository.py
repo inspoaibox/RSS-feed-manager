@@ -8,7 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.article import Article, UserArticle
 from app.models.feed import Feed
 from app.models.keyword_subscription import KeywordSubscription
-from app.repositories.keyword_subscription_repository import build_keyword_conditions
+from app.repositories.keyword_subscription_repository import (
+    build_keyword_conditions,
+    build_keyword_source_conditions,
+)
 
 
 def build_article_search_conditions(query: str) -> list:
@@ -116,8 +119,9 @@ class ArticleRepository:
 
         if keyword is not None:
             conditions = build_keyword_conditions(keyword)
+            source_conditions = build_keyword_source_conditions(keyword)
             if conditions:
-                base_query = base_query.where(or_(*conditions))
+                base_query = base_query.where(or_(*conditions), *source_conditions)
             else:
                 base_query = base_query.where(False)
         
@@ -354,13 +358,14 @@ class ArticleRepository:
     ) -> int:
         """Mark all articles matching a keyword subscription as read."""
         conditions = build_keyword_conditions(keyword)
+        source_conditions = build_keyword_source_conditions(keyword)
         if not conditions:
             return 0
 
         article_ids_result = await self.session.execute(
             select(Article.id)
             .join(Feed, Article.feed_id == Feed.id)
-            .where(Feed.user_id == user_id, or_(*conditions))
+            .where(Feed.user_id == user_id, or_(*conditions), *source_conditions)
         )
         article_ids = [row[0] for row in article_ids_result.all()]
 
