@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Menu, X, Rss, FolderOpen, Star, Settings, LogOut, ChevronDown, ChevronRight, User, BarChart3, Sparkles, Bell, Hash, Plus, Trash2, SlidersHorizontal } from 'lucide-react'
+import { Menu, X, Rss, FolderOpen, Star, Settings, LogOut, ChevronDown, ChevronRight, User, BarChart3, Sparkles, Bell, Hash, Plus, Trash2, SlidersHorizontal, Edit2 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { useSiteStore } from '@/stores/siteStore'
 import api from '@/services/api'
@@ -30,6 +30,14 @@ type KeywordCreatePayload = {
   excluded_feed_ids: number[]
 }
 
+type KeywordUpdatePayload = {
+  keyword: string
+  name: string
+  is_active: boolean
+  excluded_category_ids: number[]
+  excluded_feed_ids: number[]
+}
+
 function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarProps) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -43,6 +51,13 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
   const [keywordSourceFilterOpen, setKeywordSourceFilterOpen] = useState(false)
   const [keywordExcludedCategoryIds, setKeywordExcludedCategoryIds] = useState<number[]>([])
   const [keywordExcludedFeedIds, setKeywordExcludedFeedIds] = useState<number[]>([])
+  const [editingKeywordId, setEditingKeywordId] = useState<number | null>(null)
+  const [editingKeywordText, setEditingKeywordText] = useState('')
+  const [editingKeywordName, setEditingKeywordName] = useState('')
+  const [editingKeywordActive, setEditingKeywordActive] = useState(true)
+  const [editingKeywordSourceFilterOpen, setEditingKeywordSourceFilterOpen] = useState(false)
+  const [editingKeywordExcludedCategoryIds, setEditingKeywordExcludedCategoryIds] = useState<number[]>([])
+  const [editingKeywordExcludedFeedIds, setEditingKeywordExcludedFeedIds] = useState<number[]>([])
   const [selectedKeywordIds, setSelectedKeywordIds] = useState<Set<number>>(new Set())
   const { siteName, setSiteName } = useSiteStore()
   const activeKeywordId = new URLSearchParams(location.search).get('keyword_id')
@@ -146,6 +161,40 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
     return parts.join('，')
   }, [keywordExcludedCategoryIds, keywordExcludedFeedIds])
 
+  const editingKeywordExcludedCategorySet = useMemo(
+    () => new Set(editingKeywordExcludedCategoryIds),
+    [editingKeywordExcludedCategoryIds]
+  )
+  const editingKeywordExcludedFeedSet = useMemo(
+    () => new Set(editingKeywordExcludedFeedIds),
+    [editingKeywordExcludedFeedIds]
+  )
+
+  const editingKeywordSourceSummary = useMemo(() => {
+    if (editingKeywordExcludedCategoryIds.length === 0 && editingKeywordExcludedFeedIds.length === 0) {
+      return '默认全选订阅源'
+    }
+
+    const parts: string[] = []
+    if (editingKeywordExcludedCategoryIds.length > 0) {
+      parts.push(`排除 ${editingKeywordExcludedCategoryIds.length} 个分组`)
+    }
+    if (editingKeywordExcludedFeedIds.length > 0) {
+      parts.push(`排除 ${editingKeywordExcludedFeedIds.length} 个订阅源`)
+    }
+    return parts.join('，')
+  }, [editingKeywordExcludedCategoryIds, editingKeywordExcludedFeedIds])
+
+  const clearEditingKeyword = () => {
+    setEditingKeywordId(null)
+    setEditingKeywordText('')
+    setEditingKeywordName('')
+    setEditingKeywordActive(true)
+    setEditingKeywordSourceFilterOpen(false)
+    setEditingKeywordExcludedCategoryIds([])
+    setEditingKeywordExcludedFeedIds([])
+  }
+
   const createKeywordMutation = useMutation({
     mutationFn: async (payload: KeywordCreatePayload) => {
       const response = await api.post<KeywordSubscription>('/keywords', {
@@ -183,6 +232,28 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
     },
   })
 
+  const updateKeywordMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: KeywordUpdatePayload }) => {
+      const response = await api.put<KeywordSubscription>(`/keywords/${id}`, data)
+      return response.data
+    },
+    onSuccess: (keyword) => {
+      queryClient.setQueryData<KeywordSubscription[]>(['keywords'], (current = []) => {
+        return current.map((item) => (item.id === keyword.id ? keyword : item))
+      })
+      queryClient.invalidateQueries({ queryKey: ['keywords'] })
+      queryClient.invalidateQueries({ queryKey: ['keyword-counts'] })
+      clearEditingKeyword()
+      setKeywordMessage({ type: 'success', text: '关键词订阅已更新' })
+      setTimeout(() => setKeywordMessage(null), 3000)
+    },
+    onError: (err: any) => {
+      const detail = err.response?.data?.detail
+      setKeywordMessage({ type: 'error', text: detail || '更新关键词失败' })
+      setTimeout(() => setKeywordMessage(null), 3000)
+    },
+  })
+
   const deleteKeywordMutation = useMutation({
     mutationFn: async (keywordId: number) => {
       await api.delete(`/keywords/${keywordId}`)
@@ -199,6 +270,9 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
       queryClient.invalidateQueries({ queryKey: ['keyword-counts'] })
       if (activeKeywordId === String(keywordId)) {
         navigate('/')
+      }
+      if (editingKeywordId === keywordId) {
+        clearEditingKeyword()
       }
       setSelectedKeywordIds((prev) => {
         const next = new Set(prev)
@@ -224,6 +298,9 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
       queryClient.invalidateQueries({ queryKey: ['keyword-counts'] })
       if (activeKeywordId && keywordIds.includes(Number(activeKeywordId))) {
         navigate('/')
+      }
+      if (editingKeywordId && keywordIds.includes(editingKeywordId)) {
+        clearEditingKeyword()
       }
       setSelectedKeywordIds(new Set())
     },
@@ -270,6 +347,39 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
     })
   }
 
+  const startKeywordEdit = (keyword: KeywordSubscription) => {
+    setEditingKeywordId(keyword.id)
+    setEditingKeywordText(keyword.keyword)
+    setEditingKeywordName(keyword.name || keyword.keyword)
+    setEditingKeywordActive(keyword.is_active)
+    setEditingKeywordExcludedCategoryIds(keyword.excluded_category_ids || [])
+    setEditingKeywordExcludedFeedIds(keyword.excluded_feed_ids || [])
+    setEditingKeywordSourceFilterOpen(
+      (keyword.excluded_category_ids || []).length > 0 || (keyword.excluded_feed_ids || []).length > 0
+    )
+  }
+
+  const saveKeywordEdit = () => {
+    if (!editingKeywordId) return
+    const keyword = editingKeywordText.trim()
+    if (!keyword) {
+      setKeywordMessage({ type: 'error', text: '关键词不能为空' })
+      setTimeout(() => setKeywordMessage(null), 3000)
+      return
+    }
+
+    updateKeywordMutation.mutate({
+      id: editingKeywordId,
+      data: {
+        keyword,
+        name: editingKeywordName.trim() || keyword,
+        is_active: editingKeywordActive,
+        excluded_category_ids: editingKeywordExcludedCategoryIds,
+        excluded_feed_ids: editingKeywordExcludedFeedIds,
+      },
+    })
+  }
+
   const toggleKeywordCategory = (categoryId: number) => {
     setKeywordExcludedCategoryIds((current) => (
       current.includes(categoryId)
@@ -289,6 +399,27 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
   const isKeywordFeedIncluded = (feed: Feed) => (
     !keywordExcludedFeedSet.has(feed.id)
     && !(feed.category_id && keywordExcludedCategorySet.has(feed.category_id))
+  )
+
+  const toggleEditingKeywordCategory = (categoryId: number) => {
+    setEditingKeywordExcludedCategoryIds((current) => (
+      current.includes(categoryId)
+        ? current.filter((item) => item !== categoryId)
+        : [...current, categoryId]
+    ))
+  }
+
+  const toggleEditingKeywordFeed = (feedId: number) => {
+    setEditingKeywordExcludedFeedIds((current) => (
+      current.includes(feedId)
+        ? current.filter((item) => item !== feedId)
+        : [...current, feedId]
+    ))
+  }
+
+  const isEditingKeywordFeedIncluded = (feed: Feed) => (
+    !editingKeywordExcludedFeedSet.has(feed.id)
+    && !(feed.category_id && editingKeywordExcludedCategorySet.has(feed.category_id))
   )
 
   const toggleSelectedKeyword = (keywordId: number) => {
@@ -797,7 +928,10 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
                 <p className="text-xs text-gray-500 dark:text-gray-400">删除操作不会删除文章，只删除关键词筛选入口</p>
               </div>
               <button
-                onClick={() => setKeywordManagerOpen(false)}
+                onClick={() => {
+                  setKeywordManagerOpen(false)
+                  clearEditingKeyword()
+                }}
                 className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
                 title="关闭"
               >
@@ -824,40 +958,185 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
                   {keywordsWithCounts.map((keyword) => {
                     const keywordCount = keyword.unread_count > 0 ? keyword.unread_count : keyword.article_count
                     return (
-                      <div
-                        key={keyword.id}
-                        className="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2 dark:border-gray-700"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedKeywordIds.has(keyword.id)}
-                          onChange={() => toggleSelectedKeyword(keyword.id)}
-                          className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                        />
-                        <button
-                          onClick={() => {
-                            navigate(`/?keyword_id=${keyword.id}`)
-                            setKeywordManagerOpen(false)
-                          }}
-                          className="min-w-0 flex-1 text-left"
-                          title={keyword.keyword}
-                        >
-                          <div className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-white">
-                            <Hash className="h-3.5 w-3.5 text-gray-400" />
-                            <span className="truncate">{keyword.name || keyword.keyword}</span>
+                      <div key={keyword.id} className="rounded-lg border border-gray-200 px-3 py-2 dark:border-gray-700">
+                        {editingKeywordId === keyword.id ? (
+                          <div className="space-y-2">
+                            <div className="grid gap-2 md:grid-cols-2">
+                              <label className="space-y-1 text-xs text-gray-500 dark:text-gray-400">
+                                <span>名称</span>
+                                <input
+                                  type="text"
+                                  value={editingKeywordName}
+                                  onChange={(e) => setEditingKeywordName(e.target.value)}
+                                  className="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                                />
+                              </label>
+                              <label className="space-y-1 text-xs text-gray-500 dark:text-gray-400">
+                                <span>关键词</span>
+                                <input
+                                  type="text"
+                                  value={editingKeywordText}
+                                  onChange={(e) => setEditingKeywordText(e.target.value)}
+                                  className="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                                />
+                              </label>
+                            </div>
+
+                            <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+                              <input
+                                type="checkbox"
+                                checked={editingKeywordActive}
+                                onChange={(e) => setEditingKeywordActive(e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                              />
+                              启用
+                            </label>
+
+                            <div className="flex items-center justify-between gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setEditingKeywordSourceFilterOpen((current) => !current)}
+                                className={clsx(
+                                  'inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors',
+                                  editingKeywordSourceFilterOpen || editingKeywordExcludedCategoryIds.length > 0 || editingKeywordExcludedFeedIds.length > 0
+                                    ? 'border-primary-300 bg-primary-50 text-primary-700 dark:border-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                                    : 'border-gray-200 text-gray-500 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'
+                                )}
+                              >
+                                <SlidersHorizontal className="h-3.5 w-3.5" />
+                                {editingKeywordSourceSummary}
+                              </button>
+                              <div className="flex gap-1">
+                                <button
+                                  type="button"
+                                  onClick={saveKeywordEdit}
+                                  disabled={updateKeywordMutation.isPending}
+                                  className="rounded-lg bg-primary-600 px-2 py-1 text-xs text-white hover:bg-primary-700 disabled:opacity-50"
+                                >
+                                  保存
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={clearEditingKeyword}
+                                  className="rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+                                >
+                                  取消
+                                </button>
+                              </div>
+                            </div>
+
+                            {editingKeywordSourceFilterOpen && (
+                              <div className="rounded-lg border border-gray-200 bg-gray-50 px-2 py-2 dark:border-gray-700 dark:bg-gray-800/60">
+                                <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
+                                  {categories.map((category) => {
+                                    const categoryFeeds = feeds.filter((feed) => feed.category_id === category.id)
+                                    const categoryIncluded = !editingKeywordExcludedCategorySet.has(category.id)
+
+                                    return (
+                                      <div key={category.id} className="rounded-md border border-gray-200 bg-white px-2 py-2 dark:border-gray-700 dark:bg-gray-800">
+                                        <label className="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-200">
+                                          <input
+                                            type="checkbox"
+                                            checked={categoryIncluded}
+                                            onChange={() => toggleEditingKeywordCategory(category.id)}
+                                            className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                                          />
+                                          <span className="flex-1 truncate">{category.name}</span>
+                                          <span className="text-[11px] text-gray-400 dark:text-gray-500">{categoryFeeds.length}</span>
+                                        </label>
+
+                                        {categoryFeeds.length > 0 && (
+                                          <div className="mt-2 space-y-1 border-l border-gray-200 pl-4 dark:border-gray-700">
+                                            {categoryFeeds.map((feed) => (
+                                              <label
+                                                key={feed.id}
+                                                className={clsx(
+                                                  'flex items-center gap-2 text-xs',
+                                                  categoryIncluded
+                                                    ? 'text-gray-600 dark:text-gray-300'
+                                                    : 'text-gray-400 dark:text-gray-500'
+                                                )}
+                                              >
+                                                <input
+                                                  type="checkbox"
+                                                  checked={isEditingKeywordFeedIncluded(feed)}
+                                                  disabled={!categoryIncluded}
+                                                  onChange={() => toggleEditingKeywordFeed(feed.id)}
+                                                  className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                                                />
+                                                <span className="truncate">{feed.title}</span>
+                                              </label>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )
+                                  })}
+
+                                  {uncategorizedFeeds.length > 0 && (
+                                    <div className="rounded-md border border-gray-200 bg-white px-2 py-2 dark:border-gray-700 dark:bg-gray-800">
+                                      <div className="mb-2 text-xs font-medium text-gray-700 dark:text-gray-200">未分类订阅源</div>
+                                      <div className="space-y-1">
+                                        {uncategorizedFeeds.map((feed) => (
+                                          <label key={feed.id} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+                                            <input
+                                              type="checkbox"
+                                              checked={!editingKeywordExcludedFeedSet.has(feed.id)}
+                                              onChange={() => toggleEditingKeywordFeed(feed.id)}
+                                              className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                                            />
+                                            <span className="truncate">{feed.title}</span>
+                                          </label>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
                           </div>
-                          <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                            {keywordCount} 篇文章，{keyword.unread_count} 未读
+                        ) : (
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={selectedKeywordIds.has(keyword.id)}
+                              onChange={() => toggleSelectedKeyword(keyword.id)}
+                              className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                            />
+                            <button
+                              onClick={() => {
+                                navigate(`/?keyword_id=${keyword.id}`)
+                                setKeywordManagerOpen(false)
+                              }}
+                              className="min-w-0 flex-1 text-left"
+                              title={keyword.keyword}
+                            >
+                              <div className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-white">
+                                <Hash className="h-3.5 w-3.5 text-gray-400" />
+                                <span className="truncate">{keyword.name || keyword.keyword}</span>
+                              </div>
+                              <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                                {keywordCount} 篇文章，{keyword.unread_count} 未读
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => startKeywordEdit(keyword)}
+                              className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                              title="编辑"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => deleteKeywordMutation.mutate(keyword.id)}
+                              disabled={deleteKeywordMutation.isPending || deleteSelectedKeywordsMutation.isPending}
+                              className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+                              title="删除"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
                           </div>
-                        </button>
-                        <button
-                          onClick={() => deleteKeywordMutation.mutate(keyword.id)}
-                          disabled={deleteKeywordMutation.isPending || deleteSelectedKeywordsMutation.isPending}
-                          className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-900/20 dark:hover:text-red-400"
-                          title="删除"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        )}
                       </div>
                     )
                   })}
@@ -874,11 +1153,14 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
                 清空选择
               </button>
               <div className="flex gap-2">
-                <button
-                  onClick={() => setKeywordManagerOpen(false)}
-                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
-                >
-                  关闭
+              <button
+                onClick={() => {
+                  setKeywordManagerOpen(false)
+                  clearEditingKeyword()
+                }}
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+              >
+                关闭
                 </button>
                 <button
                   onClick={() => deleteSelectedKeywordsMutation.mutate(Array.from(selectedKeywordIds))}
