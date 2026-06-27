@@ -39,6 +39,7 @@ class ArticleService:
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="Keyword subscription not found"
                 )
+            await self.keyword_repo.ensure_article_matches(user_id, [keyword])
 
         articles_data, total = await self.repo.get_articles_paginated(
             user_id=user_id,
@@ -149,6 +150,7 @@ class ArticleService:
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="Keyword subscription not found"
                 )
+            await self.keyword_repo.ensure_article_matches(user_id, [keyword])
             return await self.repo.mark_all_read_by_keyword(user_id, keyword)
         else:
             # Mark all user's articles as read
@@ -363,6 +365,7 @@ class ArticleService:
             
             # Save summary
             article.summary = summary
+            await self.keyword_repo.sync_article_matches(user_id, [article.id])
             await self.session.commit()
             
             return {"summary": summary}

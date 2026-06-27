@@ -93,6 +93,7 @@ async def test_keyword_subscription_excluded_sources_filter_articles_and_counts(
         excluded_category_ids=[blocked_category.id],
         excluded_feed_ids=[blocked_feed.id],
     )
+    await keyword_repo.rebuild_article_matches(user.id, keyword)
 
     article_repo = ArticleRepository(db_session)
     articles, total = await article_repo.get_articles_paginated(
@@ -178,6 +179,57 @@ async def test_keyword_subscription_counts_multiple_keywords(db_session):
     assert counts[alpha_keyword.id]["unread_count"] == 1
     assert counts[beta_keyword.id]["article_count"] == 1
     assert counts[beta_keyword.id]["unread_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_keyword_article_matches_sync_new_articles(db_session):
+    """New articles should be attached to matching keyword subscriptions when synced."""
+    user = User(
+        username="keyword-sync-user",
+        email="keyword-sync-user@example.com",
+        password_hash="test-hash",
+    )
+    db_session.add(user)
+    await db_session.flush()
+
+    feed = Feed(
+        user_id=user.id,
+        category_id=None,
+        url="https://sync.example.com/rss",
+        title="Sync Feed",
+        position=0,
+    )
+    db_session.add(feed)
+    await db_session.flush()
+
+    keyword_repo = KeywordSubscriptionRepository(db_session)
+    keyword = await keyword_repo.create(user_id=user.id, keyword="alpha", name="alpha")
+    await keyword_repo.rebuild_article_matches(user.id, keyword)
+
+    article = Article(
+        feed_id=feed.id,
+        guid="sync-alpha",
+        link="https://sync.example.com/alpha",
+        title="alpha appears later",
+        content="plain content",
+        published_at=datetime.utcnow(),
+    )
+    db_session.add(article)
+    await db_session.flush()
+
+    await keyword_repo.sync_article_matches(user.id, [article.id])
+
+    article_repo = ArticleRepository(db_session)
+    articles, total = await article_repo.get_articles_paginated(
+        user_id=user.id,
+        keyword=keyword,
+        page=1,
+        page_size=50,
+    )
+
+    assert total == 1
+    assert len(articles) == 1
+    assert articles[0]["article"].id == article.id
 
 
 @pytest.mark.asyncio

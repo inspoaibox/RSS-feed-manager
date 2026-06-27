@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.ai_provider import AIModel, AIProvider
 from app.repositories.ai_repository import AIModelRepository, AIProviderRepository
 from app.repositories.article_repository import ArticleRepository
+from app.repositories.keyword_subscription_repository import KeywordSubscriptionRepository
 from app.schemas.ai import (
     AIModelCreate,
     AIModelResponse,
@@ -79,6 +80,7 @@ class AIService:
         self.provider_repo = AIProviderRepository(session)
         self.model_repo = AIModelRepository(session)
         self.article_repo = ArticleRepository(session)
+        self.keyword_repo = KeywordSubscriptionRepository(session)
 
     # Provider operations
     async def create_provider(self, user_id: int, data: AIProviderCreate) -> AIProviderResponse:
@@ -293,6 +295,7 @@ class AIService:
             article.translation_status = "completed"
             article.translation_error = None
             article.translation_completed_at = datetime.utcnow()
+            await self.keyword_repo.sync_article_matches(user_id, [article.id])
             await self.article_repo.session.flush()
             return translation
         except AIClientError as e:
@@ -320,6 +323,7 @@ class AIService:
             client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
             summary = await client.summarize(content)
             await self.article_repo.update_content(article, summary=summary)
+            await self.keyword_repo.sync_article_matches(user_id, [article.id])
             return summary
         except AIClientError as e:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))

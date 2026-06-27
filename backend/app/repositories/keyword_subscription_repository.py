@@ -1,11 +1,13 @@
 """Keyword subscription repository."""
+from datetime import datetime
 from typing import Iterable, List
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, delete, func, insert, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.article import Article, UserArticle
 from app.models.feed import Feed
+from app.models.keyword_article_match import KeywordArticleMatch
 from app.models.keyword_subscription import KeywordSubscription
 
 
@@ -145,6 +147,92 @@ class KeywordSubscriptionRepository:
         result = await self.session.execute(query.limit(1))
         return result.scalar_one_or_none() is not None
 
+    async def rebuild_article_matches(
+        self,
+        user_id: int,
+        subscription: KeywordSubscription,
+    ) -> None:
+        """Rebuild persisted article matches for one keyword subscription."""
+        await self.session.execute(
+            delete(KeywordArticleMatch).where(
+                KeywordArticleMatch.keyword_subscription_id == subscription.id
+            )
+        )
+
+        conditions = build_keyword_conditions(subscription)
+        source_conditions = build_keyword_source_conditions(subscription)
+        if conditions:
+            await self.session.execute(
+                insert(KeywordArticleMatch).from_select(
+                    ["keyword_subscription_id", "article_id"],
+                    select(literal(subscription.id), Article.id)
+                    .join(Feed, Article.feed_id == Feed.id)
+                    .where(
+                        Feed.user_id == user_id,
+                        or_(*conditions),
+                        *source_conditions,
+                    ),
+                )
+            )
+
+        subscription.matches_built_at = datetime.utcnow()
+        await self.session.flush()
+        await self.session.refresh(subscription)
+
+    async def ensure_article_matches(
+        self,
+        user_id: int,
+        subscriptions: Iterable[KeywordSubscription],
+    ) -> None:
+        """Build keyword article matches for subscriptions that have not been backfilled."""
+        for subscription in subscriptions:
+            if getattr(subscription, "matches_built_at", None) is None:
+                await self.rebuild_article_matches(user_id, subscription)
+
+    async def sync_article_matches(
+        self,
+        user_id: int,
+        article_ids: Iterable[int],
+    ) -> None:
+        """Refresh keyword matches for newly inserted or content-updated articles."""
+        unique_article_ids = list(dict.fromkeys(article_id for article_id in article_ids if article_id))
+        if not unique_article_ids:
+            return
+
+        subscriptions = await self.get_all_by_user(user_id)
+        subscription_ids = [subscription.id for subscription in subscriptions]
+        if not subscription_ids:
+            return
+
+        await self.session.execute(
+            delete(KeywordArticleMatch).where(
+                KeywordArticleMatch.article_id.in_(unique_article_ids),
+                KeywordArticleMatch.keyword_subscription_id.in_(subscription_ids),
+            )
+        )
+
+        for subscription in subscriptions:
+            conditions = build_keyword_conditions(subscription)
+            source_conditions = build_keyword_source_conditions(subscription)
+            if not conditions:
+                continue
+
+            await self.session.execute(
+                insert(KeywordArticleMatch).from_select(
+                    ["keyword_subscription_id", "article_id"],
+                    select(literal(subscription.id), Article.id)
+                    .join(Feed, Article.feed_id == Feed.id)
+                    .where(
+                        Feed.user_id == user_id,
+                        Article.id.in_(unique_article_ids),
+                        or_(*conditions),
+                        *source_conditions,
+                    ),
+                )
+            )
+
+        await self.session.flush()
+
     async def get_article_counts(
         self,
         user_id: int,
@@ -157,45 +245,24 @@ class KeywordSubscriptionRepository:
         if not sub_list:
             return counts
 
-        aggregate_columns = []
-        active_subscription_ids: list[int] = []
-        overall_match_conditions = []
+        await self.ensure_article_matches(user_id, sub_list)
+
+        subscription_ids = [subscription.id for subscription in sub_list]
+        for subscription_id in subscription_ids:
+            counts[subscription_id] = {"article_count": 0, "unread_count": 0}
+
         unread_condition = or_(UserArticle.is_read == False, UserArticle.is_read == None)
-
-        for subscription in sub_list:
-            conditions = build_keyword_conditions(subscription)
-            source_conditions = build_keyword_source_conditions(subscription)
-            counts[subscription.id] = {"article_count": 0, "unread_count": 0}
-            if not conditions:
-                continue
-
-            match_condition = or_(*conditions)
-            if source_conditions:
-                match_condition = and_(match_condition, *source_conditions)
-            overall_match_conditions.append(match_condition)
-
-            aggregate_columns.extend(
-                [
-                    func.coalesce(
-                        func.sum(case((match_condition, 1), else_=0)),
-                        0,
-                    ).label(f"article_count_{subscription.id}"),
-                    func.coalesce(
-                        func.sum(
-                            case((and_(match_condition, unread_condition), 1), else_=0)
-                        ),
-                        0,
-                    ).label(f"unread_count_{subscription.id}"),
-                ]
+        result = await self.session.execute(
+            select(
+                KeywordArticleMatch.keyword_subscription_id,
+                func.count(Article.id).label("article_count"),
+                func.coalesce(
+                    func.sum(case((unread_condition, 1), else_=0)),
+                    0,
+                ).label("unread_count"),
             )
-            active_subscription_ids.append(subscription.id)
-
-        if not aggregate_columns:
-            return counts
-
-        query = (
-            select(*aggregate_columns)
-            .select_from(Article)
+            .select_from(KeywordArticleMatch)
+            .join(Article, KeywordArticleMatch.article_id == Article.id)
             .join(Feed, Article.feed_id == Feed.id)
             .outerjoin(
                 UserArticle,
@@ -204,21 +271,16 @@ class KeywordSubscriptionRepository:
                     UserArticle.user_id == user_id,
                 ),
             )
-            .where(Feed.user_id == user_id)
+            .where(
+                Feed.user_id == user_id,
+                KeywordArticleMatch.keyword_subscription_id.in_(subscription_ids),
+            )
+            .group_by(KeywordArticleMatch.keyword_subscription_id)
         )
-        if overall_match_conditions:
-            query = query.where(or_(*overall_match_conditions))
-
-        result = await self.session.execute(query)
-        row = result.one_or_none()
-        if not row:
-            return counts
-
-        mapping = row._mapping
-        for subscription_id in active_subscription_ids:
-            counts[subscription_id] = {
-                "article_count": int(mapping[f"article_count_{subscription_id}"] or 0),
-                "unread_count": int(mapping[f"unread_count_{subscription_id}"] or 0),
+        for row in result.all():
+            counts[row.keyword_subscription_id] = {
+                "article_count": int(row.article_count or 0),
+                "unread_count": int(row.unread_count or 0),
             }
 
         return counts

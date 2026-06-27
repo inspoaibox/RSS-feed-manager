@@ -7,14 +7,20 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from celery import shared_task
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, delete, insert, literal, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.article import Article
 from app.models.argos_translation_log import ArgosTranslationLog
 from app.models.feed import Feed
 from app.models.custom_rule import CustomRule
+from app.models.keyword_article_match import KeywordArticleMatch
+from app.models.keyword_subscription import KeywordSubscription
 from app.models.proxy_pool import ProxyPoolEntry
+from app.repositories.keyword_subscription_repository import (
+    build_keyword_conditions,
+    build_keyword_source_conditions,
+)
 from app.models.ai_provider import AIModel, AIProvider
 from app.services.ai_translation_service import (
     plain_text_to_html,
@@ -97,6 +103,56 @@ def _existing_article_guids(db: Session, feed_id: int, guids) -> set[str]:
             ).scalars().all()
         )
     return existing
+
+
+def _sync_keyword_matches_for_articles_sync(
+    db: Session,
+    user_id: int,
+    article_ids,
+) -> None:
+    unique_article_ids = list(dict.fromkeys(article_id for article_id in article_ids if article_id))
+    if not unique_article_ids:
+        return
+
+    subscriptions = list(
+        db.execute(
+            select(KeywordSubscription)
+            .where(KeywordSubscription.user_id == user_id)
+            .order_by(KeywordSubscription.position, KeywordSubscription.created_at)
+        ).scalars().all()
+    )
+    subscription_ids = [subscription.id for subscription in subscriptions]
+    if not subscription_ids:
+        return
+
+    db.execute(
+        delete(KeywordArticleMatch).where(
+            KeywordArticleMatch.article_id.in_(unique_article_ids),
+            KeywordArticleMatch.keyword_subscription_id.in_(subscription_ids),
+        )
+    )
+
+    for subscription in subscriptions:
+        conditions = build_keyword_conditions(subscription)
+        source_conditions = build_keyword_source_conditions(subscription)
+        if not conditions:
+            continue
+
+        db.execute(
+            insert(KeywordArticleMatch).from_select(
+                ["keyword_subscription_id", "article_id"],
+                select(literal(subscription.id), Article.id)
+                .join(Feed, Article.feed_id == Feed.id)
+                .where(
+                    Feed.user_id == user_id,
+                    Article.id.in_(unique_article_ids),
+                    or_(*conditions),
+                    *source_conditions,
+                ),
+            )
+        )
+
+    db.flush()
 
 
 def _feed_refresh_slot_key(feed_id: int) -> str:
@@ -799,6 +855,7 @@ def translate_article_task(self, article_id: int, target_language: str | None = 
             article.translation_status = "completed"
             article.translation_error = None
             article.translation_completed_at = completed_at
+            _sync_keyword_matches_for_articles_sync(db, feed.user_id, [article.id])
             _finish_argos_translation_log(argos_log, "completed", started_at, completed_at)
             db.commit()
             print(f"{method} translated article {article.id}: {article.title[:50]}...")
@@ -943,6 +1000,7 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
                 feed.icon_url = parsed.icon_url
         
         new_count = 0
+        new_article_ids: list[int] = []
         queued_translation_article_ids: list[int] = []
         existing_guids = _existing_article_guids(
             db,
@@ -971,6 +1029,7 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
             db.add(article)
             existing_guids.add(guid)
             db.flush()  # Get article ID
+            new_article_ids.append(article.id)
 
             # Queue translation and process summary if enabled.
             if _process_article_with_ai(db, article, feed):
@@ -983,6 +1042,8 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
             _trigger_push_notifications(db, article)
 
             new_count += 1
+
+        _sync_keyword_matches_for_articles_sync(db, feed.user_id, new_article_ids)
         
         feed.last_fetched_at = datetime.utcnow()
         feed.last_error = None
@@ -1187,6 +1248,7 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
         print(f"[CustomRule] Found {len(items)} items")
         
         new_articles = []
+        new_article_ids: list[int] = []
         skipped_no_title_link = 0
         skipped_existing = 0
         
@@ -1321,7 +1383,10 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
 
             # Trigger push notifications for new article
             db.flush()  # Ensure article has ID
+            new_article_ids.append(article.id)
             _trigger_push_notifications(db, article)
+
+        _sync_keyword_matches_for_articles_sync(db, rule.user_id, new_article_ids)
 
         print(f"[CustomRule] Skipped {skipped_no_title_link} (no title/link), {skipped_existing} (existing), added {len(new_articles)} new")
         

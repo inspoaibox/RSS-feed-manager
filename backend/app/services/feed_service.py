@@ -11,6 +11,7 @@ from app.models.feed import Feed
 from app.repositories.article_repository import ArticleRepository
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.feed_repository import FeedRepository
+from app.repositories.keyword_subscription_repository import KeywordSubscriptionRepository
 from app.repositories.proxy_pool_repository import ProxyPoolRepository
 from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.schemas.feed import FeedCreate, FeedReorder, FeedResponse, FeedUpdate, OPMLImportResult
@@ -38,6 +39,7 @@ class FeedService:
         self.repo = FeedRepository(session)
         self.category_repo = CategoryRepository(session)
         self.article_repo = ArticleRepository(session)
+        self.keyword_repo = KeywordSubscriptionRepository(session)
         self.settings_repo = SystemSettingsRepository(session)
         self.proxy_repo = ProxyPoolRepository(session)
 
@@ -384,7 +386,18 @@ class FeedService:
         if 'fetch_interval' in update_data:
             update_data['fetch_interval'] = await self._validate_fetch_interval(update_data['fetch_interval'])
         
+        source_scope_changed = "category_id" in update_data
         feed = await self.repo.update(feed, **update_data)
+        if source_scope_changed:
+            from sqlalchemy import select
+
+            article_ids_result = await self.session.execute(
+                select(Article.id).where(Article.feed_id == feed.id)
+            )
+            await self.keyword_repo.sync_article_matches(
+                user_id,
+                [row[0] for row in article_ids_result.all()],
+            )
         
         counts = await self.repo.get_article_counts(user_id, [feed_id])
         return self._to_response(
@@ -644,6 +657,10 @@ class FeedService:
 
         if new_articles:
             await self.session.flush()
+            await self.keyword_repo.sync_article_matches(
+                user_id,
+                [article.id for article in new_articles],
+            )
 
         for saved_article in new_articles:
             if await self._queue_article_translation(feed, saved_article):

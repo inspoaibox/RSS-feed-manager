@@ -7,10 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.article import Article, UserArticle
 from app.models.feed import Feed
+from app.models.keyword_article_match import KeywordArticleMatch
 from app.models.keyword_subscription import KeywordSubscription
 from app.repositories.keyword_subscription_repository import (
     build_keyword_conditions,
-    build_keyword_source_conditions,
 )
 
 READ_STATE_BATCH_SIZE = 1000
@@ -148,12 +148,13 @@ class ArticleRepository:
             base_query = base_query.where(Feed.category_id == category_id)
 
         if keyword is not None:
-            conditions = build_keyword_conditions(keyword)
-            source_conditions = build_keyword_source_conditions(keyword)
-            if conditions:
-                base_query = base_query.where(or_(*conditions), *source_conditions)
-            else:
-                base_query = base_query.where(False)
+            base_query = base_query.join(
+                KeywordArticleMatch,
+                and_(
+                    KeywordArticleMatch.article_id == Article.id,
+                    KeywordArticleMatch.keyword_subscription_id == keyword.id,
+                ),
+            )
         
         if is_read is not None:
             if is_read:
@@ -360,14 +361,20 @@ class ArticleRepository:
     ) -> int:
         """Mark all articles matching a keyword subscription as read."""
         conditions = build_keyword_conditions(keyword)
-        source_conditions = build_keyword_source_conditions(keyword)
         if not conditions:
             return 0
 
         article_ids_result = await self.session.execute(
             select(Article.id)
             .join(Feed, Article.feed_id == Feed.id)
-            .where(Feed.user_id == user_id, or_(*conditions), *source_conditions)
+            .join(
+                KeywordArticleMatch,
+                and_(
+                    KeywordArticleMatch.article_id == Article.id,
+                    KeywordArticleMatch.keyword_subscription_id == keyword.id,
+                ),
+            )
+            .where(Feed.user_id == user_id)
         )
         article_ids = [row[0] for row in article_ids_result.all()]
 

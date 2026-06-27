@@ -9,6 +9,7 @@ from app.models.system_settings import SystemSettings
 from app.models.analysis_query import AnalysisQuery
 from app.models.recommended_feed import RecommendedFeed
 from app.models.keyword_subscription import KeywordSubscription
+from app.models.keyword_article_match import KeywordArticleMatch
 from app.models.proxy_pool import ProxyPoolEntry
 from app.models.google_translate_key import GoogleTranslateKey
 from app.models.argos_translation_log import ArgosTranslationLog
@@ -27,6 +28,7 @@ __all__ = [
     "AnalysisQuery",
     "RecommendedFeed",
     "KeywordSubscription",
+    "KeywordArticleMatch",
     "ProxyPoolEntry",
     "GoogleTranslateKey",
     "ArgosTranslationLog",

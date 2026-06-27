@@ -1788,7 +1788,7 @@ function ProxyPoolTab() {
                     <td className="p-3 text-gray-600 dark:text-gray-300">
                       {proxy.last_latency_ms === null ? '-' : `${proxy.last_latency_ms}ms`}
                     </td>
-                    <td className="p-3 text-gray-600 dark:text-gray-300">{proxy.fail_count}/5</td>
+                    <td className="p-3 text-gray-600 dark:text-gray-300">{proxy.fail_count}</td>
                     <td className="p-3 max-w-[220px] truncate text-gray-500 dark:text-gray-400" title={proxy.last_error || ''}>
                       {proxy.last_error || '-'}
                     </td>

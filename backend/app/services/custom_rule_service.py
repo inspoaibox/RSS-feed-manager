@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.custom_rule import CustomRule
 from app.models.feed import Feed
 from app.repositories.custom_rule_repository import CustomRuleRepository
+from app.repositories.keyword_subscription_repository import KeywordSubscriptionRepository
 from app.repositories.proxy_pool_repository import ProxyPoolRepository
 from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.schemas.custom_rule import (
@@ -34,6 +35,7 @@ class CustomRuleService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.repository = CustomRuleRepository(db)
+        self.keyword_repo = KeywordSubscriptionRepository(db)
         self.proxy_repo = ProxyPoolRepository(db)
         self.settings_repo = SystemSettingsRepository(db)
 
@@ -599,6 +601,7 @@ class CustomRuleService:
             print(f"[CustomRule] Found {len(items)} items")
             
             new_articles = []
+            new_article_ids: list[int] = []
             skipped_no_title_link = 0
             skipped_existing = 0
             
@@ -742,7 +745,11 @@ class CustomRuleService:
                     published_at=published_at or datetime.utcnow(),
                 )
                 self.db.add(article)
+                await self.db.flush()
+                new_article_ids.append(article.id)
                 new_articles.append({"title": title, "link": link, "content": content})
+
+            await self.keyword_repo.sync_article_matches(rule.user_id, new_article_ids)
             
             print(f"[CustomRule] Skipped {skipped_no_title_link} (no title/link), {skipped_existing} (existing), added {len(new_articles)} new")
             

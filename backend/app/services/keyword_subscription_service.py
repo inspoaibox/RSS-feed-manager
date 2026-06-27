@@ -155,6 +155,7 @@ class KeywordSubscriptionService:
             update_data["excluded_feed_ids"] = excluded_feed_ids
 
         subscription = await self.repo.update(subscription, **update_data)
+        await self.repo.rebuild_article_matches(user_id, subscription)
         counts = await self.repo.get_article_counts(user_id, [subscription])
         return self._to_response(
             subscription,
