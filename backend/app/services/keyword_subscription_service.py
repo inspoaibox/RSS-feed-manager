@@ -104,7 +104,12 @@ class KeywordSubscriptionService:
             excluded_category_ids=excluded_category_ids,
             excluded_feed_ids=excluded_feed_ids,
         )
-        return self._to_response(subscription)
+        counts = await self.repo.get_article_counts(user_id, [subscription])
+        return self._to_response(
+            subscription,
+            counts.get(subscription.id, {}).get("article_count", 0),
+            counts.get(subscription.id, {}).get("unread_count", 0),
+        )
 
     async def update(
         self,
@@ -150,7 +155,12 @@ class KeywordSubscriptionService:
             update_data["excluded_feed_ids"] = excluded_feed_ids
 
         subscription = await self.repo.update(subscription, **update_data)
-        return self._to_response(subscription)
+        counts = await self.repo.get_article_counts(user_id, [subscription])
+        return self._to_response(
+            subscription,
+            counts.get(subscription.id, {}).get("article_count", 0),
+            counts.get(subscription.id, {}).get("unread_count", 0),
+        )
 
     async def delete(self, user_id: int, keyword_id: int) -> None:
         """Delete a keyword subscription."""

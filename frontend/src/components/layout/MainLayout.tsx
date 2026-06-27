@@ -106,7 +106,14 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
       const response = await api.get<KeywordSubscription[]>('/keywords', {
         params: { include_counts: false },
       })
-      return response.data
+      const cachedCounts = queryClient.getQueryData<KeywordSubscriptionCount[]>(['keyword-counts'])
+      if (!cachedCounts?.length) return response.data
+
+      const cachedCountById = new Map(cachedCounts.map((count) => [count.id, count]))
+      return response.data.map((keyword) => {
+        const counts = cachedCountById.get(keyword.id)
+        return counts ? { ...keyword, ...counts } : keyword
+      })
     },
     refetchInterval: 30000,
   })
@@ -118,6 +125,7 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
       return response.data
     },
     enabled: keywordSubscriptions.length > 0,
+    placeholderData: (previousData) => previousData ?? [],
     refetchInterval: 30000,
   })
 
@@ -195,6 +203,20 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
     setEditingKeywordExcludedFeedIds([])
   }
 
+  const upsertKeywordCountCache = (keyword: Pick<KeywordSubscription, 'id' | 'article_count' | 'unread_count'>) => {
+    queryClient.setQueryData<KeywordSubscriptionCount[]>(['keyword-counts'], (current = []) => {
+      const nextCount = {
+        id: keyword.id,
+        article_count: keyword.article_count || 0,
+        unread_count: keyword.unread_count || 0,
+      }
+      if (current.some((count) => count.id === keyword.id)) {
+        return current.map((count) => count.id === keyword.id ? nextCount : count)
+      }
+      return [...current, nextCount]
+    })
+  }
+
   const createKeywordMutation = useMutation({
     mutationFn: async (payload: KeywordCreatePayload) => {
       const response = await api.post<KeywordSubscription>('/keywords', {
@@ -210,6 +232,7 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
       return response.data
     },
     onSuccess: (keyword) => {
+      upsertKeywordCountCache(keyword)
       queryClient.setQueryData<KeywordSubscription[]>(['keywords'], (current = []) => {
         if (current.some((item) => item.id === keyword.id)) {
           return current.map((item) => item.id === keyword.id ? keyword : item)
@@ -238,6 +261,7 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
       return response.data
     },
     onSuccess: (keyword) => {
+      upsertKeywordCountCache(keyword)
       queryClient.setQueryData<KeywordSubscription[]>(['keywords'], (current = []) => {
         return current.map((item) => (item.id === keyword.id ? keyword : item))
       })

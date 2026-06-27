@@ -120,6 +120,7 @@ class KeywordSubscriptionRepository:
             if hasattr(subscription, key) and value is not None:
                 setattr(subscription, key, value)
         await self.session.flush()
+        await self.session.refresh(subscription)
         return subscription
 
     async def delete(self, subscription: KeywordSubscription) -> None:
@@ -158,6 +159,7 @@ class KeywordSubscriptionRepository:
 
         aggregate_columns = []
         active_subscription_ids: list[int] = []
+        overall_match_conditions = []
         unread_condition = or_(UserArticle.is_read == False, UserArticle.is_read == None)
 
         for subscription in sub_list:
@@ -170,6 +172,7 @@ class KeywordSubscriptionRepository:
             match_condition = or_(*conditions)
             if source_conditions:
                 match_condition = and_(match_condition, *source_conditions)
+            overall_match_conditions.append(match_condition)
 
             aggregate_columns.extend(
                 [
@@ -190,7 +193,7 @@ class KeywordSubscriptionRepository:
         if not aggregate_columns:
             return counts
 
-        result = await self.session.execute(
+        query = (
             select(*aggregate_columns)
             .select_from(Article)
             .join(Feed, Article.feed_id == Feed.id)
@@ -203,6 +206,10 @@ class KeywordSubscriptionRepository:
             )
             .where(Feed.user_id == user_id)
         )
+        if overall_match_conditions:
+            query = query.where(or_(*overall_match_conditions))
+
+        result = await self.session.execute(query)
         row = result.one_or_none()
         if not row:
             return counts

@@ -10,6 +10,8 @@ from app.models.feed import Feed
 from app.models.user import User
 from app.repositories.article_repository import ArticleRepository
 from app.repositories.keyword_subscription_repository import KeywordSubscriptionRepository
+from app.schemas.keyword_subscription import KeywordSubscriptionCreate, KeywordSubscriptionUpdate
+from app.services.keyword_subscription_service import KeywordSubscriptionService
 
 
 @pytest.mark.asyncio
@@ -176,6 +178,69 @@ async def test_keyword_subscription_counts_multiple_keywords(db_session):
     assert counts[alpha_keyword.id]["unread_count"] == 1
     assert counts[beta_keyword.id]["article_count"] == 1
     assert counts[beta_keyword.id]["unread_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_keyword_subscription_service_returns_counts_after_create_and_update(db_session):
+    """Create and update responses should include current article counts."""
+    user = User(
+        username="keyword-service-user",
+        email="keyword-service-user@example.com",
+        password_hash="test-hash",
+    )
+    db_session.add(user)
+    await db_session.flush()
+
+    feed = Feed(
+        user_id=user.id,
+        category_id=None,
+        url="https://service-counts.example.com/rss",
+        title="Service Counts Feed",
+        position=0,
+    )
+    db_session.add(feed)
+    await db_session.flush()
+
+    now = datetime.utcnow()
+    db_session.add_all(
+        [
+            Article(
+                feed_id=feed.id,
+                guid="service-alpha",
+                link="https://service-counts.example.com/alpha",
+                title="alpha launch",
+                content="plain content",
+                published_at=now,
+            ),
+            Article(
+                feed_id=feed.id,
+                guid="service-beta",
+                link="https://service-counts.example.com/beta",
+                title="beta launch",
+                content="plain content",
+                published_at=now,
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    service = KeywordSubscriptionService(db_session)
+    created = await service.create(
+        user.id,
+        KeywordSubscriptionCreate(keyword="alpha", name="alpha"),
+    )
+
+    assert created.article_count == 1
+    assert created.unread_count == 1
+
+    updated = await service.update(
+        user.id,
+        created.id,
+        KeywordSubscriptionUpdate(keyword="beta", name="beta"),
+    )
+
+    assert updated.article_count == 1
+    assert updated.unread_count == 1
 
 
 @pytest.mark.asyncio
