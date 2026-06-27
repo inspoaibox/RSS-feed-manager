@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import List
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -188,19 +188,24 @@ class FeedRepository:
         """Get article counts and unread counts for feeds."""
         if not feed_ids:
             return {}
-        
-        # Get total article counts
-        article_counts_result = await self.session.execute(
-            select(Article.feed_id, func.count(Article.id))
-            .where(Article.feed_id.in_(feed_ids))
-            .group_by(Article.feed_id)
-        )
-        article_counts = {row[0]: row[1] for row in article_counts_result.all()}
-        
-        # Get unread counts (articles without UserArticle or with is_read=False)
-        from sqlalchemy import and_, or_
-        unread_counts_result = await self.session.execute(
-            select(Article.feed_id, func.count(Article.id))
+
+        counts_result = await self.session.execute(
+            select(
+                Article.feed_id,
+                func.count(Article.id).label("article_count"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                or_(UserArticle.is_read == False, UserArticle.is_read == None),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("unread_count"),
+            )
             .outerjoin(
                 UserArticle,
                 and_(
@@ -208,18 +213,21 @@ class FeedRepository:
                     UserArticle.user_id == user_id
                 )
             )
-            .where(
-                Article.feed_id.in_(feed_ids),
-                or_(UserArticle.is_read == False, UserArticle.is_read == None)
-            )
+            .where(Article.feed_id.in_(feed_ids))
             .group_by(Article.feed_id)
         )
-        unread_counts = {row[0]: row[1] for row in unread_counts_result.all()}
+        counts = {
+            row.feed_id: {
+                'article_count': row.article_count or 0,
+                'unread_count': row.unread_count or 0,
+            }
+            for row in counts_result.all()
+        }
         
         result = {}
         for feed_id in feed_ids:
             result[feed_id] = {
-                'article_count': article_counts.get(feed_id, 0),
-                'unread_count': unread_counts.get(feed_id, 0)
+                'article_count': counts.get(feed_id, {}).get('article_count', 0),
+                'unread_count': counts.get(feed_id, {}).get('unread_count', 0)
             }
         return result

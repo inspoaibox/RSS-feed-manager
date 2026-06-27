@@ -310,6 +310,7 @@ function FeedsTab() {
       queryClient.invalidateQueries({ queryKey: ['feeds'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
       queryClient.invalidateQueries({ queryKey: ['articles'] })
+      queryClient.invalidateQueries({ queryKey: ['keyword-counts'] })
       setShowAddForm(false)
       setNewFeedUrl('')
       setNewFeedCategory(null)
@@ -350,6 +351,7 @@ function FeedsTab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['feeds'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
+      queryClient.invalidateQueries({ queryKey: ['keyword-counts'] })
       setEditingId(null)
       setMessage({ type: 'success', text: '订阅源已更新' })
       setTimeout(() => setMessage(null), 3000)
@@ -368,6 +370,7 @@ function FeedsTab() {
       queryClient.invalidateQueries({ queryKey: ['feeds'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
       queryClient.invalidateQueries({ queryKey: ['articles'] })
+      queryClient.invalidateQueries({ queryKey: ['keyword-counts'] })
       setMessage({ type: 'success', text: '订阅源已删除' })
       setTimeout(() => setMessage(null), 3000)
     },
@@ -393,6 +396,7 @@ function FeedsTab() {
       queryClient.invalidateQueries({ queryKey: ['feeds'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
       queryClient.invalidateQueries({ queryKey: ['articles'] })
+      queryClient.invalidateQueries({ queryKey: ['keyword-counts'] })
       setMessage({ type: 'success', text: '订阅源刷新成功' })
       setTimeout(() => setMessage(null), 3000)
     },
@@ -3817,6 +3821,7 @@ function RulesTab() {
       queryClient.invalidateQueries({ queryKey: ['custom-rules'] })
       queryClient.invalidateQueries({ queryKey: ['feeds'] })
       queryClient.invalidateQueries({ queryKey: ['articles'] })
+      queryClient.invalidateQueries({ queryKey: ['keyword-counts'] })
       setMessage({ type: 'success', text: `抓取完成，新增 ${data.articles_found} 篇文章` })
       setTimeout(() => setMessage(null), 3000)
     },

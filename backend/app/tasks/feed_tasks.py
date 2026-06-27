@@ -50,6 +50,7 @@ ARTICLE_TRANSLATION_QUEUE_LOCK_TTL = int(os.environ.get("ARTICLE_TRANSLATION_QUE
 CUSTOM_RULE_EXECUTION_QUEUE_LOCK_TTL = int(os.environ.get("CUSTOM_RULE_EXECUTION_QUEUE_LOCK_TTL", "14400"))
 FEED_REFRESH_DISPATCH_LIMIT = int(os.environ.get("FEED_REFRESH_DISPATCH_LIMIT", "100"))
 CUSTOM_RULE_DISPATCH_LIMIT = int(os.environ.get("CUSTOM_RULE_DISPATCH_LIMIT", "10"))
+ARTICLE_GUID_BATCH_SIZE = 1000
 
 
 def get_sync_session():
@@ -67,6 +68,35 @@ def get_redis_client():
 
     redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
     return redis.from_url(redis_url)
+
+
+def _iter_batches(values, batch_size: int = ARTICLE_GUID_BATCH_SIZE):
+    batch = []
+    for value in values:
+        batch.append(value)
+        if len(batch) >= batch_size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
+
+
+def _existing_article_guids(db: Session, feed_id: int, guids) -> set[str]:
+    unique_guids = list(dict.fromkeys(guid for guid in guids if guid))
+    if not unique_guids:
+        return set()
+
+    existing: set[str] = set()
+    for guid_batch in _iter_batches(unique_guids):
+        existing.update(
+            db.execute(
+                select(Article.guid).where(
+                    Article.feed_id == feed_id,
+                    Article.guid.in_(guid_batch),
+                )
+            ).scalars().all()
+        )
+    return existing
 
 
 def _feed_refresh_slot_key(feed_id: int) -> str:
@@ -914,20 +944,17 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
         
         new_count = 0
         queued_translation_article_ids: list[int] = []
+        existing_guids = _existing_article_guids(
+            db,
+            feed.id,
+            (article_data.guid for article_data in parsed.articles),
+        )
         for article_data in parsed.articles:
-            # Check if article already exists
             guid = article_data.guid
             if not guid:
                 continue
-            
-            existing = db.execute(
-                select(Article).where(
-                    Article.feed_id == feed.id,
-                    Article.guid == guid
-                )
-            ).scalar_one_or_none()
-            
-            if existing:
+
+            if guid in existing_guids:
                 continue
             
             # Create new article
@@ -942,6 +969,7 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
                 published_at=article_data.published_at,
             )
             db.add(article)
+            existing_guids.add(guid)
             db.flush()  # Get article ID
 
             # Queue translation and process summary if enabled.

@@ -1,6 +1,6 @@
 """Article repository for database operations."""
 from datetime import datetime
-from typing import List, Tuple
+from typing import Iterable, List, Tuple
 
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +12,19 @@ from app.repositories.keyword_subscription_repository import (
     build_keyword_conditions,
     build_keyword_source_conditions,
 )
+
+READ_STATE_BATCH_SIZE = 1000
+
+
+def iter_batches(values: Iterable, batch_size: int = READ_STATE_BATCH_SIZE):
+    batch = []
+    for value in values:
+        batch.append(value)
+        if len(batch) >= batch_size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
 
 
 def build_article_search_conditions(query: str) -> list:
@@ -79,6 +92,23 @@ class ArticleRepository:
             )
         )
         return result.scalar_one_or_none()
+
+    async def get_existing_guids(self, feed_id: int, guids: Iterable[str]) -> set[str]:
+        """Get existing article GUIDs for a feed in batches."""
+        unique_guids = list(dict.fromkeys(guid for guid in guids if guid))
+        if not unique_guids:
+            return set()
+
+        existing_guids: set[str] = set()
+        for guid_batch in iter_batches(unique_guids):
+            result = await self.session.execute(
+                select(Article.guid).where(
+                    Article.feed_id == feed_id,
+                    Article.guid.in_(guid_batch),
+                )
+            )
+            existing_guids.update(result.scalars().all())
+        return existing_guids
 
     async def get_articles_paginated(
         self,
@@ -307,49 +337,21 @@ class ArticleRepository:
 
     async def mark_all_read_by_feed(self, user_id: int, feed_id: int) -> int:
         """Mark all articles in a feed as read."""
-        # Get all article IDs for the feed
         article_ids_result = await self.session.execute(
             select(Article.id).where(Article.feed_id == feed_id)
         )
         article_ids = [row[0] for row in article_ids_result.all()]
-        
-        if not article_ids:
-            return 0
-        
-        count = 0
-        for article_id in article_ids:
-            user_article = await self.get_or_create_user_article(user_id, article_id)
-            if not user_article.is_read:
-                user_article.is_read = True
-                user_article.read_at = datetime.utcnow()
-                count += 1
-        
-        await self.session.flush()
-        return count
+        return await self._mark_article_ids_read(user_id, article_ids)
 
     async def mark_all_read_by_category(self, user_id: int, category_id: int) -> int:
         """Mark all articles in a category as read."""
-        # Get all article IDs for feeds in the category
         article_ids_result = await self.session.execute(
             select(Article.id)
             .join(Feed, Article.feed_id == Feed.id)
             .where(Feed.category_id == category_id, Feed.user_id == user_id)
         )
         article_ids = [row[0] for row in article_ids_result.all()]
-        
-        if not article_ids:
-            return 0
-        
-        count = 0
-        for article_id in article_ids:
-            user_article = await self.get_or_create_user_article(user_id, article_id)
-            if not user_article.is_read:
-                user_article.is_read = True
-                user_article.read_at = datetime.utcnow()
-                count += 1
-        
-        await self.session.flush()
-        return count
+        return await self._mark_article_ids_read(user_id, article_ids)
 
     async def mark_all_read_by_keyword(
         self,
@@ -369,17 +371,50 @@ class ArticleRepository:
         )
         article_ids = [row[0] for row in article_ids_result.all()]
 
+        return await self._mark_article_ids_read(user_id, article_ids)
+
+    async def _mark_article_ids_read(self, user_id: int, article_ids: List[int]) -> int:
+        """Mark article IDs as read with batched state loading."""
         if not article_ids:
             return 0
 
+        unique_article_ids = list(dict.fromkeys(article_ids))
+        existing_by_article_id: dict[int, UserArticle] = {}
+        for article_id_batch in iter_batches(unique_article_ids):
+            result = await self.session.execute(
+                select(UserArticle).where(
+                    UserArticle.user_id == user_id,
+                    UserArticle.article_id.in_(article_id_batch),
+                )
+            )
+            existing_by_article_id.update(
+                (user_article.article_id, user_article)
+                for user_article in result.scalars().all()
+            )
+
+        now = datetime.utcnow()
         count = 0
-        for article_id in article_ids:
-            user_article = await self.get_or_create_user_article(user_id, article_id)
-            if not user_article.is_read:
-                user_article.is_read = True
-                user_article.read_at = datetime.utcnow()
+        new_user_articles: list[UserArticle] = []
+        for article_id in unique_article_ids:
+            user_article = existing_by_article_id.get(article_id)
+            if user_article:
+                if not user_article.is_read:
+                    user_article.is_read = True
+                    user_article.read_at = now
+                    count += 1
+            else:
+                new_user_articles.append(
+                    UserArticle(
+                        user_id=user_id,
+                        article_id=article_id,
+                        is_read=True,
+                        read_at=now,
+                    )
+                )
                 count += 1
 
+        if new_user_articles:
+            self.session.add_all(new_user_articles)
         await self.session.flush()
         return count
 

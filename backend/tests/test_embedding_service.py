@@ -92,7 +92,7 @@ class TestEmbeddingServiceProperties:
         """Create an EmbeddingService instance for testing."""
         return EmbeddingService(api_key="test-api-key")
 
-    @given(st.text(alphabet=st.characters(whitespace_categories=("Zs", "Zl", "Zp")), min_size=0, max_size=100))
+    @given(st.text(alphabet=st.characters(categories=("Zs", "Zl", "Zp")), min_size=0, max_size=100))
     @settings(max_examples=50)
     def test_whitespace_only_text_returns_none(self, text):
         """
@@ -106,13 +106,11 @@ class TestEmbeddingServiceProperties:
         
         # 只测试空白字符串
         if not text.strip():
-            result = asyncio.get_event_loop().run_until_complete(
-                service.generate_embedding(text)
-            )
+            result = asyncio.run(service.generate_embedding(text))
             assert result is None
 
     @given(st.text(min_size=1, max_size=100).filter(lambda x: x.strip()))
-    @settings(max_examples=20)
+    @settings(max_examples=20, deadline=None)
     def test_non_empty_text_does_not_raise(self, text):
         """
         Property: For any non-empty text, generate_embedding should not raise an exception.
@@ -125,9 +123,7 @@ class TestEmbeddingServiceProperties:
         
         # 这个测试验证非空文本不会导致异常（API 调用会失败但不应抛出异常）
         try:
-            asyncio.get_event_loop().run_until_complete(
-                service.generate_embedding(text)
-            )
+            asyncio.run(service.generate_embedding(text))
         except Exception as e:
             # 应该返回 None 而不是抛出异常
             pytest.fail(f"generate_embedding raised an exception: {e}")

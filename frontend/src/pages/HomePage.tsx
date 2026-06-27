@@ -213,6 +213,7 @@ export default function HomePage() {
       queryClient.invalidateQueries({ queryKey: ['feeds'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
       queryClient.invalidateQueries({ queryKey: ['keywords'] })
+      queryClient.invalidateQueries({ queryKey: ['keyword-counts'] })
     },
   })
 
@@ -251,6 +252,7 @@ export default function HomePage() {
       }
       queryClient.invalidateQueries({ queryKey: ['articles'] })
       queryClient.invalidateQueries({ queryKey: ['articles-search'] })
+      queryClient.invalidateQueries({ queryKey: ['keyword-counts'] })
     },
   })
 
@@ -264,6 +266,7 @@ export default function HomePage() {
         setSelectedArticle(prev => prev ? { ...prev, summary: data.summary } : null)
       }
       queryClient.invalidateQueries({ queryKey: ['articles'] })
+      queryClient.invalidateQueries({ queryKey: ['keyword-counts'] })
     },
   })
 
@@ -280,6 +283,7 @@ export default function HomePage() {
       queryClient.invalidateQueries({ queryKey: ['feeds'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
       queryClient.invalidateQueries({ queryKey: ['keywords'] })
+      queryClient.invalidateQueries({ queryKey: ['keyword-counts'] })
     },
   })
 
@@ -291,6 +295,7 @@ export default function HomePage() {
       queryClient.invalidateQueries({ queryKey: ['articles'] })
       queryClient.invalidateQueries({ queryKey: ['feeds'] })
       queryClient.invalidateQueries({ queryKey: ['keywords'] })
+      queryClient.invalidateQueries({ queryKey: ['keyword-counts'] })
     },
   })
 
@@ -305,6 +310,7 @@ export default function HomePage() {
       queryClient.invalidateQueries({ queryKey: ['feeds'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
       queryClient.invalidateQueries({ queryKey: ['keywords'] })
+      queryClient.invalidateQueries({ queryKey: ['keyword-counts'] })
     },
   })
 

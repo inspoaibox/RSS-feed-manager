@@ -1,7 +1,7 @@
 """Keyword subscription repository."""
 from typing import Iterable, List
 
-from sqlalchemy import and_, func, literal, or_, select, union_all
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.article import Article, UserArticle
@@ -156,58 +156,62 @@ class KeywordSubscriptionRepository:
         if not sub_list:
             return counts
 
-        total_queries = []
-        unread_queries = []
+        aggregate_columns = []
+        active_subscription_ids: list[int] = []
+        unread_condition = or_(UserArticle.is_read == False, UserArticle.is_read == None)
 
         for subscription in sub_list:
             conditions = build_keyword_conditions(subscription)
             source_conditions = build_keyword_source_conditions(subscription)
+            counts[subscription.id] = {"article_count": 0, "unread_count": 0}
             if not conditions:
-                counts[subscription.id] = {"article_count": 0, "unread_count": 0}
                 continue
 
-            total_queries.append(
-                select(func.count(Article.id))
-                .add_columns(literal(subscription.id).label("sub_id"))
-                .select_from(Article)
-                .join(Feed, Article.feed_id == Feed.id)
-                .where(Feed.user_id == user_id, or_(*conditions), *source_conditions)
+            match_condition = or_(*conditions)
+            if source_conditions:
+                match_condition = and_(match_condition, *source_conditions)
+
+            aggregate_columns.extend(
+                [
+                    func.coalesce(
+                        func.sum(case((match_condition, 1), else_=0)),
+                        0,
+                    ).label(f"article_count_{subscription.id}"),
+                    func.coalesce(
+                        func.sum(
+                            case((and_(match_condition, unread_condition), 1), else_=0)
+                        ),
+                        0,
+                    ).label(f"unread_count_{subscription.id}"),
+                ]
             )
+            active_subscription_ids.append(subscription.id)
 
-            unread_queries.append(
-                select(func.count(Article.id))
-                .add_columns(literal(subscription.id).label("sub_id"))
-                .select_from(Article)
-                .join(Feed, Article.feed_id == Feed.id)
-                .outerjoin(
-                    UserArticle,
-                    and_(
-                        UserArticle.article_id == Article.id,
-                        UserArticle.user_id == user_id,
-                    ),
-                )
-                .where(
-                    Feed.user_id == user_id,
-                    or_(*conditions),
-                    *source_conditions,
-                    or_(UserArticle.is_read == False, UserArticle.is_read == None),
-                )
+        if not aggregate_columns:
+            return counts
+
+        result = await self.session.execute(
+            select(*aggregate_columns)
+            .select_from(Article)
+            .join(Feed, Article.feed_id == Feed.id)
+            .outerjoin(
+                UserArticle,
+                and_(
+                    UserArticle.article_id == Article.id,
+                    UserArticle.user_id == user_id,
+                ),
             )
+            .where(Feed.user_id == user_id)
+        )
+        row = result.one_or_none()
+        if not row:
+            return counts
 
-        if total_queries:
-            total_query = union_all(*total_queries) if len(total_queries) > 1 else total_queries[0]
-            total_result = await self.session.execute(total_query)
-            for row in total_result:
-                sub_id = row.sub_id
-                counts.setdefault(sub_id, {"article_count": 0, "unread_count": 0})
-                counts[sub_id]["article_count"] = row[0] or 0
-
-        if unread_queries:
-            unread_query = union_all(*unread_queries) if len(unread_queries) > 1 else unread_queries[0]
-            unread_result = await self.session.execute(unread_query)
-            for row in unread_result:
-                sub_id = row.sub_id
-                counts.setdefault(sub_id, {"article_count": 0, "unread_count": 0})
-                counts[sub_id]["unread_count"] = row[0] or 0
+        mapping = row._mapping
+        for subscription_id in active_subscription_ids:
+            counts[subscription_id] = {
+                "article_count": int(mapping[f"article_count_{subscription_id}"] or 0),
+                "unread_count": int(mapping[f"unread_count_{subscription_id}"] or 0),
+            }
 
         return counts

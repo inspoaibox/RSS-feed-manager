@@ -2,8 +2,9 @@
 from datetime import datetime
 
 import pytest
+from sqlalchemy import select
 
-from app.models.article import Article
+from app.models.article import Article, UserArticle
 from app.models.category import Category
 from app.models.feed import Feed
 from app.models.user import User
@@ -113,3 +114,133 @@ async def test_keyword_subscription_excluded_sources_filter_articles_and_counts(
     counts_after_mark_read = await keyword_repo.get_article_counts(user.id, [keyword])
     assert counts_after_mark_read[keyword.id]["article_count"] == 1
     assert counts_after_mark_read[keyword.id]["unread_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_keyword_subscription_counts_multiple_keywords(db_session):
+    """Keyword counts should be calculated for multiple subscriptions together."""
+    user = User(
+        username="keyword-counts-user",
+        email="keyword-counts-user@example.com",
+        password_hash="test-hash",
+    )
+    db_session.add(user)
+    await db_session.flush()
+
+    feed = Feed(
+        user_id=user.id,
+        category_id=None,
+        url="https://counts.example.com/rss",
+        title="Counts Feed",
+        position=0,
+    )
+    db_session.add(feed)
+    await db_session.flush()
+
+    now = datetime.utcnow()
+    alpha_article = Article(
+        feed_id=feed.id,
+        guid="alpha-1",
+        link="https://counts.example.com/alpha",
+        title="alpha launch",
+        content="plain content",
+        published_at=now,
+    )
+    beta_article = Article(
+        feed_id=feed.id,
+        guid="beta-1",
+        link="https://counts.example.com/beta",
+        title="other launch",
+        content="beta content",
+        published_at=now,
+    )
+    db_session.add_all([alpha_article, beta_article])
+    await db_session.flush()
+    db_session.add(
+        UserArticle(
+            user_id=user.id,
+            article_id=beta_article.id,
+            is_read=True,
+            read_at=now,
+        )
+    )
+    await db_session.flush()
+
+    keyword_repo = KeywordSubscriptionRepository(db_session)
+    alpha_keyword = await keyword_repo.create(user_id=user.id, keyword="alpha", name="alpha")
+    beta_keyword = await keyword_repo.create(user_id=user.id, keyword="beta", name="beta")
+
+    counts = await keyword_repo.get_article_counts(user.id, [alpha_keyword, beta_keyword])
+
+    assert counts[alpha_keyword.id]["article_count"] == 1
+    assert counts[alpha_keyword.id]["unread_count"] == 1
+    assert counts[beta_keyword.id]["article_count"] == 1
+    assert counts[beta_keyword.id]["unread_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_mark_all_read_by_feed_batches_user_article_state(db_session):
+    """Mark-all-read should update existing states and create missing states in bulk."""
+    user = User(
+        username="bulk-read-user",
+        email="bulk-read-user@example.com",
+        password_hash="test-hash",
+    )
+    db_session.add(user)
+    await db_session.flush()
+
+    feed = Feed(
+        user_id=user.id,
+        category_id=None,
+        url="https://bulk.example.com/rss",
+        title="Bulk Feed",
+        position=0,
+    )
+    db_session.add(feed)
+    await db_session.flush()
+
+    now = datetime.utcnow()
+    articles = [
+        Article(
+            feed_id=feed.id,
+            guid=f"bulk-{idx}",
+            link=f"https://bulk.example.com/{idx}",
+            title=f"bulk article {idx}",
+            content="content",
+            published_at=now,
+        )
+        for idx in range(3)
+    ]
+    db_session.add_all(articles)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            UserArticle(
+                user_id=user.id,
+                article_id=articles[0].id,
+                is_read=False,
+                is_favorite=True,
+            ),
+            UserArticle(
+                user_id=user.id,
+                article_id=articles[1].id,
+                is_read=True,
+                read_at=now,
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    article_repo = ArticleRepository(db_session)
+    marked = await article_repo.mark_all_read_by_feed(user.id, feed.id)
+
+    assert marked == 2
+    states = (
+        await db_session.execute(
+            select(UserArticle).where(UserArticle.user_id == user.id)
+        )
+    ).scalars().all()
+    state_by_article = {state.article_id: state for state in states}
+    assert len(state_by_article) == 3
+    assert all(state.is_read for state in state_by_article.values())
+    assert state_by_article[articles[0].id].is_favorite is True

@@ -54,7 +54,7 @@ class TestContentAnalysisServiceValidation:
         
         assert exc_info.value.status_code == 400
 
-    @given(st.text(alphabet=st.characters(whitespace_categories=("Zs", "Zl", "Zp")), min_size=0, max_size=50))
+    @given(st.text(alphabet=st.characters(categories=("Zs", "Zl", "Zp")), min_size=0, max_size=50))
     @settings(max_examples=30)
     def test_whitespace_only_query_rejected_property(self, query):
         """
@@ -70,9 +70,7 @@ class TestContentAnalysisServiceValidation:
             service = ContentAnalysisService(session=mock_session)
             
             with pytest.raises(HTTPException) as exc_info:
-                asyncio.get_event_loop().run_until_complete(
-                    service.analyze(user_id=1, query=query)
-                )
+                asyncio.run(service.analyze(user_id=1, query=query))
             
             assert exc_info.value.status_code == 400
 

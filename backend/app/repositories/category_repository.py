@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.category import Category
+from app.models.feed import Feed
 
 
 class CategoryRepository:
@@ -105,8 +106,16 @@ class CategoryRepository:
 
     async def count_feeds(self, category_id: int) -> int:
         """Count feeds in a category."""
-        from app.models.feed import Feed
         result = await self.session.execute(
             select(func.count(Feed.id)).where(Feed.category_id == category_id)
         )
         return result.scalar() or 0
+
+    async def count_feeds_by_category(self, user_id: int) -> dict[int, int]:
+        """Count feeds for all categories owned by a user."""
+        result = await self.session.execute(
+            select(Feed.category_id, func.count(Feed.id))
+            .where(Feed.user_id == user_id, Feed.category_id.is_not(None))
+            .group_by(Feed.category_id)
+        )
+        return {row.category_id: row[1] for row in result.all() if row.category_id is not None}

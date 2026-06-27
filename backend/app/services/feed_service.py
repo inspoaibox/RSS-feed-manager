@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.article import Article
 from app.models.feed import Feed
 from app.repositories.article_repository import ArticleRepository
 from app.repositories.category_repository import CategoryRepository
@@ -617,15 +618,18 @@ class FeedService:
 
     async def _save_articles(self, user_id: int, feed: Feed, parsed: ParsedFeed) -> int:
         """Save articles from parsed feed. Returns count of new articles."""
-        count = 0
         queued_translation_article_ids: list[int] = []
+        existing_guids = await self.article_repo.get_existing_guids(
+            feed.id,
+            (article.guid for article in parsed.articles),
+        )
+        new_articles: list[Article] = []
+
         for article in parsed.articles:
-            # Check if article already exists
-            existing = await self.article_repo.get_by_guid(feed.id, article.guid)
-            if existing:
+            if not article.guid or article.guid in existing_guids:
                 continue
-            
-            saved_article = await self.article_repo.create(
+
+            saved_article = Article(
                 feed_id=feed.id,
                 guid=article.guid,
                 title=article.title,
@@ -634,15 +638,22 @@ class FeedService:
                 author=article.author,
                 published_at=article.published_at
             )
+            self.session.add(saved_article)
+            new_articles.append(saved_article)
+            existing_guids.add(article.guid)
+
+        if new_articles:
+            await self.session.flush()
+
+        for saved_article in new_articles:
             if await self._queue_article_translation(feed, saved_article):
                 queued_translation_article_ids.append(saved_article.id)
-            count += 1
 
         if queued_translation_article_ids:
             await self.session.commit()
             await self._dispatch_translation_tasks(queued_translation_article_ids)
         
-        return count
+        return len(new_articles)
 
     async def _queue_article_translation(self, feed: Feed, article) -> bool:
         """Mark a newly saved article for background translation."""

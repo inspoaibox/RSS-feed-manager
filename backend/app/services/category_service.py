@@ -45,17 +45,17 @@ class CategoryService:
     async def get_all(self, user_id: int) -> List[CategoryResponse]:
         """Get all categories for a user with feed counts."""
         categories = await self.repo.get_all_by_user(user_id)
+        feed_counts = await self.repo.count_feeds_by_category(user_id)
         
         result = []
         for cat in categories:
-            feed_count = await self.repo.count_feeds(cat.id)
             # TODO: Calculate unread count when article service is ready
             result.append(CategoryResponse(
                 id=cat.id,
                 name=cat.name,
                 description=cat.description,
                 position=cat.position,
-                feed_count=feed_count,
+                feed_count=feed_counts.get(cat.id, 0),
                 unread_count=0
             ))
         
