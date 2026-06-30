@@ -4303,40 +4303,54 @@ function RulesTab() {
           </button>
         </div>
         <p className="text-sm text-blue-700 dark:text-primary-400 mt-1">
-          自定义规则用于抓取没有 RSS 订阅的网站内容，通过 CSS 选择器提取文章列表。
+          自定义规则用于抓取没有 RSS 的网页列表，按 CSS 选择器提取每条内容的标题、链接、摘要和时间。
         </p>
         
         {showHelp && (
           <div className="mt-4 space-y-4 text-sm text-blue-800 dark:text-primary-300">
             <div>
-              <h4 className="font-medium mb-2">字段说明：</h4>
+              <h4 className="font-medium mb-2">先看懂要抓什么：</h4>
               <ul className="list-disc list-inside space-y-1 text-blue-700 dark:text-primary-400">
-                <li><span className="font-medium">目标网址</span> - 要抓取的网页 URL</li>
-                <li><span className="font-medium">列表选择器</span> - 文章列表项的 CSS 选择器（每个匹配元素代表一篇文章）</li>
-                <li><span className="font-medium">标题选择器</span> - 在列表项内，文章标题的选择器</li>
-                <li><span className="font-medium">链接选择器</span> - 在列表项内，文章链接的选择器（通常是 a 标签）</li>
-                <li><span className="font-medium">内容选择器</span> - 可选，文章摘要/内容的选择器</li>
+                <li><span className="font-medium">目标网址</span> - 包含文章、活动或商品列表的页面 URL。</li>
+                <li><span className="font-medium">列表选择器</span> - 先选中每一条重复出现的卡片/列表项；匹配到 20 条，就会抓 20 条。</li>
+                <li><span className="font-medium">标题选择器</span> - 在每条列表项内部选中标题文字，必填。</li>
+                <li><span className="font-medium">链接选择器</span> - 在每条列表项内部选中详情链接，通常和标题选择器相同；留空时会使用列表项里的第一个链接。</li>
+                <li><span className="font-medium">内容选择器</span> - 可选，在每条列表项内部选中摘要、时间地点、价格、状态等补充内容。</li>
+                <li><span className="font-medium">日期选择器</span> - 可选，在每条列表项内部选中发布时间或活动时间。</li>
+              </ul>
+            </div>
+
+            <div className="bg-white dark:bg-gray-800 p-3 rounded border border-blue-200 dark:border-gray-600">
+              <h4 className="font-medium mb-2">最重要的规则：</h4>
+              <ul className="list-disc list-inside space-y-1 text-blue-700 dark:text-primary-400">
+                <li>列表选择器是在整页里找重复卡片。</li>
+                <li>标题、链接、内容、日期选择器都是在每一张卡片内部继续找。</li>
+                <li>如果测试显示 0 条，优先检查列表选择器。</li>
+                <li>如果有条目但标题为空，检查标题选择器。</li>
+                <li>如果有标题但链接为空，检查链接选择器。</li>
               </ul>
             </div>
             
             <div>
-              <h4 className="font-medium mb-2">示例 - 抓取 Hacker News：</h4>
+              <h4 className="font-medium mb-2">示例 - 活动列表：</h4>
               <div className="bg-white dark:bg-gray-800 p-3 rounded border border-blue-200 dark:border-gray-600 space-y-2">
-                <p><span className="text-gray-500 dark:text-gray-400">目标网址：</span> <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">https://news.ycombinator.com</code></p>
-                <p><span className="text-gray-500 dark:text-gray-400">列表选择器：</span> <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">.athing</code></p>
-                <p><span className="text-gray-500 dark:text-gray-400">标题选择器：</span> <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">.titleline &gt; a</code></p>
-                <p><span className="text-gray-500 dark:text-gray-400">链接选择器：</span> <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">.titleline &gt; a</code></p>
+                <p><span className="text-gray-500 dark:text-gray-400">列表选择器：</span> <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">li.event-item</code> 或 <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">.activity-card</code></p>
+                <p><span className="text-gray-500 dark:text-gray-400">标题选择器：</span> <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">h3 a</code> 或 <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">.event-title a</code></p>
+                <p><span className="text-gray-500 dark:text-gray-400">链接选择器：</span> <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">h3 a</code> 或 <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">.event-title a</code></p>
+                <p><span className="text-gray-500 dark:text-gray-400">内容选择器：</span> <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">.event-meta</code> 或 <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">.summary</code></p>
+                <p><span className="text-gray-500 dark:text-gray-400">日期选择器：</span> <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">.event-time</code> 或 <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">time</code></p>
               </div>
             </div>
             
             <div>
-              <h4 className="font-medium mb-2">示例 - 抓取博客文章列表：</h4>
+              <h4 className="font-medium mb-2">示例 - 新闻/博客列表：</h4>
               <div className="bg-white dark:bg-gray-800 p-3 rounded border border-blue-200 dark:border-gray-600 space-y-2">
                 <p><span className="text-gray-500 dark:text-gray-400">目标网址：</span> <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">https://example.com/blog</code></p>
                 <p><span className="text-gray-500 dark:text-gray-400">列表选择器：</span> <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">article.post</code> 或 <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">.post-item</code></p>
-                <p><span className="text-gray-500 dark:text-gray-400">标题选择器：</span> <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">h2.title</code> 或 <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">.post-title</code></p>
+                <p><span className="text-gray-500 dark:text-gray-400">标题选择器：</span> <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">h2 a</code> 或 <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">.post-title a</code></p>
                 <p><span className="text-gray-500 dark:text-gray-400">链接选择器：</span> <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">a.read-more</code> 或 <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">h2 a</code></p>
                 <p><span className="text-gray-500 dark:text-gray-400">内容选择器：</span> <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">.excerpt</code> 或 <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">.summary</code></p>
+                <p><span className="text-gray-500 dark:text-gray-400">日期选择器：</span> <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">time</code> 或 <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">.date</code></p>
               </div>
             </div>
             
