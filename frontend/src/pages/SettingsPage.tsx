@@ -3735,9 +3735,11 @@ function RulesTab() {
       const payload = {
         ...formData,
         cookies: formData.cookies || null,
-        link_selector: formData.link_selector || null,
-        content_selector: formData.content_selector || null,
-        date_selector: formData.date_selector || null,
+        list_selector: formData.list_selector.trim(),
+        title_selector: formData.title_selector.trim(),
+        link_selector: formData.link_selector.trim() || null,
+        content_selector: formData.content_selector.trim() || null,
+        date_selector: formData.date_selector.trim() || null,
         proxy_mode: formData.proxy_mode,
         proxy_enabled: formData.proxy_mode !== 'none',
         proxy_url: formData.proxy_mode === 'single' ? formData.proxy_url.trim() : null,
@@ -3768,9 +3770,11 @@ function RulesTab() {
       const payload = {
         ...data,
         cookies: data.cookies || null,
-        link_selector: data.link_selector || null,
-        content_selector: data.content_selector || null,
-        date_selector: data.date_selector || null,
+        list_selector: data.list_selector.trim(),
+        title_selector: data.title_selector.trim(),
+        link_selector: data.link_selector.trim() || null,
+        content_selector: data.content_selector.trim() || null,
+        date_selector: data.date_selector.trim() || null,
         proxy_mode: data.proxy_mode,
         proxy_enabled: data.proxy_mode !== 'none',
         proxy_url: data.proxy_mode === 'single' ? data.proxy_url.trim() : null,
@@ -3835,11 +3839,11 @@ function RulesTab() {
     mutationFn: async () => {
       const payload = {
         target_url: formData.target_url,
-        list_selector: formData.list_selector,
-        title_selector: formData.title_selector,
-        link_selector: formData.link_selector || null,
-        content_selector: formData.content_selector || null,
-        date_selector: formData.date_selector || null,
+        list_selector: formData.list_selector.trim(),
+        title_selector: formData.title_selector.trim(),
+        link_selector: formData.link_selector.trim() || null,
+        content_selector: formData.content_selector.trim() || null,
+        date_selector: formData.date_selector.trim() || null,
         use_playwright: formData.use_playwright,
         proxy_mode: formData.proxy_mode,
         proxy_enabled: formData.proxy_mode !== 'none',
@@ -4039,7 +4043,14 @@ function RulesTab() {
           />
           <input
             type="text"
-            placeholder="链接选择器 (可选，留空则用标题生成ID)"
+            placeholder="标题选择器 (必填，相对于列表项内部)"
+            value={formData.title_selector}
+            onChange={(e) => setFormData({ ...formData, title_selector: e.target.value })}
+            className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+          />
+          <input
+            type="text"
+            placeholder="链接选择器 (可选，留空则使用列表项内第一个链接)"
             value={formData.link_selector}
             onChange={(e) => setFormData({ ...formData, link_selector: e.target.value })}
             className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
@@ -4248,14 +4259,14 @@ function RulesTab() {
       <div className="flex gap-2">
         <button
           onClick={() => testRuleMutation.mutate()}
-          disabled={!formData.target_url || !formData.list_selector || (formData.proxy_mode === 'single' && !formData.proxy_url.trim()) || testRuleMutation.isPending}
+          disabled={!formData.target_url || (formData.rule_type === 'general' && (!formData.list_selector.trim() || !formData.title_selector.trim())) || (formData.proxy_mode === 'single' && !formData.proxy_url.trim()) || testRuleMutation.isPending}
           className="px-4 py-2 border dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600 dark:text-gray-200 disabled:opacity-50"
         >
           测试规则
         </button>
         <button
           onClick={() => isEdit ? updateRuleMutation.mutate({ id: editingId!, data: formData }) : addRuleMutation.mutate()}
-          disabled={!formData.name || !formData.target_url || (formData.proxy_mode === 'single' && !formData.proxy_url.trim()) || addRuleMutation.isPending || updateRuleMutation.isPending}
+          disabled={!formData.name || !formData.target_url || (formData.rule_type === 'general' && (!formData.list_selector.trim() || !formData.title_selector.trim())) || (formData.proxy_mode === 'single' && !formData.proxy_url.trim()) || addRuleMutation.isPending || updateRuleMutation.isPending}
           className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
         >
           {isEdit ? '更新' : '保存'}
