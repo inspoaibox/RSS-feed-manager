@@ -46,6 +46,7 @@ async def test_create_whmcs_monitor_keeps_feed_when_initial_fetch_fails(db_sessi
 
     assert result.article_count == 0
     assert rule.rule_type == "whmcs"
+    assert rule.link_selector == "self"
     assert rule.last_error == "temporary fetch failure"
     assert rule.error_count == 1
     assert feed.last_error == "temporary fetch failure"

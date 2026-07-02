@@ -324,7 +324,7 @@ class FeedService:
                 rule_type="whmcs",
                 list_selector="body",
                 title_selector="title",
-                link_selector=None,
+                link_selector="self",
                 content_selector=None,
                 date_selector=None,
                 fetch_interval=validated_interval,
