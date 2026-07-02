@@ -1517,6 +1517,21 @@ def refresh_feed(feed_id: int) -> dict:
         feed = db.execute(select(Feed).where(Feed.id == feed_id)).scalar_one_or_none()
         if not feed:
             return {"success": False, "error": "Feed not found"}
+
+        custom_rule = db.execute(
+            select(CustomRule).where(CustomRule.feed_id == feed_id)
+        ).scalar_one_or_none()
+        if custom_rule:
+            queue_name = "browser" if _rule_uses_browser(custom_rule) else "feed"
+            execute_single_custom_rule.apply_async(args=[custom_rule.id], queue=queue_name)
+            return {
+                "success": True,
+                "feed_id": feed_id,
+                "rule_id": custom_rule.id,
+                "queued": True,
+                "queue": queue_name,
+                "reason": "custom rule feed delegated to rule task",
+            }
         
         new_count = _refresh_feed_sync(db, feed)
         return {"success": True, "new_articles": new_count}
@@ -1536,8 +1551,18 @@ def refresh_all_feeds() -> dict:
         
         total_new = 0
         errors = 0
+        rules_queued = 0
         for feed in feeds:
             try:
+                custom_rule = db.execute(
+                    select(CustomRule).where(CustomRule.feed_id == feed.id)
+                ).scalar_one_or_none()
+                if custom_rule:
+                    queue_name = "browser" if _rule_uses_browser(custom_rule) else "feed"
+                    execute_single_custom_rule.apply_async(args=[custom_rule.id], queue=queue_name)
+                    rules_queued += 1
+                    continue
+
                 new_count = _refresh_feed_sync(db, feed)
                 total_new += new_count
             except Exception:
@@ -1546,6 +1571,7 @@ def refresh_all_feeds() -> dict:
         return {
             "success": True,
             "feeds_processed": len(feeds),
+            "rules_queued": rules_queued,
             "new_articles": total_new,
             "errors": errors
         }

@@ -99,8 +99,17 @@ const resolveFeedProxyMode = (feed: Feed): FeedProxyMode => {
 }
 
 const getApiErrorMessage = (error: unknown, fallback: string) => {
-  const response = (error as { response?: { data?: { detail?: unknown } } } | null)?.response
-  const detail = response?.data?.detail
+  const axiosLikeError = error as {
+    response?: {
+      data?: { detail?: unknown; message?: unknown } | string
+      status?: number
+      statusText?: string
+    }
+    message?: string
+  } | null
+  const response = axiosLikeError?.response
+  const data = response?.data
+  const detail = data && typeof data === 'object' ? data.detail : undefined
   if (Array.isArray(detail)) {
     return detail.map((item) => {
       if (item && typeof item === 'object' && 'msg' in item) {
@@ -109,7 +118,23 @@ const getApiErrorMessage = (error: unknown, fallback: string) => {
       return String(item)
     }).join(', ')
   }
-  return typeof detail === 'string' ? detail : fallback
+  if (typeof detail === 'string' && detail.trim()) {
+    return detail
+  }
+  if (typeof data === 'string' && data.trim()) {
+    return data
+  }
+  const message = data && typeof data === 'object' ? data.message : undefined
+  if (typeof message === 'string' && message.trim()) {
+    return message
+  }
+  if (response?.status) {
+    return `${fallback}（HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}）`
+  }
+  if (axiosLikeError?.message) {
+    return `${fallback}：${axiosLikeError.message}`
+  }
+  return fallback
 }
 
 const formatDurationMs = (durationMs: number | null) => {
@@ -333,9 +358,7 @@ function FeedsTab() {
       setTimeout(() => setMessage(null), 3000)
     },
     onError: (err: any) => {
-      const detail = err.response?.data?.detail
-      const errorMsg = Array.isArray(detail) ? detail.map((d: any) => d.msg).join(', ') : (detail || '添加失败，请检查 URL 是否正确')
-      setMessage({ type: 'error', text: errorMsg })
+      setMessage({ type: 'error', text: getApiErrorMessage(err, '添加订阅失败') })
     },
   })
 

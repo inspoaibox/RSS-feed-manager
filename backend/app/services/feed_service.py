@@ -1,5 +1,6 @@
 """Feed service for business logic."""
 import json
+from datetime import datetime
 from typing import List
 from urllib.parse import urlparse
 
@@ -127,6 +128,14 @@ class FeedService:
     def _placeholder_title(self, url: str) -> str:
         parsed = urlparse(url)
         return parsed.hostname or url
+
+    def _validate_http_url(self, url: str, label: str = "URL") -> None:
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"{label} 必须是有效的 http(s) 地址",
+            )
 
     def _dispatch_feed_refresh(self, feed_id: int, *, browser: bool = False) -> None:
         from app.tasks.feed_tasks import refresh_single_feed
@@ -297,12 +306,15 @@ class FeedService:
         from app.schemas.custom_rule import CustomRuleCreate
         from app.services.custom_rule_service import CustomRuleService
 
+        self._validate_http_url(data.url, "WHMCS 产品页 URL")
+
         if data.resolved_browser_engine == "cloakbrowser":
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="WHMCS 监控目前支持普通抓取或 Playwright，不支持 CloakBrowser",
             )
 
+        validated_interval = await self._validate_fetch_interval(data.fetch_interval)
         rule_service = CustomRuleService(self.session)
         rule = await rule_service.create_rule(
             user_id,
@@ -315,7 +327,7 @@ class FeedService:
                 link_selector=None,
                 content_selector=None,
                 date_selector=None,
-                fetch_interval=data.fetch_interval,
+                fetch_interval=validated_interval,
                 use_playwright=data.resolved_browser_engine == "playwright",
                 proxy_enabled=data.proxy_enabled,
                 proxy_url=data.proxy_url,
@@ -348,13 +360,17 @@ class FeedService:
         try:
             articles = await rule_service.execute_rule(rule)
         except Exception as exc:
-            await self.session.delete(rule)
-            await self.session.delete(feed)
+            now = datetime.utcnow()
+            error_message = str(exc)[:500] or exc.__class__.__name__
+            rule.last_fetched_at = rule.last_fetched_at or now
+            rule.last_error = rule.last_error or error_message
+            rule.error_count = rule.error_count or 1
+            feed.last_fetched_at = feed.last_fetched_at or now
+            feed.last_error = feed.last_error or error_message
+            feed.error_count = feed.error_count or 1
             await self.session.commit()
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=str(exc),
-            ) from exc
+            await self.session.refresh(feed)
+            return self._to_response(feed, article_count=0)
 
         await self.session.refresh(feed)
         return self._to_response(feed, article_count=len(articles))

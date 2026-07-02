@@ -21,7 +21,7 @@ class CustomRuleBase(BaseModel):
     link_selector: str | None = Field(None, max_length=500)
     content_selector: str | None = Field(None, max_length=500)
     date_selector: str | None = Field(None, max_length=500)
-    fetch_interval: int = Field(default=3600, ge=300, le=86400)
+    fetch_interval: int = Field(default=3600, ge=60, le=86400)
     use_playwright: bool = False
     proxy_enabled: bool = False
     proxy_url: str | None = Field(None, max_length=2048)
@@ -55,7 +55,7 @@ class CustomRuleUpdate(BaseModel):
     link_selector: str | None = Field(None, max_length=500)
     content_selector: str | None = Field(None, max_length=500)
     date_selector: str | None = Field(None, max_length=500)
-    fetch_interval: int | None = Field(None, ge=300, le=86400)
+    fetch_interval: int | None = Field(None, ge=60, le=86400)
     use_playwright: bool | None = None
     proxy_enabled: bool | None = None
     proxy_url: str | None = Field(None, max_length=2048)
