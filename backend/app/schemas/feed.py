@@ -8,11 +8,13 @@ FeedBrowserEngine = Literal["http", "playwright", "cloakbrowser"]
 FeedProxyMode = Literal["none", "single", "pool"]
 FeedProxyProtocol = Literal["http", "https", "socks4", "socks5", "socks5h"]
 FeedTranslateMethod = Literal["none", "ai", "google", "argos", "mc_translation"]
+FeedSourceType = Literal["rss", "whmcs"]
 
 
 class FeedCreate(BaseModel):
     """Schema for creating a feed."""
     url: str = Field(..., max_length=2048)
+    source_type: FeedSourceType = "rss"
     category_id: int | None = None
     fetch_interval: int = Field(default=3600, ge=60, le=86400)
     use_playwright: bool = False  # Use browser automation for Cloudflare protected sites

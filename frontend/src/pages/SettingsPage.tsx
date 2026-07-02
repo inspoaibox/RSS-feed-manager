@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Edit2, Check, X, Upload, Download, RefreshCw, FolderOpen, Languages, ChevronUp, ChevronDown, Search, Shield, Star, History } from 'lucide-react'
 import api from '@/services/api'
-import type { ArgosPackageInfo, ArgosPackagesResponse, ArgosPackageTestResult, ArgosTranslationLogsResponse, Category, Feed, AIProvider, AIModel, CustomRule, FeedBrowserEngine, FeedProxyMode, GoogleTranslateKey, ProxyPoolEntry, ProxyPoolGroups, ProxyPoolImportResult, ProxyPoolTestResult, ProxyProtocol, TranslateMethod } from '@/types'
+import type { ArgosPackageInfo, ArgosPackagesResponse, ArgosPackageTestResult, ArgosTranslationLogsResponse, Category, Feed, AIProvider, AIModel, CustomRule, FeedBrowserEngine, FeedProxyMode, FeedSourceType, GoogleTranslateKey, ProxyPoolEntry, ProxyPoolGroups, ProxyPoolImportResult, ProxyPoolTestResult, ProxyProtocol, TranslateMethod } from '@/types'
 import { useThemeStore, type ThemeColor } from '@/stores/themeStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useSyncIntervals } from '@/hooks/useSyncIntervals'
@@ -207,6 +207,7 @@ function FeedsTab() {
   const { syncIntervals, defaultSyncInterval } = useSyncIntervals()
   const [showAddForm, setShowAddForm] = useState(false)
   const [newFeedUrl, setNewFeedUrl] = useState('')
+  const [newFeedSourceType, setNewFeedSourceType] = useState<FeedSourceType>('rss')
   const [newFeedCategory, setNewFeedCategory] = useState<number | null>(null)
   const [newFeedInterval, setNewFeedInterval] = useState<number | null>(null)
   const [newFeedBrowserEngine, setNewFeedBrowserEngine] = useState<FeedBrowserEngine>('http')
@@ -287,6 +288,7 @@ function FeedsTab() {
     mutationFn: async () => {
       const response = await api.post('/feeds', { 
         url: newFeedUrl, 
+        source_type: newFeedSourceType,
         category_id: newFeedCategory,
         fetch_interval: newFeedInterval ?? defaultSyncInterval,
         use_playwright: newFeedBrowserEngine !== 'http',
@@ -313,6 +315,7 @@ function FeedsTab() {
       queryClient.invalidateQueries({ queryKey: ['keyword-counts'] })
       setShowAddForm(false)
       setNewFeedUrl('')
+      setNewFeedSourceType('rss')
       setNewFeedCategory(null)
       setNewFeedInterval(3600)
       setNewFeedBrowserEngine('http')
@@ -559,7 +562,7 @@ function FeedsTab() {
   }
 
   const handleUrlChange = (url: string) => {
-    if (isTelegramUrl(url)) {
+    if (newFeedSourceType === 'rss' && isTelegramUrl(url)) {
       setNewFeedUrl(convertTelegramUrl(url))
       setMessage({ type: 'success', text: '已自动转换为 RSSHub 格式' })
       setTimeout(() => setMessage(null), 3000)
@@ -650,17 +653,35 @@ function FeedsTab() {
 
       {showAddForm && (
         <div className="mb-4 p-4 border dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-700 space-y-3">
-          <div>
+          <div className="flex gap-2">
+            <select
+              value={newFeedSourceType}
+              onChange={(e) => {
+                const sourceType = e.target.value as FeedSourceType
+                setNewFeedSourceType(sourceType)
+                if (sourceType === 'whmcs' && newFeedBrowserEngine === 'cloakbrowser') {
+                  setNewFeedBrowserEngine('http')
+                }
+              }}
+              className="w-44 px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+            >
+              <option value="rss">普通订阅源</option>
+              <option value="whmcs">WHMCS 监控</option>
+            </select>
             <input
               type="text"
-              placeholder="RSS 订阅地址 (支持 Telegram 频道链接自动转换)"
+              placeholder={newFeedSourceType === 'whmcs' ? 'WHMCS 产品页地址' : 'RSS 订阅地址 (支持 Telegram 频道链接自动转换)'}
               value={newFeedUrl}
               onChange={(e) => handleUrlChange(e.target.value)}
-              className="w-full px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
+              className="flex-1 px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
             />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          </div>
+          <div>
+            {newFeedSourceType === 'rss' && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               💡 支持直接粘贴 Telegram 频道链接 (如 https://t.me/channel_name)，将自动转换为 RSSHub 格式
-            </p>
+              </p>
+            )}
           </div>
           <div className="flex gap-2">
             <select
@@ -692,9 +713,13 @@ function FeedsTab() {
             >
               <option value="http">普通抓取</option>
               <option value="playwright">浏览器模式 (Playwright)</option>
-              <option value="cloakbrowser">增强浏览器模式 (CloakBrowser)</option>
+              {newFeedSourceType === 'rss' && (
+                <option value="cloakbrowser">增强浏览器模式 (CloakBrowser)</option>
+              )}
             </select>
-            <span className="text-xs text-yellow-600 dark:text-yellow-400">CloakBrowser 作为独立增强方案</span>
+            <span className="text-xs text-yellow-600 dark:text-yellow-400">
+              {newFeedSourceType === 'whmcs' ? 'WHMCS 监控支持普通抓取或 Playwright' : 'CloakBrowser 作为独立增强方案'}
+            </span>
           </div>
           <div className="grid gap-2 p-2 bg-slate-50 dark:bg-gray-800 border border-slate-200 dark:border-gray-600 rounded">
             <div className="flex items-center gap-2">
@@ -852,6 +877,7 @@ function FeedsTab() {
               onClick={() => {
                 setShowAddForm(false)
                 setNewFeedUrl('')
+                setNewFeedSourceType('rss')
                 setNewFeedCategory(null)
                 setNewFeedBrowserEngine('http')
                 setNewFeedProxyMode('none')

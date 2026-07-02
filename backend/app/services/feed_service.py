@@ -212,6 +212,9 @@ class FeedService:
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="Category not found"
                 )
+
+        if data.source_type == "whmcs":
+            return await self._create_whmcs_monitor(user_id, data)
         
         browser_engine = data.resolved_browser_engine
         (
@@ -288,6 +291,73 @@ class FeedService:
             article_count = 0
         
         return self._to_response(feed, article_count=article_count)
+
+    async def _create_whmcs_monitor(self, user_id: int, data: FeedCreate) -> FeedResponse:
+        """Create a WHMCS availability monitor as a custom rule-backed feed."""
+        from app.schemas.custom_rule import CustomRuleCreate
+        from app.services.custom_rule_service import CustomRuleService
+
+        if data.resolved_browser_engine == "cloakbrowser":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="WHMCS 监控目前支持普通抓取或 Playwright，不支持 CloakBrowser",
+            )
+
+        rule_service = CustomRuleService(self.session)
+        rule = await rule_service.create_rule(
+            user_id,
+            CustomRuleCreate(
+                name=self._placeholder_title(data.url),
+                target_url=data.url,
+                rule_type="whmcs",
+                list_selector="body",
+                title_selector="title",
+                link_selector=None,
+                content_selector=None,
+                date_selector=None,
+                fetch_interval=data.fetch_interval,
+                use_playwright=data.resolved_browser_engine == "playwright",
+                proxy_enabled=data.proxy_enabled,
+                proxy_url=data.proxy_url,
+                proxy_mode=data.proxy_mode,
+                proxy_pool_country=data.proxy_pool_country,
+                proxy_pool_protocol=data.proxy_pool_protocol,
+                category_id=data.category_id,
+                auto_translate=data.auto_translate,
+                auto_summarize=data.auto_summarize,
+                source_language=data.source_language,
+                target_language=data.target_language,
+                translate_method=data.translate_method,
+                translate_title=data.translate_title,
+                translate_content=data.translate_content,
+                is_active=True,
+            ),
+        )
+
+        feed = await self.repo.get_by_id(rule.feed_id, user_id) if rule.feed_id else None
+        if not feed:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="WHMCS 监控订阅源创建失败",
+            )
+
+        if rule.use_playwright:
+            self._dispatch_custom_rule_execution(rule.id, browser=True)
+            return self._to_response(feed, article_count=0)
+
+        try:
+            articles = await rule_service.execute_rule(rule)
+        except Exception as exc:
+            await self.session.delete(rule)
+            await self.session.delete(feed)
+            await self.session.commit()
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
+
+        await self.session.refresh(feed)
+        return self._to_response(feed, article_count=len(articles))
 
     async def get_all(self, user_id: int) -> List[FeedResponse]:
         """Get all feeds for a user."""
@@ -388,9 +458,43 @@ class FeedService:
         
         source_scope_changed = "category_id" in update_data
         feed = await self.repo.update(feed, **update_data)
-        if source_scope_changed:
-            from sqlalchemy import select
 
+        from sqlalchemy import select
+        from app.models.custom_rule import CustomRule
+
+        result = await self.session.execute(
+            select(CustomRule).where(CustomRule.feed_id == feed_id)
+        )
+        custom_rule = result.scalar_one_or_none()
+        if custom_rule:
+            for key in (
+                "category_id",
+                "fetch_interval",
+                "is_active",
+                "auto_translate",
+                "auto_summarize",
+                "source_language",
+                "target_language",
+                "translate_method",
+                "translate_title",
+                "translate_content",
+                "proxy_enabled",
+                "proxy_url",
+                "proxy_mode",
+                "proxy_pool_country",
+                "proxy_pool_protocol",
+            ):
+                if key in update_data:
+                    setattr(custom_rule, key, update_data[key])
+            if "title" in update_data:
+                custom_rule.name = update_data["title"]
+            if "browser_engine" in update_data:
+                custom_rule.use_playwright = update_data["browser_engine"] != "http"
+            elif "use_playwright" in update_data:
+                custom_rule.use_playwright = update_data["use_playwright"]
+            await self.session.flush()
+
+        if source_scope_changed:
             article_ids_result = await self.session.execute(
                 select(Article.id).where(Article.feed_id == feed.id)
             )
@@ -414,6 +518,15 @@ class FeedService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Feed not found"
             )
+        from sqlalchemy import select
+        from app.models.custom_rule import CustomRule
+
+        result = await self.session.execute(
+            select(CustomRule).where(CustomRule.feed_id == feed_id)
+        )
+        custom_rule = result.scalar_one_or_none()
+        if custom_rule:
+            await self.session.delete(custom_rule)
         await self.repo.delete(feed)
 
     async def refresh(self, user_id: int, feed_id: int) -> FeedResponse:
@@ -496,18 +609,53 @@ class FeedService:
 
     async def refresh_all(self, user_id: int, category_id: int | None = None) -> dict:
         """Refresh all feeds for a user, optionally filtered by category."""
+        from sqlalchemy import select
+        from app.models.custom_rule import CustomRule
+        from app.services.custom_rule_service import CustomRuleService
+
         feeds = await self.repo.get_all_by_user(user_id)
         
         if category_id:
             feeds = [f for f in feeds if f.category_id == category_id]
+
+        feed_ids = [feed.id for feed in feeds]
+        custom_rules_by_feed_id: dict[int, CustomRule] = {}
+        if feed_ids:
+            rules_result = await self.session.execute(
+                select(CustomRule).where(CustomRule.feed_id.in_(feed_ids))
+            )
+            custom_rules_by_feed_id = {
+                rule.feed_id: rule
+                for rule in rules_result.scalars().all()
+                if rule.feed_id is not None
+            }
         
         total = len(feeds)
         success = 0
         failed = 0
         new_articles = 0
         queued = 0
+        rule_service = CustomRuleService(self.session)
         
         for feed in feeds:
+            custom_rule = custom_rules_by_feed_id.get(feed.id)
+            if custom_rule:
+                if getattr(custom_rule, "use_playwright", False):
+                    try:
+                        self._dispatch_custom_rule_execution(custom_rule.id, browser=True)
+                        queued += 1
+                    except Exception:
+                        failed += 1
+                    continue
+
+                try:
+                    articles = await rule_service.execute_rule(custom_rule)
+                    new_articles += len(articles)
+                    success += 1
+                except Exception:
+                    failed += 1
+                continue
+
             if is_browser_engine_enabled(
                 getattr(feed, "browser_engine", None),
                 getattr(feed, "use_playwright", False),

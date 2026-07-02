@@ -4,6 +4,7 @@ import json
 import os
 import uuid
 from datetime import datetime, timedelta
+from hashlib import md5
 from typing import Optional
 
 from celery import shared_task
@@ -35,6 +36,11 @@ from app.utils.feed_parser import (
     _build_playwright_proxy,
     parse_feed,
 )
+from app.utils.whmcs_monitor import (
+    build_whmcs_status_content,
+    extract_whmcs_status_from_content,
+    parse_whmcs_product_state,
+)
 
 
 # Create sync engine for Celery tasks
@@ -51,11 +57,17 @@ def get_sync_database_url() -> str:
 # Lazy initialization of database engine
 _sync_engine = None
 _SyncSessionLocal = None
-FEED_REFRESH_QUEUE_LOCK_TTL = int(os.environ.get("FEED_REFRESH_QUEUE_LOCK_TTL", "14400"))
+FEED_REFRESH_QUEUE_LOCK_TTL = int(os.environ.get("FEED_REFRESH_QUEUE_LOCK_TTL", "900"))
 ARTICLE_TRANSLATION_QUEUE_LOCK_TTL = int(os.environ.get("ARTICLE_TRANSLATION_QUEUE_LOCK_TTL", "14400"))
-CUSTOM_RULE_EXECUTION_QUEUE_LOCK_TTL = int(os.environ.get("CUSTOM_RULE_EXECUTION_QUEUE_LOCK_TTL", "14400"))
+CUSTOM_RULE_EXECUTION_QUEUE_LOCK_TTL = int(os.environ.get("CUSTOM_RULE_EXECUTION_QUEUE_LOCK_TTL", "900"))
 FEED_REFRESH_DISPATCH_LIMIT = int(os.environ.get("FEED_REFRESH_DISPATCH_LIMIT", "100"))
 CUSTOM_RULE_DISPATCH_LIMIT = int(os.environ.get("CUSTOM_RULE_DISPATCH_LIMIT", "10"))
+FEED_PROXY_POOL_ATTEMPT_LIMIT = int(os.environ.get("FEED_PROXY_POOL_ATTEMPT_LIMIT", "3"))
+CUSTOM_RULE_PROXY_POOL_ATTEMPT_LIMIT = int(os.environ.get("CUSTOM_RULE_PROXY_POOL_ATTEMPT_LIMIT", "3"))
+FEED_REFRESH_TASK_SOFT_TIME_LIMIT = int(os.environ.get("FEED_REFRESH_TASK_SOFT_TIME_LIMIT", "300"))
+FEED_REFRESH_TASK_TIME_LIMIT = int(os.environ.get("FEED_REFRESH_TASK_TIME_LIMIT", "360"))
+CUSTOM_RULE_TASK_SOFT_TIME_LIMIT = int(os.environ.get("CUSTOM_RULE_TASK_SOFT_TIME_LIMIT", "300"))
+CUSTOM_RULE_TASK_TIME_LIMIT = int(os.environ.get("CUSTOM_RULE_TASK_TIME_LIMIT", "360"))
 ARTICLE_GUID_BATCH_SIZE = 1000
 
 
@@ -216,6 +228,10 @@ def _next_fetch_at(last_fetched_at: datetime | None, fetch_interval: int | None)
     if last_fetched is None:
         return datetime.min
     return last_fetched + timedelta(seconds=fetch_interval or 0)
+
+
+def _is_due_for_fetch(last_fetched_at: datetime | None, fetch_interval: int | None, now: datetime | None = None) -> bool:
+    return (now or datetime.utcnow()) >= _next_fetch_at(last_fetched_at, fetch_interval)
 
 
 def _current_task_queue(task) -> str | None:
@@ -940,7 +956,11 @@ def _parse_feed_for_sync_refresh(db: Session, feed: Feed) -> ParsedFeed:
                 raise FeedParserError("代理池没有可用代理")
 
             last_error = ""
+            attempted = 0
             for proxy in candidates:
+                if attempted >= FEED_PROXY_POOL_ATTEMPT_LIMIT:
+                    break
+                attempted += 1
                 try:
                     parsed = loop.run_until_complete(
                         parse_feed(
@@ -957,7 +977,7 @@ def _parse_feed_for_sync_refresh(db: Session, feed: Feed) -> ParsedFeed:
                     last_error = str(exc)
                     _record_proxy_failure_sync(db, proxy, last_error)
 
-            raise FeedParserError(f"代理池全部失败: {last_error or '未知错误'}")
+            raise FeedParserError(f"代理池本轮 {attempted}/{len(candidates)} 个代理全部失败: {last_error or '未知错误'}")
 
         proxy_url = (
             getattr(feed, "proxy_url", None)
@@ -1059,6 +1079,48 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
         feed.error_count += 1
         db.commit()
         return 0
+
+
+def _latest_whmcs_status_sync(db: Session, feed_id: int) -> str | None:
+    article = db.execute(
+        select(Article)
+        .where(Article.feed_id == feed_id, Article.guid.like("whmcs:%"))
+        .order_by(Article.published_at.desc(), Article.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return extract_whmcs_status_from_content(article.content if article else None)
+
+
+def _save_whmcs_status_article_sync(
+    db: Session,
+    rule: CustomRule,
+    feed_id: int,
+    html_content: str,
+) -> list[dict]:
+    state = parse_whmcs_product_state(html_content, rule.target_url)
+    previous_status = _latest_whmcs_status_sync(db, feed_id)
+    if previous_status == state.status:
+        return []
+
+    now = datetime.utcnow()
+    title_prefix = "上架" if state.status == "in_stock" else "下架"
+    content = build_whmcs_status_content(state, rule.target_url)
+    guid = "whmcs:" + md5(
+        f"{rule.target_url}|{state.status}|{now.isoformat()}".encode()
+    ).hexdigest()
+    article = Article(
+        feed_id=feed_id,
+        guid=guid,
+        link=rule.target_url,
+        title=f"[{title_prefix}] {state.title}",
+        content=content,
+        published_at=now,
+    )
+    db.add(article)
+    db.flush()
+    _sync_keyword_matches_for_articles_sync(db, rule.user_id, [article.id])
+    _trigger_push_notifications(db, article)
+    return [{"title": article.title, "link": article.link, "content": content}]
 
 
 def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
@@ -1207,8 +1269,9 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
                 if not candidates:
                     raise RuntimeError("代理池没有可用代理")
 
+                attempted_candidates = candidates[:CUSTOM_RULE_PROXY_POOL_ATTEMPT_LIMIT]
                 last_error = ""
-                for proxy in candidates:
+                for proxy in attempted_candidates:
                     try:
                         html_content = _fetch_once(proxy.proxy_url)
                         _record_proxy_success_sync(db, proxy)
@@ -1219,7 +1282,7 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
                         _record_proxy_failure_sync(db, proxy, last_error)
                         db.commit()
                 else:
-                    raise RuntimeError(f"代理池全部失败: {last_error or '未知错误'}")
+                    raise RuntimeError(f"代理池本轮 {len(attempted_candidates)}/{len(candidates)} 个代理全部失败: {last_error or '未知错误'}")
             else:
                 proxy_url = (
                     getattr(rule, "proxy_url", None)
@@ -1237,6 +1300,25 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
         # Use specialized parser for telegram/twitter
         rule_type = getattr(rule, 'rule_type', 'general') or 'general'
         print(f"[CustomRule] rule_type={rule_type}")
+
+        if rule_type == 'whmcs':
+            new_articles = _save_whmcs_status_article_sync(db, rule, feed_id, html_content)
+            now = datetime.utcnow()
+            rule.last_fetched_at = now
+            rule.last_error = None
+            rule.error_count = 0
+
+            feed = db.execute(
+                select(Feed).where(Feed.id == feed_id)
+            ).scalar_one_or_none()
+            if feed:
+                feed.title = parse_whmcs_product_state(html_content, rule.target_url).title
+                feed.last_fetched_at = now
+                feed.last_error = None
+                feed.error_count = 0
+
+            db.commit()
+            return new_articles
         
         if rule_type == 'telegram':
             items = soup.select('.tgme_widget_message_wrap')
@@ -1408,6 +1490,8 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
         return new_articles
         
     except Exception as e:
+        now = datetime.utcnow()
+        rule.last_fetched_at = now
         rule.last_error = str(e)[:500]
         rule.error_count += 1
         if feed_id:
@@ -1415,13 +1499,18 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
                 select(Feed).where(Feed.id == feed_id)
             ).scalar_one_or_none()
             if feed:
+                feed.last_fetched_at = now
                 feed.last_error = str(e)[:500]
                 feed.error_count += 1
         db.commit()
         raise
 
 
-@shared_task(name="app.tasks.feed_tasks.refresh_feed")
+@shared_task(
+    name="app.tasks.feed_tasks.refresh_feed",
+    soft_time_limit=FEED_REFRESH_TASK_SOFT_TIME_LIMIT,
+    time_limit=FEED_REFRESH_TASK_TIME_LIMIT,
+)
 def refresh_feed(feed_id: int) -> dict:
     """Refresh a single feed."""
     with get_sync_session() as db:
@@ -1433,7 +1522,11 @@ def refresh_feed(feed_id: int) -> dict:
         return {"success": True, "new_articles": new_count}
 
 
-@shared_task(name="app.tasks.feed_tasks.refresh_all_feeds")
+@shared_task(
+    name="app.tasks.feed_tasks.refresh_all_feeds",
+    soft_time_limit=FEED_REFRESH_TASK_SOFT_TIME_LIMIT,
+    time_limit=FEED_REFRESH_TASK_TIME_LIMIT,
+)
 def refresh_all_feeds() -> dict:
     """Refresh all active feeds."""
     with get_sync_session() as db:
@@ -1477,6 +1570,11 @@ def refresh_due_feeds(self) -> dict:
             feeds = db.execute(
                 select(Feed).where(Feed.is_active == True)
             ).scalars().all()
+            custom_rule_feed_ids = set(
+                db.execute(
+                    select(CustomRule.feed_id).where(CustomRule.feed_id.is_not(None))
+                ).scalars().all()
+            )
             
             dispatched = 0
             dispatched_browser = 0
@@ -1487,6 +1585,9 @@ def refresh_due_feeds(self) -> dict:
             due_feeds: list[tuple[datetime, int, Feed]] = []
             
             for feed in feeds:
+                if feed.id in custom_rule_feed_ids:
+                    skipped += 1
+                    continue
                 next_fetch = _next_fetch_at(feed.last_fetched_at, feed.fetch_interval)
                 if now < next_fetch:
                     skipped += 1
@@ -1550,7 +1651,12 @@ def refresh_due_feeds(self) -> dict:
             pass
 
 
-@shared_task(name="app.tasks.feed_tasks.refresh_single_feed", bind=True)
+@shared_task(
+    name="app.tasks.feed_tasks.refresh_single_feed",
+    bind=True,
+    soft_time_limit=FEED_REFRESH_TASK_SOFT_TIME_LIMIT,
+    time_limit=FEED_REFRESH_TASK_TIME_LIMIT,
+)
 def refresh_single_feed(self, feed_id: int, refresh_owner: str | None = None) -> dict:
     """Refresh a single feed - designed for parallel execution."""
     redis_client = get_redis_client()
@@ -1578,6 +1684,21 @@ def refresh_single_feed(self, feed_id: int, refresh_owner: str | None = None) ->
             if not feed.is_active:
                 return {"success": True, "feed_id": feed_id, "skipped": True, "reason": "inactive"}
 
+            custom_rule = db.execute(
+                select(CustomRule).where(CustomRule.feed_id == feed_id)
+            ).scalar_one_or_none()
+            if custom_rule:
+                queue_name = "browser" if _rule_uses_browser(custom_rule) else "feed"
+                execute_single_custom_rule.apply_async(args=[custom_rule.id], queue=queue_name)
+                return {
+                    "success": True,
+                    "feed_id": feed_id,
+                    "rule_id": custom_rule.id,
+                    "queued": True,
+                    "queue": queue_name,
+                    "reason": "custom rule feed delegated to rule task",
+                }
+
             if _feed_uses_browser(feed) and _current_task_queue(self) != "browser":
                 refresh_single_feed.apply_async(args=[feed.id, owner], queue="browser")
                 release_slot = False
@@ -1588,6 +1709,17 @@ def refresh_single_feed(self, feed_id: int, refresh_owner: str | None = None) ->
                     "queue": "browser",
                     "reason": "browser feed moved to browser queue",
                 }
+
+            if refresh_owner and not _is_due_for_fetch(feed.last_fetched_at, feed.fetch_interval):
+                return {
+                    "success": True,
+                    "feed_id": feed_id,
+                    "skipped": True,
+                    "reason": "not due",
+                }
+
+            feed.last_fetched_at = datetime.utcnow()
+            db.commit()
             
             try:
                 new_count = _refresh_feed_sync(db, feed)
@@ -1611,7 +1743,11 @@ def refresh_single_feed(self, feed_id: int, refresh_owner: str | None = None) ->
 
 
 
-@shared_task(name="app.tasks.feed_tasks.execute_custom_rule")
+@shared_task(
+    name="app.tasks.feed_tasks.execute_custom_rule",
+    soft_time_limit=CUSTOM_RULE_TASK_SOFT_TIME_LIMIT,
+    time_limit=CUSTOM_RULE_TASK_TIME_LIMIT,
+)
 def execute_custom_rule(rule_id: int) -> dict:
     """Execute a single custom rule."""
     # Use sync session to avoid asyncpg concurrent operation issues
@@ -1720,7 +1856,12 @@ def execute_all_custom_rules(self) -> dict:
             pass
 
 
-@shared_task(name="app.tasks.feed_tasks.execute_single_custom_rule", bind=True)
+@shared_task(
+    name="app.tasks.feed_tasks.execute_single_custom_rule",
+    bind=True,
+    soft_time_limit=CUSTOM_RULE_TASK_SOFT_TIME_LIMIT,
+    time_limit=CUSTOM_RULE_TASK_TIME_LIMIT,
+)
 def execute_single_custom_rule(self, rule_id: int, execution_owner: str | None = None) -> dict:
     """Execute a single custom rule - designed for parallel execution."""
     redis_client = get_redis_client()
@@ -1759,6 +1900,24 @@ def execute_single_custom_rule(self, rule_id: int, execution_owner: str | None =
                     "queue": "browser",
                     "reason": "browser rule moved to browser queue",
                 }
+
+            if execution_owner and not _is_due_for_fetch(rule.last_fetched_at, rule.fetch_interval):
+                return {
+                    "success": True,
+                    "rule_id": rule_id,
+                    "skipped": True,
+                    "reason": "not due",
+                }
+
+            now = datetime.utcnow()
+            rule.last_fetched_at = now
+            if rule.feed_id:
+                feed = db.execute(
+                    select(Feed).where(Feed.id == rule.feed_id)
+                ).scalar_one_or_none()
+                if feed:
+                    feed.last_fetched_at = now
+            db.commit()
             
             try:
                 articles = _execute_custom_rule_sync(db, rule)
@@ -1778,9 +1937,23 @@ def execute_single_custom_rule(self, rule_id: int, execution_owner: str | None =
                     "rule_id": rule_id,
                     "error": str(e)
                 }
+
     finally:
         if release_slot:
             _release_custom_rule_execution_slot(redis_client, rule_id, owner)
+
+
+@shared_task(name="app.tasks.feed_tasks.trigger_push_for_article")
+def trigger_push_for_article(article_id: int) -> dict:
+    """Trigger push notifications for an article from async API code."""
+    with get_sync_session() as db:
+        article = db.execute(
+            select(Article).where(Article.id == article_id)
+        ).scalar_one_or_none()
+        if not article:
+            return {"success": False, "article_id": article_id, "error": "article not found"}
+        _trigger_push_notifications(db, article)
+        return {"success": True, "article_id": article_id}
 
 
 @shared_task(name="app.tasks.feed_tasks.translate_feed_articles")

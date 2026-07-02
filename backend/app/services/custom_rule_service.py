@@ -1,13 +1,16 @@
 """Custom rule service."""
 import json
 from datetime import datetime
+from hashlib import md5
 from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup
 from fastapi import HTTPException, status
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.article import Article
 from app.models.custom_rule import CustomRule
 from app.models.feed import Feed
 from app.repositories.custom_rule_repository import CustomRuleRepository
@@ -23,6 +26,11 @@ from app.schemas.custom_rule import (
 )
 from app.services.browser_fetch_settings import load_browser_fetch_settings
 from app.utils.feed_parser import _apply_browser_resource_blocking, _build_playwright_proxy
+from app.utils.whmcs_monitor import (
+    build_whmcs_status_content,
+    extract_whmcs_status_from_content,
+    parse_whmcs_product_state,
+)
 
 
 # 默认的同步间隔选项（秒）
@@ -255,6 +263,46 @@ class CustomRuleService:
         # If requested is larger than all allowed, use the largest allowed
         return max(allowed)
 
+    async def _get_latest_whmcs_status(self, feed_id: int) -> str | None:
+        result = await self.db.execute(
+            select(Article)
+            .where(Article.feed_id == feed_id, Article.guid.like("whmcs:%"))
+            .order_by(desc(Article.published_at), desc(Article.id))
+            .limit(1)
+        )
+        article = result.scalar_one_or_none()
+        return extract_whmcs_status_from_content(article.content if article else None)
+
+    async def _save_whmcs_status_article(
+        self,
+        rule: CustomRule,
+        feed_id: int,
+        html_content: str,
+    ) -> list[dict]:
+        state = parse_whmcs_product_state(html_content, rule.target_url)
+        previous_status = await self._get_latest_whmcs_status(feed_id)
+        if previous_status == state.status:
+            return []
+
+        now = datetime.utcnow()
+        title_prefix = "上架" if state.status == "in_stock" else "下架"
+        content = build_whmcs_status_content(state, rule.target_url)
+        guid = "whmcs:" + md5(
+            f"{rule.target_url}|{state.status}|{now.isoformat()}".encode()
+        ).hexdigest()
+        article = Article(
+            feed_id=feed_id,
+            guid=guid,
+            link=rule.target_url,
+            title=f"[{title_prefix}] {state.title}",
+            content=content,
+            published_at=now,
+        )
+        self.db.add(article)
+        await self.db.flush()
+        await self.keyword_repo.sync_article_matches(rule.user_id, [article.id])
+        return [{"title": article.title, "link": article.link, "content": content, "article_id": article.id}]
+
     async def create_rule(self, user_id: int, data: CustomRuleCreate) -> CustomRule:
         """Create a new custom rule with associated feed."""
         # Validate fetch interval
@@ -288,6 +336,8 @@ class CustomRuleService:
             translate_method=data.translate_method,
             translate_title=data.translate_title,
             translate_content=data.translate_content,
+            use_playwright=data.use_playwright,
+            browser_engine="playwright" if data.use_playwright else "http",
             proxy_mode=proxy_mode,
             proxy_enabled=proxy_enabled,
             proxy_url=proxy_url,
@@ -590,6 +640,35 @@ class CustomRuleService:
             # Use specialized parser for telegram
             rule_type = getattr(rule, 'rule_type', 'general') or 'general'
             print(f"[CustomRule] rule_type={rule_type}")
+
+            if rule_type == 'whmcs':
+                new_articles = await self._save_whmcs_status_article(rule, feed_id, html_content)
+                now = datetime.utcnow()
+                rule.last_fetched_at = now
+                rule.last_error = None
+                rule.error_count = 0
+
+                result = await self.db.execute(
+                    select(Feed).where(Feed.id == feed_id)
+                )
+                feed = result.scalar_one_or_none()
+                if feed:
+                    feed.title = parse_whmcs_product_state(html_content, rule.target_url).title
+                    feed.last_fetched_at = now
+                    feed.last_error = None
+                    feed.error_count = 0
+
+                await self.db.commit()
+                for article in new_articles:
+                    article_id = article.get("article_id")
+                    if article_id:
+                        try:
+                            from app.tasks.feed_tasks import trigger_push_for_article
+
+                            trigger_push_for_article.delay(article_id)
+                        except Exception:
+                            pass
+                return new_articles
             
             if rule_type == 'telegram':
                 items = soup.select('.tgme_widget_message_wrap')
@@ -773,7 +852,9 @@ class CustomRuleService:
             
             return new_articles
         except Exception as e:
-            rule.last_error = str(e)
+            now = datetime.utcnow()
+            rule.last_fetched_at = now
+            rule.last_error = str(e)[:500]
             rule.error_count += 1
             if feed_id:
                 result = await self.db.execute(
@@ -781,7 +862,8 @@ class CustomRuleService:
                 )
                 feed = result.scalar_one_or_none()
                 if feed:
-                    feed.last_error = str(e)
+                    feed.last_fetched_at = now
+                    feed.last_error = str(e)[:500]
                     feed.error_count += 1
             await self.db.commit()
             raise

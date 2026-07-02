@@ -36,6 +36,7 @@ export interface Category {
 
 // Feed types
 export type FeedBrowserEngine = 'http' | 'playwright' | 'cloakbrowser'
+export type FeedSourceType = 'rss' | 'whmcs'
 export type FeedProxyMode = 'none' | 'single' | 'pool'
 export type ProxyProtocol = 'http' | 'https' | 'socks4' | 'socks5' | 'socks5h'
 export type TranslateMethod = 'none' | 'ai' | 'google' | 'argos' | 'mc_translation'
