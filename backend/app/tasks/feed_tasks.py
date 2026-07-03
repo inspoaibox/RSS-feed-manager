@@ -1022,6 +1022,7 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
         new_count = 0
         new_article_ids: list[int] = []
         queued_translation_article_ids: list[int] = []
+        fetched_at = datetime.utcnow()
         existing_guids = _existing_article_guids(
             db,
             feed.id,
@@ -1044,7 +1045,7 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
                 content=article_data.content,
                 summary=None,  # Only set by AI if auto_summarize is enabled
                 author=article_data.author,
-                published_at=article_data.published_at,
+                published_at=article_data.published_at or fetched_at,
             )
             db.add(article)
             existing_guids.add(guid)

@@ -801,6 +801,7 @@ class FeedService:
             (article.guid for article in parsed.articles),
         )
         new_articles: list[Article] = []
+        fetched_at = datetime.utcnow()
 
         for article in parsed.articles:
             if not article.guid or article.guid in existing_guids:
@@ -813,7 +814,7 @@ class FeedService:
                 link=article.link,
                 content=article.content,
                 author=article.author,
-                published_at=article.published_at
+                published_at=article.published_at or fetched_at
             )
             self.session.add(saved_article)
             new_articles.append(saved_article)
