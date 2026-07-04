@@ -12,6 +12,43 @@ from feedparser import FeedParserDict
 from app.services.browser_fetch_settings import BrowserFetchSettings, default_browser_fetch_settings
 
 FeedBrowserEngine = Literal["http", "playwright", "cloakbrowser"]
+HTTP_FEED_HEADER_SETS = (
+    {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/rss+xml, application/xml, text/xml, */*",
+        "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
+    },
+    {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+        ),
+        "Accept": (
+            "application/atom+xml, application/rss+xml;q=0.9, "
+            "application/xml;q=0.8, text/xml;q=0.7, */*;q=0.5"
+        ),
+        "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+    },
+    {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+        ),
+        "Accept": (
+            "text/xml, application/xml;q=0.9, application/rss+xml;q=0.8, "
+            "application/atom+xml;q=0.7, */*;q=0.5"
+        ),
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+    },
+)
+HTTP_HEADER_RETRY_STATUS_CODES = {403, 406, 415, 429, 500, 502, 503, 504}
 
 
 @dataclass
@@ -121,6 +158,26 @@ def _detect_encoding(content: bytes, content_type: str | None = None) -> str:
     return 'utf-8'
 
 
+def _decode_feed_bytes(raw_content: bytes, content_type: str | None = None) -> str:
+    encoding = _detect_encoding(raw_content, content_type)
+
+    try:
+        return raw_content.decode(encoding)
+    except (UnicodeDecodeError, LookupError):
+        for enc in ['utf-8', 'gbk', 'gb2312', 'gb18030', 'latin-1']:
+            try:
+                return raw_content.decode(enc)
+            except (UnicodeDecodeError, LookupError):
+                continue
+        return raw_content.decode('utf-8', errors='replace')
+
+
+def _format_fetch_error(error: FeedParserError, attempts: int) -> FeedParserError:
+    if attempts <= 1:
+        return error
+    return FeedParserError(f"{error} after {attempts} header attempts")
+
+
 def _build_playwright_proxy(proxy_url: str | None) -> dict | None:
     """Convert a proxy URL into Playwright's proxy configuration."""
     if not proxy_url:
@@ -176,48 +233,37 @@ async def fetch_feed_content(
     proxy_url: str | None = None,
 ) -> str:
     """Fetch feed content from URL."""
-    # 简化请求头，不请求压缩以避免解压问题
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/rss+xml, application/xml, text/xml, */*",
-        "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
-    }
-    
+    last_error: FeedParserError | None = None
+
     async with httpx.AsyncClient(proxy=proxy_url) as client:
-        try:
-            response = await client.get(
-                url,
-                timeout=timeout,
-                follow_redirects=True,
-                headers=headers,
-            )
-            response.raise_for_status()
-            
-            # 获取原始字节内容
-            raw_content = response.content
-            content_type = response.headers.get('content-type', '')
-            
-            # 检测并使用正确的编码
-            encoding = _detect_encoding(raw_content, content_type)
-            
+        for attempt, headers in enumerate(HTTP_FEED_HEADER_SETS, start=1):
             try:
-                return raw_content.decode(encoding)
-            except (UnicodeDecodeError, LookupError):
-                # 如果检测的编码失败，尝试常见编码
-                for enc in ['utf-8', 'gbk', 'gb2312', 'gb18030', 'latin-1']:
-                    try:
-                        return raw_content.decode(enc)
-                    except (UnicodeDecodeError, LookupError):
-                        continue
-                # 最后使用 errors='replace' 强制解码
-                return raw_content.decode('utf-8', errors='replace')
-                
-        except httpx.TimeoutException:
-            raise FeedParserError(f"Timeout fetching feed: {url}")
-        except httpx.HTTPStatusError as e:
-            raise FeedParserError(f"HTTP error {e.response.status_code}: {url}")
-        except httpx.RequestError as e:
-            raise FeedParserError(f"Request error: {str(e)}")
+                response = await client.get(
+                    url,
+                    timeout=timeout,
+                    follow_redirects=True,
+                    headers=headers,
+                )
+                response.raise_for_status()
+                return _decode_feed_bytes(
+                    response.content,
+                    response.headers.get('content-type', ''),
+                )
+            except httpx.TimeoutException:
+                last_error = FeedParserError(f"Timeout fetching feed: {url}")
+            except httpx.HTTPStatusError as e:
+                last_error = FeedParserError(f"HTTP error {e.response.status_code}: {url}")
+                if e.response.status_code not in HTTP_HEADER_RETRY_STATUS_CODES:
+                    raise last_error
+            except httpx.RequestError as e:
+                last_error = FeedParserError(f"Request error: {str(e)}")
+
+            if attempt >= len(HTTP_FEED_HEADER_SETS):
+                break
+
+    if last_error is not None:
+        raise _format_fetch_error(last_error, len(HTTP_FEED_HEADER_SETS))
+    raise FeedParserError(f"Failed to get content from: {url}")
 
 
 def parse_feed_content(content: str, feed_url: str) -> ParsedFeed:
