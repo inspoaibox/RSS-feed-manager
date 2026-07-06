@@ -22,6 +22,7 @@ from app.utils.feed_parser import (
     FeedParserError,
     ParsedFeed,
     is_browser_engine_enabled,
+    is_browser_runtime_error,
     normalize_browser_engine,
     parse_feed,
 )
@@ -191,6 +192,8 @@ class FeedService:
                     return parsed
                 except Exception as exc:
                     last_error = str(exc)
+                    if is_browser_runtime_error(exc):
+                        raise FeedParserError(f"浏览器运行环境异常，停止代理轮换: {last_error}")
                     await self.proxy_repo.record_failure(proxy, last_error)
                     await self.session.commit()
 

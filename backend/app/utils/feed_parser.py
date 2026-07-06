@@ -49,6 +49,13 @@ HTTP_FEED_HEADER_SETS = (
     },
 )
 HTTP_HEADER_RETRY_STATUS_CODES = {403, 406, 415, 429, 500, 502, 503, 504}
+BROWSER_RUNTIME_ERROR_MARKERS = (
+    "can't start new thread",
+    "can't create new thread",
+    "resource temporarily unavailable",
+    "connection closed while reading from the driver",
+    "browsertype.launch",
+)
 
 
 @dataclass
@@ -75,6 +82,14 @@ class ParsedFeed:
 class FeedParserError(Exception):
     """Exception raised when feed parsing fails."""
     pass
+
+
+def is_browser_runtime_error(error: Exception | str) -> bool:
+    """Return whether an error came from the local browser runtime, not the proxy/site."""
+    message = str(error).lower()
+    if not any(marker in message for marker in BROWSER_RUNTIME_ERROR_MARKERS):
+        return False
+    return "cloakbrowser" in message or "playwright" in message or "browser" in message
 
 
 def normalize_browser_engine(

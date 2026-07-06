@@ -34,6 +34,7 @@ from app.utils.feed_parser import (
     ParsedFeed,
     _apply_browser_resource_blocking,
     _build_playwright_proxy,
+    is_browser_runtime_error,
     parse_feed,
 )
 from app.utils.whmcs_monitor import (
@@ -975,6 +976,8 @@ def _parse_feed_for_sync_refresh(db: Session, feed: Feed) -> ParsedFeed:
                     return parsed
                 except Exception as exc:
                     last_error = str(exc)
+                    if is_browser_runtime_error(exc):
+                        raise FeedParserError(f"浏览器运行环境异常，停止代理轮换: {last_error}")
                     _record_proxy_failure_sync(db, proxy, last_error)
 
             raise FeedParserError(f"代理池本轮 {attempted}/{len(candidates)} 个代理全部失败: {last_error or '未知错误'}")
@@ -1079,6 +1082,8 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
         feed.last_error = str(e)[:500]
         feed.error_count += 1
         db.commit()
+        if is_browser_runtime_error(e):
+            raise
         return 0
 
 
@@ -1280,6 +1285,8 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
                         break
                     except Exception as exc:
                         last_error = str(exc)
+                        if is_browser_runtime_error(exc):
+                            raise RuntimeError(f"浏览器运行环境异常，停止代理轮换: {last_error}")
                         _record_proxy_failure_sync(db, proxy, last_error)
                         db.commit()
                 else:
@@ -1759,6 +1766,8 @@ def refresh_single_feed(self, feed_id: int, refresh_owner: str | None = None) ->
             except Exception as e:
                 db.rollback()
                 print(f"Error refreshing feed {feed.id}: {e}")
+                if is_browser_runtime_error(e):
+                    raise
                 return {
                     "success": False,
                     "feed_id": feed_id,

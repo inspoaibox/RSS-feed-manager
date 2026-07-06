@@ -72,7 +72,7 @@ services:
     container_name: rss_manager_celery_worker
     restart: always
     cpus: ${WORKER_CPUS:-1.0}
-    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=${WORKER_CONCURRENCY:-5} --max-tasks-per-child=${WORKER_MAX_TASKS_PER_CHILD:-20} -Q feed,translation,celery
+    command: python -m app.tasks.worker_launcher --kind worker
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rss_manager}:${POSTGRES_PASSWORD:-rss_manager_prod_2024}@postgres:5432/${POSTGRES_DB:-rss_manager}
       - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_prod_2024}@redis:6379/0
@@ -112,7 +112,7 @@ services:
     profiles:
       - browser
     cpus: ${BROWSER_WORKER_CPUS:-0}
-    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=${BROWSER_WORKER_CONCURRENCY:-3} --max-tasks-per-child=${BROWSER_WORKER_MAX_TASKS_PER_CHILD:-20} -Q browser
+    command: python -m app.tasks.worker_launcher --kind browser
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rss_manager}:${POSTGRES_PASSWORD:-rss_manager_prod_2024}@postgres:5432/${POSTGRES_DB:-rss_manager}
       - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_prod_2024}@redis:6379/0

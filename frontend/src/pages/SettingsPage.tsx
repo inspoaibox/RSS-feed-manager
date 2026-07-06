@@ -6077,13 +6077,17 @@ function SystemTab() {
               </button>
 
               <div className="mt-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded">
-                <h5 className="font-medium text-yellow-800 dark:text-yellow-200 mb-2">⚠️ 重要提示</h5>
+                <h5 className="font-medium text-yellow-800 dark:text-yellow-200 mb-2">重要提示</h5>
                 <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-3">
-                  配置保存后需要重启对应的 Worker 容器才能生效。请在服务器上执行以下命令：
+                  并发数和子进程最大任务数保存后会写入系统设置，重启对应 Worker 容器后生效：
                 </p>
                 <div className="bg-gray-900 dark:bg-gray-950 text-gray-100 p-3 rounded font-mono text-xs overflow-x-auto">
-                  docker restart rss_manager_celery_worker rss_manager_celery_browser_worker
+                  cd /root/RSS-feed-manager<br />
+                  docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml --profile browser restart celery_worker celery_browser_worker
                 </div>
+                <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-3">
+                  CPU 限额属于 Docker 容器资源配置，需要重新创建容器才会应用。
+                </p>
               </div>
 
               <div className="mt-4 text-sm text-gray-600 dark:text-gray-400">
