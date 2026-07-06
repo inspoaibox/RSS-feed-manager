@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, List
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import Boolean, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import BaseModel
@@ -40,6 +40,7 @@ class User(BaseModel):
     # Embedding model settings
     embedding_provider_id: Mapped[int | None] = mapped_column(nullable=True)
     embedding_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    auto_generate_embeddings: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     
     # OAuth fields
     oauth_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)

@@ -2149,6 +2149,7 @@ function AITab() {
         summarize_prompt: string
         embedding_provider_id: number | null
         embedding_model: string | null
+        auto_generate_embeddings: boolean
         argos_source_language: string | null
         mc_translation_api_key: string | null
         mc_translation_base_url: string | null
@@ -2190,7 +2191,9 @@ function AITab() {
   const [embeddingConfig, setEmbeddingConfig] = useState<{
     provider_id: number | null
     model: string
-  }>({ provider_id: null, model: '' })
+    auto_generate: boolean
+  }>({ provider_id: null, model: '', auto_generate: false })
+  const [embeddingSettingsLoaded, setEmbeddingSettingsLoaded] = useState(false)
   const [argosSourceLanguage, setArgosSourceLanguage] = useState('en')
   const [argosSettingsLoaded, setArgosSettingsLoaded] = useState(false)
   const [argosInstallForm, setArgosInstallForm] = useState({
@@ -2233,13 +2236,13 @@ function AITab() {
   }
   
   // Initialize embedding config when settings load
-  if (settings && embeddingConfig.provider_id === null && !embeddingConfig.model) {
-    if (settings.embedding_provider_id || settings.embedding_model) {
-      setEmbeddingConfig({
-        provider_id: settings.embedding_provider_id,
-        model: settings.embedding_model || '',
-      })
-    }
+  if (settings && !embeddingSettingsLoaded) {
+    setEmbeddingConfig({
+      provider_id: settings.embedding_provider_id,
+      model: settings.embedding_model || '',
+      auto_generate: settings.auto_generate_embeddings || false,
+    })
+    setEmbeddingSettingsLoaded(true)
   }
 
   if (settings && !argosSettingsLoaded) {
@@ -2467,6 +2470,7 @@ function AITab() {
       await api.put('/ai/settings', {
         embedding_provider_id: embeddingConfig.provider_id,
         embedding_model: embeddingConfig.model || null,
+        auto_generate_embeddings: embeddingConfig.auto_generate,
       })
     },
     onSuccess: () => {
@@ -2806,6 +2810,20 @@ function AITab() {
               常用模型：text-embedding-3-small, text-embedding-3-large, text-embedding-ada-002
             </p>
           </div>
+          <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <input
+              type="checkbox"
+              checked={embeddingConfig.auto_generate}
+              onChange={(e) => setEmbeddingConfig({ ...embeddingConfig, auto_generate: e.target.checked })}
+              className="mt-1"
+            />
+            <span>
+              新文章入库后自动生成 Embedding
+              <span className="block text-xs text-gray-400 dark:text-gray-500">
+                关闭后不会随订阅刷新自动生成，手动批量索引仍可使用
+              </span>
+            </span>
+          </label>
           <button
             onClick={() => saveEmbeddingConfigMutation.mutate()}
             disabled={saveEmbeddingConfigMutation.isPending || !embeddingConfig.provider_id}

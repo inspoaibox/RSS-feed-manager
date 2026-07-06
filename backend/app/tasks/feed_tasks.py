@@ -18,6 +18,7 @@ from app.models.custom_rule import CustomRule
 from app.models.keyword_article_match import KeywordArticleMatch
 from app.models.keyword_subscription import KeywordSubscription
 from app.models.proxy_pool import ProxyPoolEntry
+from app.models.user import User
 from app.repositories.keyword_subscription_repository import (
     build_keyword_conditions,
     build_keyword_source_conditions,
@@ -440,53 +441,82 @@ def _dispatch_queued_article_translations(db: Session, article_ids: list[int]) -
     return dispatched
 
 
-def _generate_article_embedding_sync(db: Session, article: Article, user_id: int) -> None:
-    """Generate embedding for a single article (sync version, non-blocking on failure)."""
-    from app.models.user import User
-    
-    try:
-        # Get user's embedding configuration
-        user = db.execute(
-            select(User).where(User.id == user_id)
-        ).scalar_one_or_none()
-        
-        if not user or not user.embedding_provider_id or not user.embedding_model:
-            # No embedding config, skip silently
-            return
-        
-        provider = db.execute(
-            select(AIProvider).where(AIProvider.id == user.embedding_provider_id)
-        ).scalar_one_or_none()
-        
-        if not provider:
-            return
-        
-        # Generate embedding
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        try:
-            from app.services.embedding_service import EmbeddingService
-            
-            service = EmbeddingService(
-                api_key=provider.api_key,
-                base_url=provider.base_url,
-                model=user.embedding_model
-            )
-            
-            # Combine title and content for embedding
-            text = f"{article.title} {article.content or ''}"
-            embedding = loop.run_until_complete(service.generate_embedding(text))
-            
-            if embedding:
-                article.embedding = embedding
-                db.flush()
-                print(f"Generated embedding for article {article.id}: {article.title[:50]}...")
-        finally:
-            loop.close()
-    except Exception as e:
-        # Don't fail the article save if embedding generation fails
-        print(f"Failed to generate embedding for article {article.id}: {e}")
+def _is_auto_embedding_enabled(db: Session, user_id: int) -> bool:
+    user = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
+    return bool(
+        user
+        and user.auto_generate_embeddings
+        and user.embedding_provider_id
+        and user.embedding_model
+    )
+
+
+def _send_celery_task(task_name: str, args: list, queue: str = "celery") -> str | None:
+    from app.tasks.celery_app import celery_app
+
+    result = celery_app.send_task(task_name, args=args, queue=queue)
+    return getattr(result, "id", None)
+
+
+def _dispatch_article_embedding(article_id: int, *, auto: bool = True) -> str | None:
+    return _send_celery_task(
+        "app.tasks.feed_tasks.generate_article_embedding",
+        [article_id, auto],
+        queue="celery",
+    )
+
+
+def _dispatch_article_summary(article_id: int) -> str | None:
+    return _send_celery_task(
+        "app.tasks.feed_tasks.summarize_article",
+        [article_id],
+        queue="celery",
+    )
+
+
+def _dispatch_article_push(article_id: int) -> str | None:
+    return _send_celery_task(
+        "app.tasks.feed_tasks.trigger_push_for_article",
+        [article_id],
+        queue="celery",
+    )
+
+
+def _dispatch_article_postprocess_tasks(
+    article_ids: list[int],
+    *,
+    summary_article_ids: list[int] | None = None,
+    embedding_article_ids: list[int] | None = None,
+    push: bool = True,
+) -> dict[str, int]:
+    """Dispatch heavyweight article work after article rows are committed."""
+    counts = {"summary": 0, "embedding": 0, "push": 0}
+    summary_set = set(summary_article_ids or [])
+    embedding_set = set(embedding_article_ids or [])
+
+    for article_id in article_ids:
+        if article_id in summary_set:
+            try:
+                _dispatch_article_summary(article_id)
+                counts["summary"] += 1
+            except Exception as exc:
+                print(f"Failed to dispatch summary task for article {article_id}: {exc}")
+
+        if article_id in embedding_set:
+            try:
+                _dispatch_article_embedding(article_id, auto=True)
+                counts["embedding"] += 1
+            except Exception as exc:
+                print(f"Failed to dispatch embedding task for article {article_id}: {exc}")
+
+        if push:
+            try:
+                _dispatch_article_push(article_id)
+                counts["push"] += 1
+            except Exception as exc:
+                print(f"Failed to dispatch push task for article {article_id}: {exc}")
+
+    return counts
 
 
 def _trigger_push_notifications(db: Session, article: Article) -> None:
@@ -505,68 +535,23 @@ def _trigger_push_notifications(db: Session, article: Article) -> None:
         print(f"Failed to trigger push notifications for article {article.id}: {e}")
 
 
-def _process_article_with_ai(db: Session, article: Article, feed: Feed) -> bool:
-    """Queue article translation and summarize if enabled."""
-    from app.models.user import User
-
+def _process_article_with_ai(db: Session, article: Article, feed: Feed) -> tuple[bool, bool]:
+    """Mark lightweight AI post-processing requested for a newly saved article."""
     translation_queued = _mark_article_translation_queued(db, article, feed)
 
     if not feed.auto_summarize:
-        return translation_queued
+        return translation_queued, False
 
     if not (article.content or article.title):
-        return translation_queued
+        return translation_queued, False
 
     title = article.title or ""
     content = article.content or ""
     content_for_ai = content or title
     if not content_for_ai:
-        return translation_queued
+        return translation_queued, False
 
-    # Get user info
-    user = db.execute(
-        select(User).where(User.id == feed.user_id)
-    ).scalar_one_or_none()
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    try:
-        # Handle AI summarization (always uses AI model)
-        default_model = db.execute(
-            select(AIModel)
-            .join(AIProvider, AIModel.provider_id == AIProvider.id)
-            .where(
-                AIProvider.user_id == feed.user_id,
-                AIModel.is_default == True
-            )
-        ).scalar_one_or_none()
-
-        if not default_model:
-            print(f"No default AI model set for user {feed.user_id}, skipping AI summarization")
-        else:
-            provider = db.execute(
-                select(AIProvider).where(AIProvider.id == default_model.provider_id)
-            ).scalar_one_or_none()
-
-            if provider:
-                summarize_prompt = user.summarize_prompt if user and user.summarize_prompt else None
-
-                try:
-                    from app.services.ai_client import create_ai_client, AIClientError
-                    client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
-                    summary = loop.run_until_complete(client.summarize(content_for_ai, summarize_prompt))
-                    article.summary = summary
-                except AIClientError as e:
-                    print(f"AI summarize error for article {article.id}: {e}")
-
-        db.flush()
-    except Exception as e:
-        print(f"Article processing error: {e}")
-    finally:
-        loop.close()
-
-    return translation_queued
+    return translation_queued, True
 
 
 def _translation_has_title(translation: str | None) -> bool:
@@ -1025,6 +1010,9 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
         new_count = 0
         new_article_ids: list[int] = []
         queued_translation_article_ids: list[int] = []
+        summary_article_ids: list[int] = []
+        embedding_article_ids: list[int] = []
+        auto_embedding_enabled = _is_auto_embedding_enabled(db, feed.user_id)
         fetched_at = datetime.utcnow()
         existing_guids = _existing_article_guids(
             db,
@@ -1055,15 +1043,13 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
             db.flush()  # Get article ID
             new_article_ids.append(article.id)
 
-            # Queue translation and process summary if enabled.
-            if _process_article_with_ai(db, article, feed):
+            translation_queued, summary_requested = _process_article_with_ai(db, article, feed)
+            if translation_queued:
                 queued_translation_article_ids.append(article.id)
-
-            # Generate embedding for the new article (async, non-blocking)
-            _generate_article_embedding_sync(db, article, feed.user_id)
-
-            # Trigger push notifications for new article
-            _trigger_push_notifications(db, article)
+            if summary_requested:
+                summary_article_ids.append(article.id)
+            if auto_embedding_enabled:
+                embedding_article_ids.append(article.id)
 
             new_count += 1
 
@@ -1076,6 +1062,12 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
 
         if queued_translation_article_ids:
             _dispatch_queued_article_translations(db, queued_translation_article_ids)
+        if new_article_ids:
+            _dispatch_article_postprocess_tasks(
+                new_article_ids,
+                summary_article_ids=summary_article_ids,
+                embedding_article_ids=embedding_article_ids,
+            )
         
         return new_count
     except Exception as e:
@@ -1125,8 +1117,14 @@ def _save_whmcs_status_article_sync(
     db.add(article)
     db.flush()
     _sync_keyword_matches_for_articles_sync(db, rule.user_id, [article.id])
-    _trigger_push_notifications(db, article)
-    return [{"title": article.title, "link": article.link, "content": content}]
+    return [
+        {
+            "title": article.title,
+            "link": article.link,
+            "content": content,
+            "article_id": article.id,
+        }
+    ]
 
 
 def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
@@ -1326,6 +1324,21 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
                 feed.error_count = 0
 
             db.commit()
+            whmcs_article_ids = [
+                article["article_id"]
+                for article in new_articles
+                if article.get("article_id")
+            ]
+            if whmcs_article_ids:
+                _dispatch_article_postprocess_tasks(
+                    whmcs_article_ids,
+                    summary_article_ids=whmcs_article_ids if rule.auto_summarize else [],
+                    embedding_article_ids=(
+                        whmcs_article_ids
+                        if _is_auto_embedding_enabled(db, rule.user_id)
+                        else []
+                    ),
+                )
             return new_articles
         
         if rule_type == 'telegram':
@@ -1339,6 +1352,13 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
         
         new_articles = []
         new_article_ids: list[int] = []
+        queued_translation_article_ids: list[int] = []
+        summary_article_ids: list[int] = []
+        embedding_article_ids: list[int] = []
+        auto_embedding_enabled = _is_auto_embedding_enabled(db, rule.user_id)
+        feed_for_postprocess = db.execute(
+            select(Feed).where(Feed.id == feed_id)
+        ).scalar_one_or_none()
         skipped_no_title_link = 0
         skipped_existing = 0
         
@@ -1474,7 +1494,20 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
             # Trigger push notifications for new article
             db.flush()  # Ensure article has ID
             new_article_ids.append(article.id)
-            _trigger_push_notifications(db, article)
+            if feed_for_postprocess:
+                translation_queued, summary_requested = _process_article_with_ai(
+                    db,
+                    article,
+                    feed_for_postprocess,
+                )
+                if translation_queued:
+                    queued_translation_article_ids.append(article.id)
+                if summary_requested:
+                    summary_article_ids.append(article.id)
+            elif rule.auto_summarize:
+                summary_article_ids.append(article.id)
+            if auto_embedding_enabled:
+                embedding_article_ids.append(article.id)
 
         _sync_keyword_matches_for_articles_sync(db, rule.user_id, new_article_ids)
 
@@ -1486,15 +1519,20 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
         rule.last_error = None
         rule.error_count = 0
         
-        feed = db.execute(
-            select(Feed).where(Feed.id == feed_id)
-        ).scalar_one_or_none()
-        if feed:
-            feed.last_fetched_at = now
-            feed.last_error = None
-            feed.error_count = 0
+        if feed_for_postprocess:
+            feed_for_postprocess.last_fetched_at = now
+            feed_for_postprocess.last_error = None
+            feed_for_postprocess.error_count = 0
         
         db.commit()
+        if queued_translation_article_ids:
+            _dispatch_queued_article_translations(db, queued_translation_article_ids)
+        if new_article_ids:
+            _dispatch_article_postprocess_tasks(
+                new_article_ids,
+                summary_article_ids=summary_article_ids,
+                embedding_article_ids=embedding_article_ids,
+            )
         return new_articles
         
     except Exception as e:
@@ -1992,6 +2030,74 @@ def trigger_push_for_article(article_id: int) -> dict:
         return {"success": True, "article_id": article_id}
 
 
+@shared_task(name="app.tasks.feed_tasks.summarize_article")
+def summarize_article(article_id: int) -> dict:
+    """Generate an AI summary for one article outside feed/browser refresh workers."""
+    with get_sync_session() as db:
+        article = db.execute(
+            select(Article).where(Article.id == article_id)
+        ).scalar_one_or_none()
+        if not article:
+            return {"success": False, "article_id": article_id, "error": "article not found"}
+
+        feed = db.execute(select(Feed).where(Feed.id == article.feed_id)).scalar_one_or_none()
+        if not feed:
+            return {"success": False, "article_id": article_id, "error": "feed not found"}
+
+        if not feed.auto_summarize:
+            return {"success": True, "article_id": article_id, "skipped": "auto_summarize disabled"}
+
+        content_for_ai = article.full_content or article.content or article.title
+        if not content_for_ai:
+            return {"success": False, "article_id": article_id, "error": "article has no content"}
+
+        user = db.execute(select(User).where(User.id == feed.user_id)).scalar_one_or_none()
+        default_model = db.execute(
+            select(AIModel)
+            .join(AIProvider, AIModel.provider_id == AIProvider.id)
+            .where(
+                AIProvider.user_id == feed.user_id,
+                AIModel.is_default == True,
+            )
+        ).scalar_one_or_none()
+
+        if not default_model:
+            return {"success": False, "article_id": article_id, "error": "No default AI model configured"}
+
+        provider = db.execute(
+            select(AIProvider).where(AIProvider.id == default_model.provider_id)
+        ).scalar_one_or_none()
+        if not provider:
+            return {"success": False, "article_id": article_id, "error": "AI provider not found"}
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            from app.services.ai_client import AIClientError, create_ai_client
+
+            summarize_prompt = user.summarize_prompt if user and user.summarize_prompt else None
+            client = create_ai_client(
+                provider.type,
+                provider.api_key,
+                provider.base_url,
+                default_model.model_id,
+            )
+            summary = loop.run_until_complete(client.summarize(content_for_ai, summarize_prompt))
+            article.summary = summary
+            db.flush()
+            _sync_keyword_matches_for_articles_sync(db, feed.user_id, [article.id])
+            db.commit()
+            return {"success": True, "article_id": article_id}
+        except AIClientError as exc:
+            db.rollback()
+            return {"success": False, "article_id": article_id, "error": str(exc)}
+        except Exception as exc:
+            db.rollback()
+            return {"success": False, "article_id": article_id, "error": str(exc)}
+        finally:
+            loop.close()
+
+
 @shared_task(name="app.tasks.feed_tasks.translate_feed_articles")
 def translate_feed_articles(feed_id: int) -> dict:
     """Queue all untranslated articles in a feed for background translation."""
@@ -2096,10 +2202,8 @@ def cleanup_old_articles(days: int = 90) -> dict:
 
 
 @shared_task(name="app.tasks.feed_tasks.generate_article_embedding")
-def generate_article_embedding(article_id: int) -> dict:
+def generate_article_embedding(article_id: int, auto: bool = False) -> dict:
     """Generate embedding for a single article."""
-    from app.models.user import User
-    
     with get_sync_session() as db:
         article = db.execute(
             select(Article).where(Article.id == article_id)
@@ -2126,6 +2230,13 @@ def generate_article_embedding(article_id: int) -> dict:
         
         if not user or not user.embedding_provider_id or not user.embedding_model:
             return {"success": False, "error": "No embedding model configured"}
+
+        if auto and not user.auto_generate_embeddings:
+            return {
+                "success": True,
+                "article_id": article_id,
+                "skipped": "auto embedding disabled",
+            }
         
         provider = db.execute(
             select(AIProvider).where(AIProvider.id == user.embedding_provider_id)
