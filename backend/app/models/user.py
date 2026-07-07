@@ -36,6 +36,7 @@ class User(BaseModel):
     # AI Prompt settings
     translate_prompt: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     summarize_prompt: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    auto_generate_summaries: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     
     # Embedding model settings
     embedding_provider_id: Mapped[int | None] = mapped_column(nullable=True)

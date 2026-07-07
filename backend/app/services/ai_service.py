@@ -367,6 +367,7 @@ class AIService:
         return {
             "translate_prompt": user.translate_prompt or default_translate if user else default_translate,
             "summarize_prompt": user.summarize_prompt or default_summarize if user else default_summarize,
+            "auto_generate_summaries": bool(user.auto_generate_summaries) if user else False,
             "embedding_provider_id": user.embedding_provider_id if user else None,
             "embedding_model": user.embedding_model if user else None,
             "auto_generate_embeddings": bool(user.auto_generate_embeddings) if user else False,
@@ -392,6 +393,8 @@ class AIService:
             user.translate_prompt = data["translate_prompt"]
         if "summarize_prompt" in data:
             user.summarize_prompt = data["summarize_prompt"]
+        if "auto_generate_summaries" in data:
+            user.auto_generate_summaries = bool(data["auto_generate_summaries"])
         if "embedding_provider_id" in data:
             user.embedding_provider_id = data["embedding_provider_id"]
         if "embedding_model" in data:

@@ -451,6 +451,11 @@ def _is_auto_embedding_enabled(db: Session, user_id: int) -> bool:
     )
 
 
+def _is_auto_summary_enabled(db: Session, user_id: int) -> bool:
+    user = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
+    return bool(user and user.auto_generate_summaries)
+
+
 def _send_celery_task(task_name: str, args: list, queue: str = "celery") -> str | None:
     from app.tasks.celery_app import celery_app
 
@@ -902,6 +907,23 @@ def _record_proxy_failure_sync(db: Session, proxy: ProxyPoolEntry, error: str) -
     db.flush()
 
 
+def _record_proxy_success_by_id_sync(db: Session, proxy_id: int) -> None:
+    proxy = db.get(ProxyPoolEntry, proxy_id)
+    if not proxy:
+        return
+    _record_proxy_success_sync(db, proxy)
+    if hasattr(db, "commit"):
+        db.commit()
+
+
+def _record_proxy_failure_by_id_sync(db: Session, proxy_id: int, error: str) -> None:
+    proxy = db.get(ProxyPoolEntry, proxy_id)
+    if not proxy:
+        return
+    _record_proxy_failure_sync(db, proxy, error)
+    db.commit()
+
+
 def _get_proxy_candidates_sync(db: Session, feed: Feed) -> list[ProxyPoolEntry]:
     query = select(ProxyPoolEntry).where(
         ProxyPoolEntry.user_id == feed.user_id,
@@ -926,58 +948,76 @@ def _get_proxy_candidates_sync(db: Session, feed: Feed) -> list[ProxyPoolEntry]:
 
 def _parse_feed_for_sync_refresh(db: Session, feed: Feed) -> ParsedFeed:
     """Parse a feed for Celery refresh, rotating pool proxies when configured."""
+    feed_url = feed.url
+    use_playwright = feed.use_playwright
+    browser_engine = _feed_browser_engine_for_parse(feed)
     browser_settings = load_browser_fetch_settings_sync(db) if _feed_uses_browser(feed) else None
     proxy_mode = getattr(
         feed,
         "proxy_mode",
         "single" if getattr(feed, "proxy_enabled", False) else "none",
     )
+    single_proxy_url = (
+        getattr(feed, "proxy_url", None)
+        if proxy_mode == "single" and getattr(feed, "proxy_enabled", False)
+        else None
+    )
+    proxy_candidates: list[tuple[int | None, str, ProxyPoolEntry]] = []
+    if proxy_mode == "pool":
+        proxy_candidates = [
+            (getattr(proxy, "id", None), proxy.proxy_url, proxy)
+            for proxy in _get_proxy_candidates_sync(db, feed)
+        ]
+        if not proxy_candidates:
+            raise FeedParserError("代理池没有可用代理")
+
+    # Browser/http fetching can take tens of seconds. Release the DB connection
+    # before external I/O so slow browser feeds do not starve API requests.
+    if hasattr(db, "commit"):
+        db.commit()
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
         if proxy_mode == "pool":
-            candidates = _get_proxy_candidates_sync(db, feed)
-            if not candidates:
-                raise FeedParserError("代理池没有可用代理")
-
             last_error = ""
             attempted = 0
-            for proxy in candidates:
+            for proxy_id, proxy_url, proxy in proxy_candidates:
                 if attempted >= FEED_PROXY_POOL_ATTEMPT_LIMIT:
                     break
                 attempted += 1
                 try:
                     parsed = loop.run_until_complete(
                         parse_feed(
-                            feed.url,
-                            use_playwright=feed.use_playwright,
-                            browser_engine=_feed_browser_engine_for_parse(feed),
-                            proxy_url=proxy.proxy_url,
+                            feed_url,
+                            use_playwright=use_playwright,
+                            browser_engine=browser_engine,
+                            proxy_url=proxy_url,
                             browser_settings=browser_settings,
                         )
                     )
-                    _record_proxy_success_sync(db, proxy)
+                    if proxy_id is not None:
+                        _record_proxy_success_by_id_sync(db, proxy_id)
+                    else:
+                        _record_proxy_success_sync(db, proxy)
                     return parsed
                 except Exception as exc:
                     last_error = str(exc)
                     if is_browser_runtime_error(exc):
                         raise FeedParserError(f"浏览器运行环境异常，停止代理轮换: {last_error}")
-                    _record_proxy_failure_sync(db, proxy, last_error)
+                    if proxy_id is not None:
+                        _record_proxy_failure_by_id_sync(db, proxy_id, last_error)
+                    else:
+                        _record_proxy_failure_sync(db, proxy, last_error)
 
-            raise FeedParserError(f"代理池本轮 {attempted}/{len(candidates)} 个代理全部失败: {last_error or '未知错误'}")
+            raise FeedParserError(f"代理池本轮 {attempted}/{len(proxy_candidates)} 个代理全部失败: {last_error or '未知错误'}")
 
-        proxy_url = (
-            getattr(feed, "proxy_url", None)
-            if proxy_mode == "single" and getattr(feed, "proxy_enabled", False)
-            else None
-        )
         return loop.run_until_complete(
             parse_feed(
-                feed.url,
-                use_playwright=feed.use_playwright,
-                browser_engine=_feed_browser_engine_for_parse(feed),
-                proxy_url=proxy_url,
+                feed_url,
+                use_playwright=use_playwright,
+                browser_engine=browser_engine,
+                proxy_url=single_proxy_url,
                 browser_settings=browser_settings,
             )
         )
@@ -1012,6 +1052,7 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
         queued_translation_article_ids: list[int] = []
         summary_article_ids: list[int] = []
         embedding_article_ids: list[int] = []
+        auto_summary_enabled = _is_auto_summary_enabled(db, feed.user_id)
         auto_embedding_enabled = _is_auto_embedding_enabled(db, feed.user_id)
         fetched_at = datetime.utcnow()
         existing_guids = _existing_article_guids(
@@ -1046,7 +1087,7 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
             translation_queued, summary_requested = _process_article_with_ai(db, article, feed)
             if translation_queued:
                 queued_translation_article_ids.append(article.id)
-            if summary_requested:
+            if summary_requested and auto_summary_enabled:
                 summary_article_ids.append(article.id)
             if auto_embedding_enabled:
                 embedding_article_ids.append(article.id)
@@ -1329,10 +1370,15 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
                 for article in new_articles
                 if article.get("article_id")
             ]
+            auto_summary_enabled = _is_auto_summary_enabled(db, rule.user_id)
             if whmcs_article_ids:
                 _dispatch_article_postprocess_tasks(
                     whmcs_article_ids,
-                    summary_article_ids=whmcs_article_ids if rule.auto_summarize else [],
+                    summary_article_ids=(
+                        whmcs_article_ids
+                        if rule.auto_summarize and auto_summary_enabled
+                        else []
+                    ),
                     embedding_article_ids=(
                         whmcs_article_ids
                         if _is_auto_embedding_enabled(db, rule.user_id)
@@ -1355,6 +1401,7 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
         queued_translation_article_ids: list[int] = []
         summary_article_ids: list[int] = []
         embedding_article_ids: list[int] = []
+        auto_summary_enabled = _is_auto_summary_enabled(db, rule.user_id)
         auto_embedding_enabled = _is_auto_embedding_enabled(db, rule.user_id)
         feed_for_postprocess = db.execute(
             select(Feed).where(Feed.id == feed_id)
@@ -1502,9 +1549,9 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
                 )
                 if translation_queued:
                     queued_translation_article_ids.append(article.id)
-                if summary_requested:
+                if summary_requested and auto_summary_enabled:
                     summary_article_ids.append(article.id)
-            elif rule.auto_summarize:
+            elif rule.auto_summarize and auto_summary_enabled:
                 summary_article_ids.append(article.id)
             if auto_embedding_enabled:
                 embedding_article_ids.append(article.id)
@@ -2047,11 +2094,14 @@ def summarize_article(article_id: int) -> dict:
         if not feed.auto_summarize:
             return {"success": True, "article_id": article_id, "skipped": "auto_summarize disabled"}
 
+        user = db.execute(select(User).where(User.id == feed.user_id)).scalar_one_or_none()
+        if not user or not user.auto_generate_summaries:
+            return {"success": True, "article_id": article_id, "skipped": "auto summary disabled"}
+
         content_for_ai = article.full_content or article.content or article.title
         if not content_for_ai:
             return {"success": False, "article_id": article_id, "error": "article has no content"}
 
-        user = db.execute(select(User).where(User.id == feed.user_id)).scalar_one_or_none()
         default_model = db.execute(
             select(AIModel)
             .join(AIProvider, AIModel.provider_id == AIProvider.id)

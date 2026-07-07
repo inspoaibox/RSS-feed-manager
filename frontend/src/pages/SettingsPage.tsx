@@ -2095,6 +2095,8 @@ function AITab() {
     translate: '',
     summarize: '',
   })
+  const [promptSettingsLoaded, setPromptSettingsLoaded] = useState(false)
+  const [autoGenerateSummaries, setAutoGenerateSummaries] = useState(false)
   const [newGoogleKey, setNewGoogleKey] = useState({
     name: '',
     api_key: '',
@@ -2147,6 +2149,7 @@ function AITab() {
       const response = await api.get<{
         translate_prompt: string
         summarize_prompt: string
+        auto_generate_summaries: boolean
         embedding_provider_id: number | null
         embedding_model: string | null
         auto_generate_embeddings: boolean
@@ -2228,11 +2231,13 @@ function AITab() {
   })
 
   // Initialize prompts and embedding config when settings load
-  if (settings && !prompts.translate && !prompts.summarize) {
+  if (settings && !promptSettingsLoaded) {
     setPrompts({
       translate: settings.translate_prompt,
       summarize: settings.summarize_prompt,
     })
+    setAutoGenerateSummaries(settings.auto_generate_summaries || false)
+    setPromptSettingsLoaded(true)
   }
   
   // Initialize embedding config when settings load
@@ -2355,6 +2360,9 @@ function AITab() {
       setMessage({ type: 'success', text: '渠道已删除' })
       setTimeout(() => setMessage(null), 3000)
     },
+    onError: (err: unknown) => {
+      setMessage({ type: 'error', text: getApiErrorMessage(err, '删除渠道失败') })
+    },
   })
 
   const setDefaultModelMutation = useMutation({
@@ -2453,6 +2461,7 @@ function AITab() {
       await api.put('/ai/settings', {
         translate_prompt: prompts.translate,
         summarize_prompt: prompts.summarize,
+        auto_generate_summaries: autoGenerateSummaries,
       })
     },
     onSuccess: () => {
@@ -3654,7 +3663,9 @@ function AITab() {
                   </button>
                   <button
                     onClick={() => deleteProviderMutation.mutate(provider.id)}
-                    className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded"
+                    disabled={deleteProviderMutation.isPending}
+                    className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded disabled:opacity-50"
+                    title="删除渠道"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -3707,6 +3718,20 @@ function AITab() {
               placeholder="You are a summarizer..."
             />
           </div>
+          <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <input
+              type="checkbox"
+              checked={autoGenerateSummaries}
+              onChange={(e) => setAutoGenerateSummaries(e.target.checked)}
+              className="mt-1"
+            />
+            <span>
+              新文章入库后自动生成 AI 摘要
+              <span className="block text-xs text-gray-400 dark:text-gray-500">
+                关闭后不会随订阅刷新自动生成，单个订阅源的 AI 整理开关仍会保留
+              </span>
+            </span>
+          </label>
           <button
             onClick={() => savePromptsMutation.mutate()}
             disabled={savePromptsMutation.isPending}

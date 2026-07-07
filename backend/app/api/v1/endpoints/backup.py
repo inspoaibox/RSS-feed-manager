@@ -334,6 +334,7 @@ async def generate_backup_data(db: DbSession, user_id: int) -> dict:
         "user_settings": {
             "translate_prompt": getattr(user, "translate_prompt", None),
             "summarize_prompt": getattr(user, "summarize_prompt", None),
+            "auto_generate_summaries": getattr(user, "auto_generate_summaries", False),
             "embedding_provider_name": embedding_provider_name,
             "embedding_model": getattr(user, "embedding_model", None),
             "auto_generate_embeddings": getattr(user, "auto_generate_embeddings", False),
@@ -856,6 +857,7 @@ async def import_backup_data(db: DbSession, user_id: int, data: dict) -> ImportR
                 values = {
                     "translate_prompt": user_settings.get("translate_prompt"),
                     "summarize_prompt": user_settings.get("summarize_prompt"),
+                    "auto_generate_summaries": bool(user_settings.get("auto_generate_summaries", False)),
                     "embedding_provider_id": provider_map.get(user_settings.get("embedding_provider_name")),
                     "embedding_model": user_settings.get("embedding_model"),
                     "auto_generate_embeddings": bool(user_settings.get("auto_generate_embeddings", False)),
