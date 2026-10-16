@@ -46,7 +46,7 @@
 5. 配置 HTTPS 反向代理到 `127.0.0.1:5666`
 6. 使用 Nginx 或 Caddy 反向代理到 `127.0.0.1:5666`
 7. 将 `.env.production` 中的 `CORS_ORIGINS` 和 `BASE_URL` 改为最终域名
-8. 后续通过 `git pull origin main`、`docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml pull` 和 `docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml up -d` 更新
+8. 后续通过 `git pull origin main`、`docker compose --env-file .env.production -f docker-compose.prod.yml -f docker-compose.prod.build.yml pull` 和 `docker compose --env-file .env.production -f docker-compose.prod.yml -f docker-compose.prod.build.yml up -d` 更新
 
 ### 方式一：生产环境部署（Docker 一键启动，推荐）
 
@@ -109,7 +109,7 @@ docker exec -it rss_manager_backend alembic upgrade head
 
 停止服务：
 ```bash
-docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml down
+docker compose --env-file .env.production -f docker-compose.prod.yml -f docker-compose.prod.build.yml down
 ```
 
 **更新代码后重新部署：**
@@ -329,7 +329,7 @@ AI 分析功能允许你使用自然语言查询订阅的文章内容，系统�
 - GitHub Actions 自动构建镜像并推送到 GHCR（GitHub Container Registry）
 - 服务器只需 pull 镜像，不会在服务器本地构建（节省资源）
 - 更新只替换应用容器，数据库、Redis、文件等数据不受影响
-- 如果服务器没有 `.env.production`，去掉 `--env-file .env.production` 参数
+- 只有改用默认 `.env` 或已在 Shell 中导出全部必填变量时，才可省略 `--env-file .env.production`；否则应先配置 `.env.production`，已有数据库须保留原数据库密码
 - `celery_browser_worker` 的 CloakBrowser 缓存在 `cloakbrowser_data` 数据卷，重启不会重新下载
 - 正常 `pull`、`up -d`、`restart` 不会清空数据；不要在保留数据时执行 `docker compose down -v`
 

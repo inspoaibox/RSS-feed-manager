@@ -11,6 +11,48 @@
 5. 确认 `alembic current` 已到当前版本 `041`。其中 `039` 迁移会删除旧版本留下的跨用户推送记录和不属于订阅者的 Feed/分类通知规则，并将重复设备端点保留为最后注册的账户；`040` 增加用户独立配置的外部通知；`041` 增加通知频道限速和独立失败次数，保留配置、规则与历史。普通文章、合法通知订阅与阅读状态不受清理影响。迁移回退不能恢复这些违规记录，请保留升级前备份。
 6. 如果之前使用公开默认 JWT 密钥，升级时替换成随机密钥，所有账户重新登录。已经暴露过的密码或 API Key 应在相应服务轮换。
 
+旧库的浏览器设备唯一约束可能使用自动生成的名称、独立唯一索引，或已经约束为全局唯一。`039` 迁移会按实际约束列识别并调整，兼容缺少 `uq_user_endpoint` 的数据库。若旧镜像在这一步报 `constraint "uq_user_endpoint" ... does not exist`，后端会在启动前反复重启，需要应用包含此兼容修复的迁移脚本；不要通过跳过 `039` 的版本标记绕开安全清理。
+
+修复后的迁移会统一约束名称，保留无关索引，并支持重复执行、升级和回退。发布镜像前，CI 除新安装检查外，还在 pgvector PostgreSQL 中检查多种旧约束结构及 `038 → head` 升级；这些检查失败时不会发布镜像。PostgreSQL 回归通过 `MIGRATION_TEST_DATABASE_URL` 显式连接专用测试服务，每个用例创建和销毁独立随机数据库；不要使用生产数据库地址运行测试。
+
+`docker-compose.prod.build.yml` 只设置拉取已发布镜像的策略，其中没有本地构建配置；加 `--build` 也不会把服务器工作目录的修复代码装入该镜像。部署本地源代码修复时，应使用 `docker-compose.prod.local-build.yml`，或先发布修复后的镜像。
+
+从镜像部署本次修复时，先提交源码并等待 GitHub Actions 全部成功，再在服务器拉取对应提交。可以在当前 Shell 设置 `export RSS_MANAGER_IMAGE_TAG="sha-$(git rev-parse HEAD)"`，使后端、前端和浏览器 Worker 使用同一提交对应的镜像，避免升级期间拉到不一致的 `latest`。
+
+下面是已运行浏览器 Worker 的服务器手动升级步骤。先确认本次源码修复已经推送到 `main`，且该提交的全部镜像发布成功；脚本只在镜像拉取成功后停止应用服务，随后备份、迁移并启动服务。PostgreSQL、Redis 数据卷会继续使用。示例备份使用本项目数据库 `rss_manager` 及数据库用户 `rss_manager`，自定义数据库名的部署应相应调整。
+
+```bash
+bash <<'RSS_UPGRADE'
+set -euo pipefail
+cd /root/RSS-feed-manager
+git pull --ff-only origin main
+export RSS_MANAGER_IMAGE_TAG="sha-$(git rev-parse HEAD)"
+
+dc() {
+  docker compose --env-file .env.production --profile browser \
+    -f docker-compose.prod.yml -f docker-compose.prod.build.yml "$@"
+}
+
+dc pull
+dc stop backend celery_worker celery_beat celery_browser_worker
+
+umask 077
+mkdir -p /root/rss-backups
+rss_backup="/root/rss-backups/before-upgrade-$(TZ=Asia/Singapore date +%Y%m%d-%H%M%S).dump"
+docker exec rss_manager_postgres pg_dump -U rss_manager -d rss_manager -Fc > "$rss_backup"
+test -s "$rss_backup"
+docker exec -i rss_manager_postgres pg_restore --list < "$rss_backup" > /dev/null
+
+dc run --rm --no-deps --pull never -T backend alembic upgrade head < /dev/null
+dc up -d --pull never
+dc ps
+dc exec -T backend alembic current
+printf '数据库备份：%s\n' "$rss_backup"
+RSS_UPGRADE
+```
+
+未启用浏览器 Worker 的部署可去掉 `--profile browser` 及 `dc stop` 中的 `celery_browser_worker`。如需排查启动问题，执行 `docker logs --tail 120 rss_manager_backend`。
+
 ## 认证与兼容性
 
 - 浏览器只在内存保存短期访问令牌，刷新令牌由 HttpOnly Cookie 保存。旧 `localStorage` 凭据在启动时清除。刷新请求发送空 JSON 和 Cookie，响应仅包含访问令牌。

@@ -56,6 +56,13 @@ jobs:
       - run: uv run --frozen ruff check app
       - run: uv run --frozen ruff format --check app
       - run: uv run --frozen pytest -q
+      - name: Validate legacy PostgreSQL upgrades before publishing
+        env:
+          MIGRATION_TEST_DATABASE_URL: postgresql+psycopg2://rss_test:ci_test_password@localhost:5432/rss_test
+          MIGRATION_TEST_FULL_CHAIN: '1'
+        run: >-
+          uv run --frozen pytest -q tests/test_push_ownership_migration.py
+          tests/test_push_migration_upgrade_path.py tests/test_postgresql_migration_chain.py
       - name: Validate database migrations
         env:
           DATABASE_URL: postgresql+asyncpg://rss_test:ci_test_password@localhost:5432/rss_test

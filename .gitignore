@@ -64,6 +64,7 @@ desktop/MRSS/installer-output/
 
 # Logs
 logs/
+.codex-logs/
 *.log
 
 # Coverage

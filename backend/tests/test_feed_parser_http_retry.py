@@ -1,8 +1,22 @@
+import socket
+
 import pytest
 from httpx import Request, RequestError, Response
 
-from app.utils import feed_parser
+from app.utils import feed_parser, url_security
 from app.utils.feed_parser import FeedParserError, fetch_feed_content
+
+
+@pytest.fixture(autouse=True)
+def public_test_dns(monkeypatch):
+    """Header retry tests use a fake HTTP client and must not depend on live DNS."""
+    monkeypatch.setattr(
+        url_security.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", 443)),
+        ],
+    )
 
 
 class RetrySuccessAsyncClient:
