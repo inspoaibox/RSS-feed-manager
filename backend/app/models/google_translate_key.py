@@ -1,4 +1,5 @@
 """Google Translate key pool model."""
+
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -31,7 +32,9 @@ class GoogleTranslateKey(BaseModel):
     limit_articles: Mapped[int | None] = mapped_column(Integer, nullable=True)
     limit_characters: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    usage_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    usage_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     usage_article_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     usage_character_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

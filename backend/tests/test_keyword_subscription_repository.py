@@ -1,4 +1,5 @@
 """Tests for keyword subscription source filters."""
+from app.core.clock import utc_now
 from datetime import datetime
 
 import pytest
@@ -54,7 +55,7 @@ async def test_keyword_subscription_excluded_sources_filter_articles_and_counts(
     db_session.add_all([keep_feed, blocked_category_feed, blocked_feed])
     await db_session.flush()
 
-    now = datetime.utcnow()
+    now = utc_now()
     db_session.add_all(
         [
             Article(
@@ -140,7 +141,7 @@ async def test_keyword_subscription_counts_multiple_keywords(db_session):
     db_session.add(feed)
     await db_session.flush()
 
-    now = datetime.utcnow()
+    now = utc_now()
     alpha_article = Article(
         feed_id=feed.id,
         guid="alpha-1",
@@ -212,7 +213,7 @@ async def test_keyword_article_matches_sync_new_articles(db_session):
         link="https://sync.example.com/alpha",
         title="alpha appears later",
         content="plain content",
-        published_at=datetime.utcnow(),
+        published_at=utc_now(),
     )
     db_session.add(article)
     await db_session.flush()
@@ -253,7 +254,7 @@ async def test_keyword_subscription_service_returns_counts_after_create_and_upda
     db_session.add(feed)
     await db_session.flush()
 
-    now = datetime.utcnow()
+    now = utc_now()
     db_session.add_all(
         [
             Article(
@@ -316,7 +317,7 @@ async def test_mark_all_read_by_feed_batches_user_article_state(db_session):
     db_session.add(feed)
     await db_session.flush()
 
-    now = datetime.utcnow()
+    now = utc_now()
     articles = [
         Article(
             feed_id=feed.id,

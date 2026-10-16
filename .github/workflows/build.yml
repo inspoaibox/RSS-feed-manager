@@ -12,7 +12,59 @@ permissions:
   packages: write
 
 jobs:
+  frontend-checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test -- --run
+      - run: npm run build
+      - run: npm audit --audit-level=moderate --registry=https://registry.npmjs.org
+
+  backend-checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: rss_test
+          POSTGRES_PASSWORD: ci_test_password
+          POSTGRES_DB: rss_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U rss_test"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.11.7'
+          enable-cache: true
+      - run: uv sync --frozen --extra dev --python 3.11
+      - run: uv run --frozen ruff check app
+      - run: uv run --frozen ruff format --check app
+      - run: uv run --frozen pytest -q
+      - name: Validate database migrations
+        env:
+          DATABASE_URL: postgresql+asyncpg://rss_test:ci_test_password@localhost:5432/rss_test
+        run: |
+          uv run --frozen alembic upgrade head
+          uv run --frozen alembic current --check-heads
+
   docker:
+    needs: [frontend-checks, backend-checks]
     name: Build ${{ matrix.name }} image
     runs-on: ubuntu-latest
 

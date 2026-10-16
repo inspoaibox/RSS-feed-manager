@@ -1,5 +1,4 @@
 """Keyword subscription API endpoints."""
-from typing import List
 
 from fastapi import APIRouter, status
 
@@ -15,7 +14,7 @@ from app.services.keyword_subscription_service import KeywordSubscriptionService
 router = APIRouter()
 
 
-@router.get("", response_model=List[KeywordSubscriptionResponse])
+@router.get("", response_model=list[KeywordSubscriptionResponse])
 async def get_keyword_subscriptions(
     user_id: CurrentUserId,
     db: DbSession,
@@ -37,7 +36,7 @@ async def create_keyword_subscription(
     return await service.create(user_id, data)
 
 
-@router.get("/counts", response_model=List[KeywordSubscriptionCountResponse])
+@router.get("/counts", response_model=list[KeywordSubscriptionCountResponse])
 async def get_keyword_subscription_counts(user_id: CurrentUserId, db: DbSession):
     """Get article counts for keyword subscriptions."""
     service = KeywordSubscriptionService(db)

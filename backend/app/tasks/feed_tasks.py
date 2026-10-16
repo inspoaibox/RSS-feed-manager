@@ -1,20 +1,23 @@
 """Feed-related background tasks."""
+
 import asyncio
 import json
 import os
 import uuid
 from datetime import datetime, timedelta
 from hashlib import md5
-from typing import Optional
 
 from celery import shared_task
 from sqlalchemy import create_engine, delete, insert, literal, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models.article import Article
+from app.core.clock import utc_now
+from app.core.config import settings
+from app.models.ai_provider import AIModel, AIProvider
 from app.models.argos_translation_log import ArgosTranslationLog
-from app.models.feed import Feed
+from app.models.article import Article
 from app.models.custom_rule import CustomRule
+from app.models.feed import Feed
 from app.models.keyword_article_match import KeywordArticleMatch
 from app.models.keyword_subscription import KeywordSubscription
 from app.models.proxy_pool import ProxyPoolEntry
@@ -23,13 +26,19 @@ from app.repositories.keyword_subscription_repository import (
     build_keyword_conditions,
     build_keyword_source_conditions,
 )
-from app.models.ai_provider import AIModel, AIProvider
 from app.services.ai_translation_service import (
     plain_text_to_html,
     select_translation_body_input,
     translate_text_with_chunking,
 )
 from app.services.browser_fetch_settings import load_browser_fetch_settings_sync
+from app.tasks.embedding_tasks import (
+    generate_article_embedding as generate_article_embedding,
+)
+from app.tasks.embedding_tasks import (
+    generate_embeddings_batch as generate_embeddings_batch,
+)
+from app.utils.browser_proxy import safe_browser_fetch
 from app.utils.feed_parser import (
     FeedParserError,
     ParsedFeed,
@@ -38,6 +47,7 @@ from app.utils.feed_parser import (
     is_browser_runtime_error,
     parse_feed,
 )
+from app.utils.url_security import get_with_safe_redirects, validate_outbound_http_url
 from app.utils.whmcs_monitor import (
     build_whmcs_status_content,
     extract_whmcs_status_from_content,
@@ -48,7 +58,7 @@ from app.utils.whmcs_monitor import (
 # Create sync engine for Celery tasks
 # Read DATABASE_URL directly from environment to avoid caching issues
 def get_sync_database_url() -> str:
-    url = os.environ.get("DATABASE_URL", "sqlite:///./rss_manager.db")
+    url = os.environ.get("DATABASE_URL", settings.DATABASE_URL)
     if "postgresql+asyncpg" in url:
         return url.replace("postgresql+asyncpg", "postgresql+psycopg2")
     elif "sqlite+aiosqlite" in url:
@@ -60,12 +70,18 @@ def get_sync_database_url() -> str:
 _sync_engine = None
 _SyncSessionLocal = None
 FEED_REFRESH_QUEUE_LOCK_TTL = int(os.environ.get("FEED_REFRESH_QUEUE_LOCK_TTL", "900"))
-ARTICLE_TRANSLATION_QUEUE_LOCK_TTL = int(os.environ.get("ARTICLE_TRANSLATION_QUEUE_LOCK_TTL", "14400"))
-CUSTOM_RULE_EXECUTION_QUEUE_LOCK_TTL = int(os.environ.get("CUSTOM_RULE_EXECUTION_QUEUE_LOCK_TTL", "900"))
+ARTICLE_TRANSLATION_QUEUE_LOCK_TTL = int(
+    os.environ.get("ARTICLE_TRANSLATION_QUEUE_LOCK_TTL", "14400")
+)
+CUSTOM_RULE_EXECUTION_QUEUE_LOCK_TTL = int(
+    os.environ.get("CUSTOM_RULE_EXECUTION_QUEUE_LOCK_TTL", "900")
+)
 FEED_REFRESH_DISPATCH_LIMIT = int(os.environ.get("FEED_REFRESH_DISPATCH_LIMIT", "100"))
 CUSTOM_RULE_DISPATCH_LIMIT = int(os.environ.get("CUSTOM_RULE_DISPATCH_LIMIT", "10"))
 FEED_PROXY_POOL_ATTEMPT_LIMIT = int(os.environ.get("FEED_PROXY_POOL_ATTEMPT_LIMIT", "3"))
-CUSTOM_RULE_PROXY_POOL_ATTEMPT_LIMIT = int(os.environ.get("CUSTOM_RULE_PROXY_POOL_ATTEMPT_LIMIT", "3"))
+CUSTOM_RULE_PROXY_POOL_ATTEMPT_LIMIT = int(
+    os.environ.get("CUSTOM_RULE_PROXY_POOL_ATTEMPT_LIMIT", "3")
+)
 FEED_REFRESH_TASK_SOFT_TIME_LIMIT = int(os.environ.get("FEED_REFRESH_TASK_SOFT_TIME_LIMIT", "300"))
 FEED_REFRESH_TASK_TIME_LIMIT = int(os.environ.get("FEED_REFRESH_TASK_TIME_LIMIT", "360"))
 CUSTOM_RULE_TASK_SOFT_TIME_LIMIT = int(os.environ.get("CUSTOM_RULE_TASK_SOFT_TIME_LIMIT", "300"))
@@ -86,8 +102,8 @@ def get_redis_client():
     """Get a Redis client for Celery coordination locks."""
     import redis
 
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-    return redis.from_url(redis_url)
+    redis_url = os.environ.get("REDIS_URL", settings.REDIS_URL)
+    return redis.from_url(redis_url, socket_connect_timeout=5, socket_timeout=5)
 
 
 def _iter_batches(values, batch_size: int = ARTICLE_GUID_BATCH_SIZE):
@@ -114,7 +130,9 @@ def _existing_article_guids(db: Session, feed_id: int, guids) -> set[str]:
                     Article.feed_id == feed_id,
                     Article.guid.in_(guid_batch),
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
     return existing
 
@@ -133,7 +151,9 @@ def _sync_keyword_matches_for_articles_sync(
             select(KeywordSubscription)
             .where(KeywordSubscription.user_id == user_id)
             .order_by(KeywordSubscription.position, KeywordSubscription.created_at)
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     subscription_ids = [subscription.id for subscription in subscriptions]
     if not subscription_ids:
@@ -232,8 +252,10 @@ def _next_fetch_at(last_fetched_at: datetime | None, fetch_interval: int | None)
     return last_fetched + timedelta(seconds=fetch_interval or 0)
 
 
-def _is_due_for_fetch(last_fetched_at: datetime | None, fetch_interval: int | None, now: datetime | None = None) -> bool:
-    return (now or datetime.utcnow()) >= _next_fetch_at(last_fetched_at, fetch_interval)
+def _is_due_for_fetch(
+    last_fetched_at: datetime | None, fetch_interval: int | None, now: datetime | None = None
+) -> bool:
+    return (now or utc_now()) >= _next_fetch_at(last_fetched_at, fetch_interval)
 
 
 def _current_task_queue(task) -> str | None:
@@ -380,13 +402,15 @@ def _mark_article_translation_queued(
     return True
 
 
-def dispatch_article_translation(article_id: int, target_language: str | None = None, force_full: bool = False) -> tuple[bool, str | None]:
+def dispatch_article_translation(
+    article_id: int, target_language: str | None = None, force_full: bool = False
+) -> tuple[bool, str | None]:
     """Dispatch a single-article translation task with a Redis dedupe lock.
 
     Args:
         article_id: Article ID
         target_language: Target language code
-        force_full: 如果为 True，强制翻译标题+正文，忽略 Feed 的 translate_title/translate_content 配置
+        force_full: 为 True 时强制翻译标题和正文，忽略 Feed 的翻译范围配置
     """
     owner = str(uuid.uuid4())
     redis_client = None
@@ -426,7 +450,7 @@ def _mark_translation_dispatch_failed(db: Session, article_id: int, error: str) 
         return
     article.translation_status = "failed"
     article.translation_error = f"Translation queue dispatch failed: {error}"[:1000]
-    article.translation_completed_at = datetime.utcnow()
+    article.translation_completed_at = utc_now()
     db.commit()
 
 
@@ -533,7 +557,10 @@ def _trigger_push_notifications(db: Session, article: Article) -> None:
         pushes_sent = service.check_and_trigger_pushes(article)
 
         if pushes_sent > 0:
-            print(f"Sent {pushes_sent} push notifications for article {article.id}: {article.title[:50]}")
+            print(
+                f"Sent {pushes_sent} push notifications for article {article.id}: "
+                f"{article.title[:50]}"
+            )
 
     except Exception as e:
         # Don't fail the article save if push notification fails
@@ -574,9 +601,7 @@ def _resolve_argos_languages(db: Session, feed: Feed, target_language: str) -> t
     from app.models.user import User
     from app.services.argos_translate_service import normalize_argos_language
 
-    user = db.execute(
-        select(User).where(User.id == feed.user_id)
-    ).scalar_one_or_none()
+    user = db.execute(select(User).where(User.id == feed.user_id)).scalar_one_or_none()
     source_language = (
         getattr(feed, "source_language", None)
         or (user.argos_source_language if user else None)
@@ -647,7 +672,7 @@ def _perform_article_translation_sync(
         article: Article to translate
         feed: Feed configuration
         target_language: Target language code
-        force_full: 如果为 True，强制翻译标题+正文，忽略 Feed 的 translate_title/translate_content 配置
+        force_full: 为 True 时强制翻译标题和正文，忽略 Feed 的翻译范围配置
     """
     from app.models.user import User
     from app.services.translation_scope import translation_targets_for_source
@@ -678,9 +703,7 @@ def _perform_article_translation_sync(
     if not title and not effective_content:
         raise ValueError("Article has no content to translate")
 
-    user = db.execute(
-        select(User).where(User.id == feed.user_id)
-    ).scalar_one_or_none()
+    user = db.execute(select(User).where(User.id == feed.user_id)).scalar_one_or_none()
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -729,10 +752,7 @@ def _perform_article_translation_sync(
             default_model = db.execute(
                 select(AIModel)
                 .join(AIProvider, AIModel.provider_id == AIProvider.id)
-                .where(
-                    AIProvider.user_id == feed.user_id,
-                    AIModel.is_default == True
-                )
+                .where(AIProvider.user_id == feed.user_id, AIModel.is_default.is_(True))
             ).scalar_one_or_none()
 
             if not default_model:
@@ -748,6 +768,7 @@ def _perform_article_translation_sync(
             translate_prompt = user.translate_prompt if user and user.translate_prompt else None
 
             from app.services.ai_client import create_ai_client
+
             client = create_ai_client(
                 provider.type,
                 provider.api_key,
@@ -768,7 +789,9 @@ def _perform_article_translation_sync(
                 if ai_content
                 else ""
             )
-            translated_content = plain_text_to_html(translated_content_text) if translated_content_text else ""
+            translated_content = (
+                plain_text_to_html(translated_content_text) if translated_content_text else ""
+            )
 
         else:
             raise ValueError(f"Unsupported translate method: {translate_method}")
@@ -783,13 +806,15 @@ def _perform_article_translation_sync(
 
 
 @shared_task(name="app.tasks.feed_tasks.translate_article", bind=True)
-def translate_article_task(self, article_id: int, target_language: str | None = None, force_full: bool = False) -> dict:
+def translate_article_task(
+    self, article_id: int, target_language: str | None = None, force_full: bool = False
+) -> dict:
     """Translate one article in the background and persist translation status.
 
     Args:
         article_id: Article ID
         target_language: Target language code
-        force_full: 如果为 True，强制翻译标题+正文，忽略 Feed 的 translate_title/translate_content 配置
+        force_full: 为 True 时强制翻译标题和正文，忽略 Feed 的翻译范围配置
     """
     owner = self.request.id or ""
     redis_client = None
@@ -810,7 +835,7 @@ def translate_article_task(self, article_id: int, target_language: str | None = 
         if not feed:
             article.translation_status = "failed"
             article.translation_error = "Feed not found"
-            article.translation_completed_at = datetime.utcnow()
+            article.translation_completed_at = utc_now()
             db.commit()
             if redis_client is not None:
                 _release_article_translation_slot(redis_client, article_id, owner)
@@ -831,7 +856,7 @@ def translate_article_task(self, article_id: int, target_language: str | None = 
         if not _has_translatable_article_text(article):
             article.translation_status = "failed"
             article.translation_error = "Article has no content to translate"
-            article.translation_completed_at = datetime.utcnow()
+            article.translation_completed_at = utc_now()
             db.commit()
             if redis_client is not None:
                 _release_article_translation_slot(redis_client, article_id, owner)
@@ -839,7 +864,7 @@ def translate_article_task(self, article_id: int, target_language: str | None = 
 
         argos_log: ArgosTranslationLog | None = None
         try:
-            started_at = datetime.utcnow()
+            started_at = utc_now()
             article.translation_status = "translating"
             article.translation_error = None
             article.translation_started_at = started_at
@@ -857,7 +882,7 @@ def translate_article_task(self, article_id: int, target_language: str | None = 
                 target_language=target,
                 force_full=force_full,
             )
-            completed_at = datetime.utcnow()
+            completed_at = utc_now()
             article.translation = translation_data
             article.translation_status = "completed"
             article.translation_error = None
@@ -873,7 +898,7 @@ def translate_article_task(self, article_id: int, target_language: str | None = 
                 "status": "completed",
             }
         except Exception as exc:
-            completed_at = datetime.utcnow()
+            completed_at = utc_now()
             article.translation_status = "failed"
             article.translation_error = str(exc)[:1000]
             article.translation_completed_at = completed_at
@@ -894,16 +919,16 @@ def translate_article_task(self, article_id: int, target_language: str | None = 
 def _record_proxy_success_sync(db: Session, proxy: ProxyPoolEntry) -> None:
     proxy.fail_count = 0
     proxy.last_error = None
-    proxy.last_used_at = datetime.utcnow()
-    proxy.last_tested_at = datetime.utcnow()
+    proxy.last_used_at = utc_now()
+    proxy.last_tested_at = utc_now()
     db.flush()
 
 
 def _record_proxy_failure_sync(db: Session, proxy: ProxyPoolEntry, error: str) -> None:
     proxy.fail_count += 1
     proxy.last_error = error[:1000]
-    proxy.last_used_at = datetime.utcnow()
-    proxy.last_tested_at = datetime.utcnow()
+    proxy.last_used_at = utc_now()
+    proxy.last_tested_at = utc_now()
     db.flush()
 
 
@@ -927,7 +952,7 @@ def _record_proxy_failure_by_id_sync(db: Session, proxy_id: int, error: str) -> 
 def _get_proxy_candidates_sync(db: Session, feed: Feed) -> list[ProxyPoolEntry]:
     query = select(ProxyPoolEntry).where(
         ProxyPoolEntry.user_id == feed.user_id,
-        ProxyPoolEntry.is_active == True,
+        ProxyPoolEntry.is_active.is_(True),
     )
     country = getattr(feed, "proxy_pool_country", None)
     protocol = getattr(feed, "proxy_pool_protocol", None)
@@ -1010,7 +1035,10 @@ def _parse_feed_for_sync_refresh(db: Session, feed: Feed) -> ParsedFeed:
                     else:
                         _record_proxy_failure_sync(db, proxy, last_error)
 
-            raise FeedParserError(f"代理池本轮 {attempted}/{len(proxy_candidates)} 个代理全部失败: {last_error or '未知错误'}")
+            raise FeedParserError(
+                f"代理池本轮 {attempted}/{len(proxy_candidates)} 个代理全部失败: "
+                f"{last_error or '未知错误'}"
+            )
 
         return loop.run_until_complete(
             parse_feed(
@@ -1028,8 +1056,8 @@ def _parse_feed_for_sync_refresh(db: Session, feed: Feed) -> ParsedFeed:
 def _refresh_feed_sync(db: Session, feed: Feed) -> int:
     """Refresh a single feed and return number of new articles (sync version)."""
     try:
-        parsed: Optional[ParsedFeed] = _parse_feed_for_sync_refresh(db, feed)
-        
+        parsed: ParsedFeed | None = _parse_feed_for_sync_refresh(db, feed)
+
         if not parsed:
             feed.last_error = "Failed to parse feed"
             feed.error_count += 1
@@ -1046,7 +1074,7 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
                 feed.site_url = parsed.site_url
             if parsed.icon_url:
                 feed.icon_url = parsed.icon_url
-        
+
         new_count = 0
         new_article_ids: list[int] = []
         queued_translation_article_ids: list[int] = []
@@ -1054,7 +1082,7 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
         embedding_article_ids: list[int] = []
         auto_summary_enabled = _is_auto_summary_enabled(db, feed.user_id)
         auto_embedding_enabled = _is_auto_embedding_enabled(db, feed.user_id)
-        fetched_at = datetime.utcnow()
+        fetched_at = utc_now()
         existing_guids = _existing_article_guids(
             db,
             feed.id,
@@ -1067,7 +1095,7 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
 
             if guid in existing_guids:
                 continue
-            
+
             # Create new article
             article = Article(
                 feed_id=feed.id,
@@ -1095,8 +1123,8 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
             new_count += 1
 
         _sync_keyword_matches_for_articles_sync(db, feed.user_id, new_article_ids)
-        
-        feed.last_fetched_at = datetime.utcnow()
+
+        feed.last_fetched_at = utc_now()
         feed.last_error = None
         feed.error_count = 0
         db.commit()
@@ -1109,7 +1137,7 @@ def _refresh_feed_sync(db: Session, feed: Feed) -> int:
                 summary_article_ids=summary_article_ids,
                 embedding_article_ids=embedding_article_ids,
             )
-        
+
         return new_count
     except Exception as e:
         feed.last_error = str(e)[:500]
@@ -1141,12 +1169,12 @@ def _save_whmcs_status_article_sync(
     if previous_status == state.status:
         return []
 
-    now = datetime.utcnow()
+    now = utc_now()
     title_prefix = "上架" if state.status == "in_stock" else "下架"
     content = build_whmcs_status_content(state, rule.target_url)
-    guid = "whmcs:" + md5(
-        f"{rule.target_url}|{state.status}|{now.isoformat()}".encode()
-    ).hexdigest()
+    guid = (
+        "whmcs:" + md5(f"{rule.target_url}|{state.status}|{now.isoformat()}".encode()).hexdigest()
+    )
     article = Article(
         feed_id=feed_id,
         guid=guid,
@@ -1170,11 +1198,12 @@ def _save_whmcs_status_article_sync(
 
 def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
     """Execute a custom rule and save articles (sync version for Celery)."""
-    from urllib.parse import urljoin, urlparse
     from hashlib import md5
+    from urllib.parse import urljoin, urlparse
+
     import httpx
     from bs4 import BeautifulSoup
-    
+
     # Ensure rule has associated feed
     feed_id = rule.feed_id
     if not feed_id:
@@ -1188,9 +1217,9 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
             fetch_interval=rule.fetch_interval,
             auto_translate=rule.auto_translate,
             auto_summarize=rule.auto_summarize,
-            source_language=getattr(rule, 'source_language', None),
+            source_language=getattr(rule, "source_language", None),
             target_language=rule.target_language,
-            translate_method=getattr(rule, 'translate_method', 'none'),
+            translate_method=getattr(rule, "translate_method", "none"),
             proxy_enabled=getattr(rule, "proxy_enabled", False),
             proxy_url=getattr(rule, "proxy_url", None),
             proxy_mode=getattr(
@@ -1207,16 +1236,16 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
         rule.feed_id = feed.id
         feed_id = feed.id
         db.commit()
-    
+
     try:
         # Parse cookies if provided
         cookies_dict = {}
-        if hasattr(rule, 'cookies') and rule.cookies:
-            for item in rule.cookies.split(';'):
-                if '=' in item:
-                    key, value = item.strip().split('=', 1)
+        if hasattr(rule, "cookies") and rule.cookies:
+            for item in rule.cookies.split(";"):
+                if "=" in item:
+                    key, value = item.strip().split("=", 1)
                     cookies_dict[key.strip()] = value.strip()
-        
+
         proxy_mode = getattr(
             rule,
             "proxy_mode",
@@ -1229,8 +1258,12 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
+
+            @safe_browser_fetch
             async def _fetch_with_playwright(proxy_url: str | None = None):
+                await validate_outbound_http_url(rule.target_url)
                 from playwright.async_api import async_playwright
+
                 from app.core.config import settings as app_settings
 
                 if browser_settings is None:
@@ -1262,7 +1295,10 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
                             locale="en-US",
                             extra_http_headers={
                                 "Accept-Language": "en-US,en;q=0.9",
-                                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                                "Accept": (
+                                    "text/html,application/xhtml+xml,"
+                                    "application/xml;q=0.9,*/*;q=0.8"
+                                ),
                             },
                         )
                         if cookies_dict:
@@ -1293,14 +1329,17 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
                             pass
 
             async def _fetch_with_httpx(proxy_url: str | None = None):
-                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                }
                 async with httpx.AsyncClient(
                     timeout=30.0,
                     cookies=cookies_dict if cookies_dict else None,
                     proxy=proxy_url,
-                    follow_redirects=True,
                 ) as client:
-                    response = await client.get(rule.target_url, headers=headers)
+                    response = await get_with_safe_redirects(
+                        client, rule.target_url, headers=headers
+                    )
                     response.raise_for_status()
                 return response.text
 
@@ -1329,7 +1368,10 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
                         _record_proxy_failure_sync(db, proxy, last_error)
                         db.commit()
                 else:
-                    raise RuntimeError(f"代理池本轮 {len(attempted_candidates)}/{len(candidates)} 个代理全部失败: {last_error or '未知错误'}")
+                    raise RuntimeError(
+                        f"代理池本轮 {len(attempted_candidates)}/{len(candidates)} 个代理全部失败: "
+                        f"{last_error or '未知错误'}"
+                    )
             else:
                 proxy_url = (
                     getattr(rule, "proxy_url", None)
@@ -1341,23 +1383,21 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
             print(f"[CustomRule] Loaded {len(html_content)} bytes")
         finally:
             loop.close()
-        
+
         soup = BeautifulSoup(html_content, "html.parser")
-        
+
         # Use specialized parser for telegram/twitter
-        rule_type = getattr(rule, 'rule_type', 'general') or 'general'
+        rule_type = getattr(rule, "rule_type", "general") or "general"
         print(f"[CustomRule] rule_type={rule_type}")
 
-        if rule_type == 'whmcs':
+        if rule_type == "whmcs":
             new_articles = _save_whmcs_status_article_sync(db, rule, feed_id, html_content)
-            now = datetime.utcnow()
+            now = utc_now()
             rule.last_fetched_at = now
             rule.last_error = None
             rule.error_count = 0
 
-            feed = db.execute(
-                select(Feed).where(Feed.id == feed_id)
-            ).scalar_one_or_none()
+            feed = db.execute(select(Feed).where(Feed.id == feed_id)).scalar_one_or_none()
             if feed:
                 feed.title = parse_whmcs_product_state(html_content, rule.target_url).title
                 feed.last_fetched_at = now
@@ -1366,36 +1406,30 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
 
             db.commit()
             whmcs_article_ids = [
-                article["article_id"]
-                for article in new_articles
-                if article.get("article_id")
+                article["article_id"] for article in new_articles if article.get("article_id")
             ]
             auto_summary_enabled = _is_auto_summary_enabled(db, rule.user_id)
             if whmcs_article_ids:
                 _dispatch_article_postprocess_tasks(
                     whmcs_article_ids,
                     summary_article_ids=(
-                        whmcs_article_ids
-                        if rule.auto_summarize and auto_summary_enabled
-                        else []
+                        whmcs_article_ids if rule.auto_summarize and auto_summary_enabled else []
                     ),
                     embedding_article_ids=(
-                        whmcs_article_ids
-                        if _is_auto_embedding_enabled(db, rule.user_id)
-                        else []
+                        whmcs_article_ids if _is_auto_embedding_enabled(db, rule.user_id) else []
                     ),
                 )
             return new_articles
-        
-        if rule_type == 'telegram':
-            items = soup.select('.tgme_widget_message_wrap')
-        elif rule_type == 'twitter':
-            items = soup.select('.timeline-item')
+
+        if rule_type == "telegram":
+            items = soup.select(".tgme_widget_message_wrap")
+        elif rule_type == "twitter":
+            items = soup.select(".timeline-item")
         else:
             items = soup.select(rule.list_selector)
-        
+
         print(f"[CustomRule] Found {len(items)} items")
-        
+
         new_articles = []
         new_article_ids: list[int] = []
         queued_translation_article_ids: list[int] = []
@@ -1408,124 +1442,125 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
         ).scalar_one_or_none()
         skipped_no_title_link = 0
         skipped_existing = 0
-        
+
         for idx, item in enumerate(items):
             title = None
             link = None
             content = None
             published_at = None
-            
-            if rule_type == 'telegram':
-                text_elem = item.select_one('.tgme_widget_message_text')
+
+            if rule_type == "telegram":
+                text_elem = item.select_one(".tgme_widget_message_text")
                 if text_elem:
                     content = str(text_elem)
                     title = text_elem.get_text(strip=True)[:100]
                     if len(text_elem.get_text(strip=True)) > 100:
-                        title += '...'
-                
-                link_elem = item.select_one('.tgme_widget_message_date')
+                        title += "..."
+
+                link_elem = item.select_one(".tgme_widget_message_date")
                 if link_elem:
-                    link = link_elem.get('href')
-                
-                time_elem = item.select_one('time[datetime]')
+                    link = link_elem.get("href")
+
+                time_elem = item.select_one("time[datetime]")
                 if time_elem:
                     try:
                         from dateutil import parser as date_parser
-                        published_at = date_parser.parse(time_elem.get('datetime'))
-                    except:
+
+                        published_at = date_parser.parse(time_elem.get("datetime"))
+                    except Exception:
                         pass
-                
+
                 if not title:
-                    fwd = item.select_one('.tgme_widget_message_forwarded_from')
+                    fwd = item.select_one(".tgme_widget_message_forwarded_from")
                     if fwd:
                         title = f"[转发] {fwd.get_text(strip=True)}"
                     else:
                         skipped_no_title_link += 1
                         continue
-            
-            elif rule_type == 'twitter':
-                text_elem = item.select_one('.tweet-content')
+
+            elif rule_type == "twitter":
+                text_elem = item.select_one(".tweet-content")
                 if text_elem:
                     content = str(text_elem)
                     title = text_elem.get_text(strip=True)[:100]
                     if len(text_elem.get_text(strip=True)) > 100:
-                        title += '...'
-                
-                link_elem = item.select_one('.tweet-link')
+                        title += "..."
+
+                link_elem = item.select_one(".tweet-link")
                 if link_elem:
-                    link = link_elem.get('href')
-                    if link and not link.startswith('http'):
+                    link = link_elem.get("href")
+                    if link and not link.startswith("http"):
                         link = urljoin(rule.target_url, link)
-                
-                time_elem = item.select_one('.tweet-date a')
+
+                time_elem = item.select_one(".tweet-date a")
                 if time_elem:
                     try:
                         from dateutil import parser as date_parser
-                        title_attr = time_elem.get('title')
+
+                        title_attr = time_elem.get("title")
                         if title_attr:
                             published_at = date_parser.parse(title_attr)
-                    except:
+                    except Exception:
                         pass
-                
+
                 if not title:
                     skipped_no_title_link += 1
                     continue
-            
+
             else:
                 # General rule parsing
                 title_elem = item.select_one(rule.title_selector)
-                
-                if not rule.link_selector or rule.link_selector.lower() in ('self', '.', 'this'):
-                    link_elem = item if item.name == 'a' else item.find('a')
+
+                if not rule.link_selector or rule.link_selector.lower() in ("self", ".", "this"):
+                    link_elem = item if item.name == "a" else item.find("a")
                 else:
                     link_elem = item.select_one(rule.link_selector)
-                
+
                 if link_elem:
                     link = link_elem.get("href")
-                    if not link and link_elem.name != 'a':
-                        inner_a = link_elem.find('a')
+                    if not link and link_elem.name != "a":
+                        inner_a = link_elem.find("a")
                         if inner_a:
-                            link = inner_a.get('href')
-                
+                            link = inner_a.get("href")
+
                 if not title_elem:
                     skipped_no_title_link += 1
                     continue
-                
+
                 title = title_elem.get_text(strip=True)
-                
+
                 if rule.content_selector:
                     content_elem = item.select_one(rule.content_selector)
                     content = content_elem.get_text(strip=True) if content_elem else None
-            
+
             if not title:
                 skipped_no_title_link += 1
                 continue
-            
+
             # Make link absolute
             if link and not link.startswith("http"):
                 link = urljoin(rule.target_url, link)
-            
+
             # Generate guid
             if link:
                 guid = md5(link.encode()).hexdigest()
             else:
                 guid = md5(title.encode()).hexdigest()
-            
+
             if idx == 0:
-                print(f"[CustomRule] First item: title={title[:50]}..., link={link}, guid={guid[:8]}")
-            
+                print(
+                    f"[CustomRule] First item: title={title[:50]}..., link={link}, guid={guid[:8]}"
+                )
+
             # Check if article exists
             existing = db.execute(
-                select(Article).where(
-                    Article.feed_id == feed_id,
-                    Article.guid == guid
-                )
+                select(Article).where(Article.feed_id == feed_id, Article.guid == guid)
             ).scalar_one_or_none()
-            
+
             if existing:
                 skipped_existing += 1
                 continue
-            
+
             # Create article
             article = Article(
                 feed_id=feed_id,
@@ -1533,7 +1568,7 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
                 link=link,
                 title=title,
                 content=content,
-                published_at=published_at or datetime.utcnow(),
+                published_at=published_at or utc_now(),
             )
             db.add(article)
             new_articles.append({"title": title, "link": link, "content": content})
@@ -1558,19 +1593,22 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
 
         _sync_keyword_matches_for_articles_sync(db, rule.user_id, new_article_ids)
 
-        print(f"[CustomRule] Skipped {skipped_no_title_link} (no title/link), {skipped_existing} (existing), added {len(new_articles)} new")
-        
+        print(
+            f"[CustomRule] Skipped {skipped_no_title_link} (no title/link), "
+            f"{skipped_existing} (existing), added {len(new_articles)} new"
+        )
+
         # Update rule and feed status
-        now = datetime.utcnow()
+        now = utc_now()
         rule.last_fetched_at = now
         rule.last_error = None
         rule.error_count = 0
-        
+
         if feed_for_postprocess:
             feed_for_postprocess.last_fetched_at = now
             feed_for_postprocess.last_error = None
             feed_for_postprocess.error_count = 0
-        
+
         db.commit()
         if queued_translation_article_ids:
             _dispatch_queued_article_translations(db, queued_translation_article_ids)
@@ -1581,16 +1619,14 @@ def _execute_custom_rule_sync(db: Session, rule: CustomRule) -> list[dict]:
                 embedding_article_ids=embedding_article_ids,
             )
         return new_articles
-        
+
     except Exception as e:
-        now = datetime.utcnow()
+        now = utc_now()
         rule.last_fetched_at = now
         rule.last_error = str(e)[:500]
         rule.error_count += 1
         if feed_id:
-            feed = db.execute(
-                select(Feed).where(Feed.id == feed_id)
-            ).scalar_one_or_none()
+            feed = db.execute(select(Feed).where(Feed.id == feed_id)).scalar_one_or_none()
             if feed:
                 feed.last_fetched_at = now
                 feed.last_error = str(e)[:500]
@@ -1625,7 +1661,7 @@ def refresh_feed(feed_id: int) -> dict:
                 "queue": queue_name,
                 "reason": "custom rule feed delegated to rule task",
             }
-        
+
         new_count = _refresh_feed_sync(db, feed)
         return {"success": True, "new_articles": new_count}
 
@@ -1638,10 +1674,8 @@ def refresh_feed(feed_id: int) -> dict:
 def refresh_all_feeds() -> dict:
     """Refresh all active feeds."""
     with get_sync_session() as db:
-        feeds = db.execute(
-            select(Feed).where(Feed.is_active == True)
-        ).scalars().all()
-        
+        feeds = db.execute(select(Feed).where(Feed.is_active.is_(True))).scalars().all()
+
         total_new = 0
         errors = 0
         rules_queued = 0
@@ -1660,13 +1694,13 @@ def refresh_all_feeds() -> dict:
                 total_new += new_count
             except Exception:
                 errors += 1
-        
+
         return {
             "success": True,
             "feeds_processed": len(feeds),
             "rules_queued": rules_queued,
             "new_articles": total_new,
-            "errors": errors
+            "errors": errors,
         }
 
 
@@ -1676,25 +1710,23 @@ def refresh_due_feeds(self) -> dict:
     # Use Redis lock to prevent concurrent dispatch
     redis_client = get_redis_client()
     lock = redis_client.lock("refresh_due_feeds_dispatch_lock", timeout=60)
-    
+
     if not lock.acquire(blocking=False):
         return {"success": True, "message": "Another dispatch is running", "skipped": True}
-    
+
     try:
         with get_sync_session() as db:
             browser_fetch_settings = load_browser_fetch_settings_sync(db)
-            now = datetime.utcnow()
-            
+            now = utc_now()
+
             # Get all active feeds
-            feeds = db.execute(
-                select(Feed).where(Feed.is_active == True)
-            ).scalars().all()
+            feeds = db.execute(select(Feed).where(Feed.is_active.is_(True))).scalars().all()
             custom_rule_feed_ids = set(
-                db.execute(
-                    select(CustomRule.feed_id).where(CustomRule.feed_id.is_not(None))
-                ).scalars().all()
+                db.execute(select(CustomRule.feed_id).where(CustomRule.feed_id.is_not(None)))
+                .scalars()
+                .all()
             )
-            
+
             dispatched = 0
             dispatched_browser = 0
             dispatched_regular = 0
@@ -1702,7 +1734,7 @@ def refresh_due_feeds(self) -> dict:
             skipped_queued = 0
             skipped_limited = 0
             due_feeds: list[tuple[datetime, int, Feed]] = []
-            
+
             for feed in feeds:
                 if feed.id in custom_rule_feed_ids:
                     skipped += 1
@@ -1722,7 +1754,8 @@ def refresh_due_feeds(self) -> dict:
                     continue
                 if (
                     uses_browser
-                    and dispatched_browser >= browser_fetch_settings.feed_browser_refresh_dispatch_limit
+                    and dispatched_browser
+                    >= browser_fetch_settings.feed_browser_refresh_dispatch_limit
                 ):
                     skipped_limited += 1
                     continue
@@ -1744,7 +1777,7 @@ def refresh_due_feeds(self) -> dict:
                     dispatched_browser += 1
                 else:
                     dispatched_regular += 1
-            
+
             if skipped_queued:
                 print(
                     "[FeedRefreshDedup] "
@@ -1790,16 +1823,14 @@ def refresh_single_feed(self, feed_id: int, refresh_owner: str | None = None) ->
             "skipped": True,
             "reason": "already queued or processing",
         }
-    
+
     try:
         with get_sync_session() as db:
-            feed = db.execute(
-                select(Feed).where(Feed.id == feed_id)
-            ).scalar_one_or_none()
-            
+            feed = db.execute(select(Feed).where(Feed.id == feed_id)).scalar_one_or_none()
+
             if not feed:
                 return {"success": False, "feed_id": feed_id, "error": "Feed not found"}
-            
+
             if not feed.is_active:
                 return {"success": True, "feed_id": feed_id, "skipped": True, "reason": "inactive"}
 
@@ -1837,31 +1868,22 @@ def refresh_single_feed(self, feed_id: int, refresh_owner: str | None = None) ->
                     "reason": "not due",
                 }
 
-            feed.last_fetched_at = datetime.utcnow()
+            feed.last_fetched_at = utc_now()
             db.commit()
-            
+
             try:
                 new_count = _refresh_feed_sync(db, feed)
                 print(f"Refreshed feed {feed.id} ({feed.title}): {new_count} new articles")
-                return {
-                    "success": True,
-                    "feed_id": feed_id,
-                    "new_articles": new_count
-                }
+                return {"success": True, "feed_id": feed_id, "new_articles": new_count}
             except Exception as e:
                 db.rollback()
                 print(f"Error refreshing feed {feed.id}: {e}")
                 if is_browser_runtime_error(e):
                     raise
-                return {
-                    "success": False,
-                    "feed_id": feed_id,
-                    "error": str(e)
-                }
+                return {"success": False, "feed_id": feed_id, "error": str(e)}
     finally:
         if release_slot:
             _release_feed_refresh_slot(redis_client, feed_id, owner)
-
 
 
 @shared_task(
@@ -1873,13 +1895,11 @@ def execute_custom_rule(rule_id: int) -> dict:
     """Execute a single custom rule."""
     # Use sync session to avoid asyncpg concurrent operation issues
     with get_sync_session() as db:
-        rule = db.execute(
-            select(CustomRule).where(CustomRule.id == rule_id)
-        ).scalar_one_or_none()
-        
+        rule = db.execute(select(CustomRule).where(CustomRule.id == rule_id)).scalar_one_or_none()
+
         if not rule:
             return {"success": False, "error": "Rule not found"}
-        
+
         try:
             articles = _execute_custom_rule_sync(db, rule)
             return {"success": True, "articles_found": len(articles)}
@@ -1893,19 +1913,19 @@ def execute_all_custom_rules(self) -> dict:
     # Use Redis lock to prevent concurrent dispatch
     redis_client = get_redis_client()
     lock = redis_client.lock("execute_all_custom_rules_dispatch_lock", timeout=60)
-    
+
     if not lock.acquire(blocking=False):
         return {"success": True, "message": "Another dispatch is running", "skipped": True}
-    
+
     try:
         with get_sync_session() as db:
             browser_fetch_settings = load_browser_fetch_settings_sync(db)
-            now = datetime.utcnow()
-            
-            rules = db.execute(
-                select(CustomRule).where(CustomRule.is_active == True)
-            ).scalars().all()
-            
+            now = utc_now()
+
+            rules = (
+                db.execute(select(CustomRule).where(CustomRule.is_active.is_(True))).scalars().all()
+            )
+
             dispatched = 0
             dispatched_browser = 0
             dispatched_regular = 0
@@ -1913,7 +1933,7 @@ def execute_all_custom_rules(self) -> dict:
             skipped_queued = 0
             skipped_limited = 0
             due_rules: list[tuple[datetime, int, CustomRule]] = []
-            
+
             for rule in rules:
                 next_fetch = _next_fetch_at(rule.last_fetched_at, rule.fetch_interval)
                 if now < next_fetch:
@@ -1930,12 +1950,15 @@ def execute_all_custom_rules(self) -> dict:
                     continue
                 if (
                     uses_browser
-                    and dispatched_browser >= browser_fetch_settings.custom_rule_browser_dispatch_limit
+                    and dispatched_browser
+                    >= browser_fetch_settings.custom_rule_browser_dispatch_limit
                 ):
                     skipped_limited += 1
                     continue
-                
-                owner = f"execute_all_custom_rules:{self.request.id}:{rule.id}:{int(now.timestamp())}"
+
+                owner = (
+                    f"execute_all_custom_rules:{self.request.id}:{rule.id}:{int(now.timestamp())}"
+                )
                 if not _acquire_custom_rule_execution_slot(redis_client, rule.id, owner):
                     skipped_queued += 1
                     continue
@@ -1958,7 +1981,7 @@ def execute_all_custom_rules(self) -> dict:
                     f"Skipped {skipped_queued} rules already queued/running "
                     f"during dispatch task {self.request.id}"
                 )
-            
+
             return {
                 "success": True,
                 "rules_checked": len(rules),
@@ -1997,17 +2020,17 @@ def execute_single_custom_rule(self, rule_id: int, execution_owner: str | None =
             "skipped": True,
             "reason": "already queued or processing",
         }
-    
+
     try:
         # Use sync session to avoid asyncpg concurrent operation issues
         with get_sync_session() as db:
             rule = db.execute(
                 select(CustomRule).where(CustomRule.id == rule_id)
             ).scalar_one_or_none()
-            
+
             if not rule:
                 return {"success": False, "rule_id": rule_id, "error": "Rule not found"}
-            
+
             if not rule.is_active:
                 return {"success": True, "rule_id": rule_id, "skipped": True, "reason": "inactive"}
 
@@ -2030,34 +2053,25 @@ def execute_single_custom_rule(self, rule_id: int, execution_owner: str | None =
                     "reason": "not due",
                 }
 
-            now = datetime.utcnow()
+            now = utc_now()
             rule.last_fetched_at = now
             if rule.feed_id:
-                feed = db.execute(
-                    select(Feed).where(Feed.id == rule.feed_id)
-                ).scalar_one_or_none()
+                feed = db.execute(select(Feed).where(Feed.id == rule.feed_id)).scalar_one_or_none()
                 if feed:
                     feed.last_fetched_at = now
             db.commit()
-            
+
             try:
                 articles = _execute_custom_rule_sync(db, rule)
                 print(f"Executed custom rule {rule.id} ({rule.name}): {len(articles)} articles")
-                return {
-                    "success": True,
-                    "rule_id": rule_id,
-                    "articles_found": len(articles)
-                }
+                return {"success": True, "rule_id": rule_id, "articles_found": len(articles)}
             except Exception as e:
                 db.rollback()
                 print(f"Error executing custom rule {rule.id}: {e}")
                 import traceback
+
                 traceback.print_exc()
-                return {
-                    "success": False,
-                    "rule_id": rule_id,
-                    "error": str(e)
-                }
+                return {"success": False, "rule_id": rule_id, "error": str(e)}
 
     finally:
         if release_slot:
@@ -2068,9 +2082,7 @@ def execute_single_custom_rule(self, rule_id: int, execution_owner: str | None =
 def trigger_push_for_article(article_id: int) -> dict:
     """Trigger push notifications for an article from async API code."""
     with get_sync_session() as db:
-        article = db.execute(
-            select(Article).where(Article.id == article_id)
-        ).scalar_one_or_none()
+        article = db.execute(select(Article).where(Article.id == article_id)).scalar_one_or_none()
         if not article:
             return {"success": False, "article_id": article_id, "error": "article not found"}
         _trigger_push_notifications(db, article)
@@ -2081,9 +2093,7 @@ def trigger_push_for_article(article_id: int) -> dict:
 def summarize_article(article_id: int) -> dict:
     """Generate an AI summary for one article outside feed/browser refresh workers."""
     with get_sync_session() as db:
-        article = db.execute(
-            select(Article).where(Article.id == article_id)
-        ).scalar_one_or_none()
+        article = db.execute(select(Article).where(Article.id == article_id)).scalar_one_or_none()
         if not article:
             return {"success": False, "article_id": article_id, "error": "article not found"}
 
@@ -2107,12 +2117,16 @@ def summarize_article(article_id: int) -> dict:
             .join(AIProvider, AIModel.provider_id == AIProvider.id)
             .where(
                 AIProvider.user_id == feed.user_id,
-                AIModel.is_default == True,
+                AIModel.is_default.is_(True),
             )
         ).scalar_one_or_none()
 
         if not default_model:
-            return {"success": False, "article_id": article_id, "error": "No default AI model configured"}
+            return {
+                "success": False,
+                "article_id": article_id,
+                "error": "No default AI model configured",
+            }
 
         provider = db.execute(
             select(AIProvider).where(AIProvider.id == default_model.provider_id)
@@ -2155,19 +2169,17 @@ def translate_feed_articles(feed_id: int) -> dict:
         feed = db.execute(select(Feed).where(Feed.id == feed_id)).scalar_one_or_none()
         if not feed:
             return {"success": False, "error": "Feed not found"}
-        
+
         # Get translate_method, default to checking auto_translate for backward compatibility
         translate_method = _translation_method_for_feed(feed)
-        
-        if translate_method == 'none' or not feed.target_language:
+
+        if translate_method == "none" or not feed.target_language:
             return {"success": False, "error": "Feed does not have translation enabled"}
 
-        # Queue articles without translation, failed articles, or legacy translations without a title.
-        candidate_articles = db.execute(
-            select(Article).where(
-                Article.feed_id == feed_id
-            )
-        ).scalars().all()
+        # Queue missing, failed, or incomplete legacy translations.
+        candidate_articles = (
+            db.execute(select(Article).where(Article.feed_id == feed_id)).scalars().all()
+        )
 
         queued_article_ids: list[int] = []
         skipped = 0
@@ -2212,7 +2224,7 @@ def translate_feed_articles(feed_id: int) -> dict:
             "skipped": skipped,
             "failed": failed,
             "total": len(candidate_articles),
-            "method": translate_method
+            "method": translate_method,
         }
 
 
@@ -2220,247 +2232,35 @@ def translate_feed_articles(feed_id: int) -> dict:
 def cleanup_old_articles(days: int = 90) -> dict:
     """Clean up articles older than specified days (excluding favorites)."""
     from app.models.article import UserArticle
-    
+
     with get_sync_session() as db:
-        cutoff = datetime.utcnow() - timedelta(days=days)
-        
+        cutoff = utc_now() - timedelta(days=days)
+
         # Get IDs of favorited articles
         favorited = db.execute(
-            select(UserArticle.article_id).where(UserArticle.is_favorite == True)
+            select(UserArticle.article_id).where(UserArticle.is_favorite.is_(True))
         )
         favorited_ids = {row[0] for row in favorited.fetchall()}
-        
+
         # Delete old articles that are not favorited
         if favorited_ids:
-            old_articles = db.execute(
-                select(Article).where(
-                    Article.created_at < cutoff,
-                    ~Article.id.in_(favorited_ids)
+            old_articles = (
+                db.execute(
+                    select(Article).where(
+                        Article.created_at < cutoff, ~Article.id.in_(favorited_ids)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
         else:
-            old_articles = db.execute(
-                select(Article).where(Article.created_at < cutoff)
-            ).scalars().all()
-        
+            old_articles = (
+                db.execute(select(Article).where(Article.created_at < cutoff)).scalars().all()
+            )
+
         count = len(old_articles)
         for article in old_articles:
             db.delete(article)
-        
+
         db.commit()
         return {"success": True, "deleted": count}
-
-
-@shared_task(name="app.tasks.feed_tasks.generate_article_embedding")
-def generate_article_embedding(article_id: int, auto: bool = False) -> dict:
-    """Generate embedding for a single article."""
-    with get_sync_session() as db:
-        article = db.execute(
-            select(Article).where(Article.id == article_id)
-        ).scalar_one_or_none()
-        
-        if not article:
-            return {"success": False, "error": "Article not found"}
-        
-        if article.embedding is not None:
-            return {"success": True, "message": "Embedding already exists"}
-        
-        # Get the feed to find the user
-        feed = db.execute(
-            select(Feed).where(Feed.id == article.feed_id)
-        ).scalar_one_or_none()
-        
-        if not feed:
-            return {"success": False, "error": "Feed not found"}
-        
-        # Get user's embedding configuration
-        user = db.execute(
-            select(User).where(User.id == feed.user_id)
-        ).scalar_one_or_none()
-        
-        if not user or not user.embedding_provider_id or not user.embedding_model:
-            return {"success": False, "error": "No embedding model configured"}
-
-        if auto and not user.auto_generate_embeddings:
-            return {
-                "success": True,
-                "article_id": article_id,
-                "skipped": "auto embedding disabled",
-            }
-        
-        provider = db.execute(
-            select(AIProvider).where(AIProvider.id == user.embedding_provider_id)
-        ).scalar_one_or_none()
-        
-        if not provider:
-            return {"success": False, "error": "Embedding provider not found"}
-        
-        # Generate embedding
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        try:
-            from app.services.embedding_service import EmbeddingService
-            
-            service = EmbeddingService(
-                api_key=provider.api_key,
-                base_url=provider.base_url,
-                model=user.embedding_model
-            )
-            
-            # Combine title and content for embedding
-            text = f"{article.title} {article.content or ''}"
-            embedding = loop.run_until_complete(service.generate_embedding(text))
-            
-            if embedding:
-                article.embedding = embedding
-                db.commit()
-                return {"success": True, "article_id": article_id}
-            else:
-                return {"success": False, "error": "Failed to generate embedding"}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-        finally:
-            loop.close()
-
-
-@shared_task(name="app.tasks.feed_tasks.generate_embeddings_batch", bind=True)
-def generate_embeddings_batch(self, user_id: int, limit: int = 500) -> dict:
-    """Generate embeddings for articles without embeddings for a user.
-    
-    Uses batch API calls for efficiency - processes up to 50 articles per API call.
-    Supports task cancellation via Celery revoke.
-    """
-    from app.models.user import User
-    import time
-    
-    with get_sync_session() as db:
-        # Get articles without embeddings
-        articles = db.execute(
-            select(Article)
-            .join(Feed, Article.feed_id == Feed.id)
-            .where(
-                Feed.user_id == user_id,
-                Article.embedding == None
-            )
-            .order_by(Article.created_at.desc())
-            .limit(limit)
-        ).scalars().all()
-        
-        if not articles:
-            return {"success": True, "processed": 0, "message": "No articles need embeddings"}
-        
-        # Get user's embedding configuration
-        user = db.execute(
-            select(User).where(User.id == user_id)
-        ).scalar_one_or_none()
-        
-        if not user or not user.embedding_provider_id or not user.embedding_model:
-            return {"success": False, "error": "No embedding model configured"}
-        
-        provider = db.execute(
-            select(AIProvider).where(AIProvider.id == user.embedding_provider_id)
-        ).scalar_one_or_none()
-        
-        if not provider:
-            return {"success": False, "error": "Embedding provider not found"}
-        
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        processed = 0
-        errors = 0
-        batch_size = 50  # Process 50 articles per API call for better throughput
-        total_batches = (len(articles) + batch_size - 1) // batch_size
-        
-        try:
-            from app.services.embedding_service import EmbeddingService
-            
-            service = EmbeddingService(
-                api_key=provider.api_key,
-                base_url=provider.base_url,
-                model=user.embedding_model
-            )
-            
-            # Process in batches
-            for batch_num, i in enumerate(range(0, len(articles), batch_size)):
-                # Check if task was revoked/cancelled
-                if self.request.id:
-                    from app.tasks.celery_app import celery_app
-                    # Check revoked tasks
-                    revoked = celery_app.control.inspect().revoked() or {}
-                    for worker_revoked in revoked.values():
-                        if self.request.id in worker_revoked:
-                            print(f"Task {self.request.id} was cancelled, stopping...")
-                            return {
-                                "success": False,
-                                "cancelled": True,
-                                "processed": processed,
-                                "errors": errors,
-                                "message": "任务已被取消"
-                            }
-                
-                batch_articles = articles[i:i + batch_size]
-                texts = [f"{a.title} {a.content or ''}" for a in batch_articles]
-                
-                # Generate embeddings in batch
-                try:
-                    embeddings = loop.run_until_complete(
-                        service.batch_generate_embeddings(texts)
-                    )
-                    
-                    # Update articles with embeddings one by one to handle errors
-                    batch_processed = 0
-                    for article, embedding in zip(batch_articles, embeddings):
-                        if embedding:
-                            try:
-                                article.embedding = embedding
-                                db.flush()  # Try to flush this single update
-                                batch_processed += 1
-                            except Exception as update_error:
-                                db.rollback()  # Rollback on error
-                                print(f"Error updating article {article.id}: {update_error}")
-                                errors += 1
-                        else:
-                            errors += 1
-                    
-                    # Commit successful updates
-                    db.commit()
-                    processed += batch_processed
-                    
-                    # Update task state for progress tracking
-                    self.update_state(
-                        state='PROGRESS',
-                        meta={
-                            'current_batch': batch_num + 1,
-                            'total_batches': total_batches,
-                            'processed': processed,
-                            'errors': errors,
-                            'total': len(articles)
-                        }
-                    )
-                    
-                    print(f"Batch {batch_num + 1}/{total_batches} completed: processed {processed}, errors {errors}")
-                    
-                    # Small delay between batches to avoid rate limiting
-                    if batch_num < total_batches - 1:
-                        time.sleep(0.5)
-                        
-                except Exception as batch_error:
-                    db.rollback()  # Rollback on batch error
-                    print(f"Error in batch {batch_num + 1}: {batch_error}")
-                    errors += len(batch_articles)
-                    # Continue with next batch instead of failing completely
-                    continue
-            
-            return {
-                "success": True,
-                "processed": processed,
-                "errors": errors,
-                "total": len(articles)
-            }
-        except Exception as e:
-            print(f"Error in batch embedding generation: {e}")
-            return {"success": False, "error": str(e), "processed": processed, "errors": errors}
-        finally:
-            loop.close()

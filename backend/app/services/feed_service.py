@@ -1,12 +1,12 @@
 """Feed service for business logic."""
+
 import json
-from datetime import datetime
-from typing import List
 from urllib.parse import urlparse
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import utc_now
 from app.models.article import Article
 from app.models.feed import Feed
 from app.repositories.article_repository import ArticleRepository
@@ -26,8 +26,7 @@ from app.utils.feed_parser import (
     normalize_browser_engine,
     parse_feed,
 )
-from app.utils.opml import OPMLFeed, OPMLParseError, generate_opml, parse_opml
-
+from app.utils.opml import OPMLParseError, generate_opml, parse_opml
 
 # 默认的同步间隔选项（秒）
 DEFAULT_SYNC_INTERVALS = [300, 900, 1800, 3600, 7200, 14400, 43200, 86400]
@@ -47,11 +46,11 @@ class FeedService:
 
     async def _get_allowed_intervals(self) -> list[int]:
         """Get allowed sync intervals from system settings."""
-        intervals_str = await self.settings_repo.get('sync_intervals')
+        intervals_str = await self.settings_repo.get("sync_intervals")
         if intervals_str:
             try:
                 data = json.loads(intervals_str)
-                return [item['value'] for item in data]
+                return [item["value"] for item in data]
             except (json.JSONDecodeError, TypeError, KeyError):
                 pass
         return DEFAULT_SYNC_INTERVALS
@@ -61,15 +60,15 @@ class FeedService:
         allowed = await self._get_allowed_intervals()
         if not allowed:
             return interval
-        
+
         if interval in allowed:
             return interval
-        
+
         # Find the closest allowed interval that is >= requested
         for allowed_interval in sorted(allowed):
             if allowed_interval >= interval:
                 return allowed_interval
-        
+
         # If requested is larger than all allowed, use the largest allowed
         return max(allowed)
 
@@ -118,7 +117,10 @@ class FeedService:
             )
 
         parsed = urlparse(normalized_url)
-        if parsed.scheme not in {"http", "https", "socks4", "socks5", "socks5h"} or not parsed.netloc:
+        if (
+            parsed.scheme not in {"http", "https", "socks4", "socks5", "socks5h"}
+            or not parsed.netloc
+        ):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="代理地址格式无效，请使用 http://host:port 或 socks5://host:port",
@@ -212,22 +214,20 @@ class FeedService:
         # Check for duplicate URL
         if await self.repo.exists_by_url(user_id, data.url):
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Feed with this URL already exists"
+                status_code=status.HTTP_409_CONFLICT, detail="Feed with this URL already exists"
             )
-        
+
         # Validate category if provided
         if data.category_id:
             category = await self.category_repo.get_by_id(data.category_id, user_id)
             if not category:
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Category not found"
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Category not found"
                 )
 
         if data.source_type == "whmcs":
             return await self._create_whmcs_monitor(user_id, data)
-        
+
         browser_engine = data.resolved_browser_engine
         (
             proxy_mode,
@@ -260,14 +260,11 @@ class FeedService:
                     proxy_pool_protocol=proxy_pool_protocol,
                 )
             except FeedParserError as e:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail=str(e)
-                )
-        
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+
         # Validate fetch interval
         validated_interval = await self._validate_fetch_interval(data.fetch_interval)
-        
+
         # Create feed
         feed = await self.repo.create(
             user_id=user_id,
@@ -293,7 +290,7 @@ class FeedService:
             translate_title=data.translate_title,
             translate_content=data.translate_content,
         )
-        
+
         if parsed:
             article_count = await self._save_articles(user_id, feed, parsed)
         else:
@@ -301,7 +298,7 @@ class FeedService:
             await self.session.refresh(feed)
             self._dispatch_feed_refresh(feed.id, browser=True)
             article_count = 0
-        
+
         return self._to_response(feed, article_count=article_count)
 
     async def _create_whmcs_monitor(self, user_id: int, data: FeedCreate) -> FeedResponse:
@@ -363,7 +360,7 @@ class FeedService:
         try:
             articles = await rule_service.execute_rule(rule)
         except Exception as exc:
-            now = datetime.utcnow()
+            now = utc_now()
             error_message = str(exc)[:500] or exc.__class__.__name__
             rule.last_fetched_at = rule.last_fetched_at or now
             rule.last_error = rule.last_error or error_message
@@ -378,19 +375,19 @@ class FeedService:
         await self.session.refresh(feed)
         return self._to_response(feed, article_count=len(articles))
 
-    async def get_all(self, user_id: int) -> List[FeedResponse]:
+    async def get_all(self, user_id: int) -> list[FeedResponse]:
         """Get all feeds for a user."""
         feeds = await self.repo.get_all_by_user(user_id)
-        
+
         # Get article counts for all feeds
         feed_ids = [f.id for f in feeds]
         counts = await self.repo.get_article_counts(user_id, feed_ids)
-        
+
         return [
             self._to_response(
                 f,
-                article_count=counts.get(f.id, {}).get('article_count', 0),
-                unread_count=counts.get(f.id, {}).get('unread_count', 0)
+                article_count=counts.get(f.id, {}).get("article_count", 0),
+                unread_count=counts.get(f.id, {}).get("unread_count", 0),
             )
             for f in feeds
         ]
@@ -399,43 +396,34 @@ class FeedService:
         """Get a feed by ID."""
         feed = await self.repo.get_by_id(feed_id, user_id)
         if not feed:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Feed not found"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feed not found")
         counts = await self.repo.get_article_counts(user_id, [feed_id])
         return self._to_response(
             feed,
-            article_count=counts.get(feed_id, {}).get('article_count', 0),
-            unread_count=counts.get(feed_id, {}).get('unread_count', 0)
+            article_count=counts.get(feed_id, {}).get("article_count", 0),
+            unread_count=counts.get(feed_id, {}).get("unread_count", 0),
         )
 
     async def update(self, user_id: int, feed_id: int, data: FeedUpdate) -> FeedResponse:
         """Update a feed."""
         feed = await self.repo.get_by_id(feed_id, user_id)
         if not feed:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Feed not found"
-            )
-        
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feed not found")
+
         # Validate category if provided
         if data.category_id is not None:
             if data.category_id:
                 category = await self.category_repo.get_by_id(data.category_id, user_id)
                 if not category:
                     raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail="Category not found"
+                        status_code=status.HTTP_404_NOT_FOUND, detail="Category not found"
                     )
-        
+
         update_data = data.model_dump(exclude_unset=True)
 
         if "browser_engine" in update_data:
             update_data["browser_engine"] = normalize_browser_engine(update_data["browser_engine"])
-            update_data["use_playwright"] = is_browser_engine_enabled(
-                update_data["browser_engine"]
-            )
+            update_data["use_playwright"] = is_browser_engine_enabled(update_data["browser_engine"])
         elif "use_playwright" in update_data:
             update_data["browser_engine"] = normalize_browser_engine(
                 None,
@@ -470,20 +458,21 @@ class FeedService:
             update_data["proxy_url"] = proxy_url
             update_data["proxy_pool_country"] = proxy_pool_country
             update_data["proxy_pool_protocol"] = proxy_pool_protocol
-        
+
         # Validate fetch interval if provided
-        if 'fetch_interval' in update_data:
-            update_data['fetch_interval'] = await self._validate_fetch_interval(update_data['fetch_interval'])
-        
+        if "fetch_interval" in update_data:
+            update_data["fetch_interval"] = await self._validate_fetch_interval(
+                update_data["fetch_interval"]
+            )
+
         source_scope_changed = "category_id" in update_data
         feed = await self.repo.update(feed, **update_data)
 
         from sqlalchemy import select
+
         from app.models.custom_rule import CustomRule
 
-        result = await self.session.execute(
-            select(CustomRule).where(CustomRule.feed_id == feed_id)
-        )
+        result = await self.session.execute(select(CustomRule).where(CustomRule.feed_id == feed_id))
         custom_rule = result.scalar_one_or_none()
         if custom_rule:
             for key in (
@@ -521,28 +510,24 @@ class FeedService:
                 user_id,
                 [row[0] for row in article_ids_result.all()],
             )
-        
+
         counts = await self.repo.get_article_counts(user_id, [feed_id])
         return self._to_response(
             feed,
-            article_count=counts.get(feed_id, {}).get('article_count', 0),
-            unread_count=counts.get(feed_id, {}).get('unread_count', 0)
+            article_count=counts.get(feed_id, {}).get("article_count", 0),
+            unread_count=counts.get(feed_id, {}).get("unread_count", 0),
         )
 
     async def delete(self, user_id: int, feed_id: int) -> None:
         """Delete a feed."""
         feed = await self.repo.get_by_id(feed_id, user_id)
         if not feed:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Feed not found"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feed not found")
         from sqlalchemy import select
+
         from app.models.custom_rule import CustomRule
 
-        result = await self.session.execute(
-            select(CustomRule).where(CustomRule.feed_id == feed_id)
-        )
+        result = await self.session.execute(select(CustomRule).where(CustomRule.feed_id == feed_id))
         custom_rule = result.scalar_one_or_none()
         if custom_rule:
             await self.session.delete(custom_rule)
@@ -551,34 +536,30 @@ class FeedService:
     async def refresh(self, user_id: int, feed_id: int) -> FeedResponse:
         """Manually refresh a feed."""
         from sqlalchemy import select
+
         from app.models.custom_rule import CustomRule
-        
+
         feed = await self.repo.get_by_id(feed_id, user_id)
         if not feed:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Feed not found"
-            )
-        
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feed not found")
+
         # Check if this feed has an associated custom rule
-        result = await self.session.execute(
-            select(CustomRule).where(CustomRule.feed_id == feed_id)
-        )
+        result = await self.session.execute(select(CustomRule).where(CustomRule.feed_id == feed_id))
         custom_rule = result.scalar_one_or_none()
-        
+
         if custom_rule:
             # Use custom rule service to refresh
             if getattr(custom_rule, "use_playwright", False):
                 self._dispatch_custom_rule_execution(custom_rule.id, browser=True)
             else:
                 from app.services.custom_rule_service import CustomRuleService
+
                 rule_service = CustomRuleService(self.session)
                 try:
                     await rule_service.execute_rule(custom_rule)
                 except Exception as e:
                     raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                        detail=str(e)
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
                     )
         else:
             # Normal RSS feed refresh
@@ -590,8 +571,8 @@ class FeedService:
                 counts = await self.repo.get_article_counts(user_id, [feed_id])
                 return self._to_response(
                     feed,
-                    article_count=counts.get(feed_id, {}).get('article_count', 0),
-                    unread_count=counts.get(feed_id, {}).get('unread_count', 0)
+                    article_count=counts.get(feed_id, {}).get("article_count", 0),
+                    unread_count=counts.get(feed_id, {}).get("unread_count", 0),
                 )
 
             try:
@@ -614,26 +595,24 @@ class FeedService:
                 await self._save_articles(user_id, feed, parsed)
             except FeedParserError as e:
                 await self.repo.update_fetch_status(feed, success=False, error=str(e))
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail=str(e)
-                )
-        
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+
         counts = await self.repo.get_article_counts(user_id, [feed_id])
         return self._to_response(
             feed,
-            article_count=counts.get(feed_id, {}).get('article_count', 0),
-            unread_count=counts.get(feed_id, {}).get('unread_count', 0)
+            article_count=counts.get(feed_id, {}).get("article_count", 0),
+            unread_count=counts.get(feed_id, {}).get("unread_count", 0),
         )
 
     async def refresh_all(self, user_id: int, category_id: int | None = None) -> dict:
         """Refresh all feeds for a user, optionally filtered by category."""
         from sqlalchemy import select
+
         from app.models.custom_rule import CustomRule
         from app.services.custom_rule_service import CustomRuleService
 
         feeds = await self.repo.get_all_by_user(user_id)
-        
+
         if category_id:
             feeds = [f for f in feeds if f.category_id == category_id]
 
@@ -648,14 +627,14 @@ class FeedService:
                 for rule in rules_result.scalars().all()
                 if rule.feed_id is not None
             }
-        
+
         total = len(feeds)
         success = 0
         failed = 0
         new_articles = 0
         queued = 0
         rule_service = CustomRuleService(self.session)
-        
+
         for feed in feeds:
             custom_rule = custom_rules_by_feed_id.get(feed.id)
             if custom_rule:
@@ -710,13 +689,13 @@ class FeedService:
                 failed += 1
             except Exception:
                 failed += 1
-        
+
         return {
             "total": total,
             "success": success,
             "failed": failed,
             "queued": queued,
-            "new_articles": new_articles
+            "new_articles": new_articles,
         }
 
     async def import_opml(self, user_id: int, content: str) -> OPMLImportResult:
@@ -724,24 +703,21 @@ class FeedService:
         try:
             opml_feeds = parse_opml(content)
         except OPMLParseError as e:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=str(e)
-            )
-        
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+
         imported = 0
         skipped = 0
         errors = []
-        
+
         # Cache categories
         category_cache: dict[str, int] = {}
-        
+
         for opml_feed in opml_feeds:
             # Skip if URL already exists
             if await self.repo.exists_by_url(user_id, opml_feed.url):
                 skipped += 1
                 continue
-            
+
             # Get or create category
             category_id = None
             if opml_feed.category:
@@ -758,7 +734,7 @@ class FeedService:
                         new_cat = await self.category_repo.create(user_id, opml_feed.category)
                         category_id = new_cat.id
                     category_cache[opml_feed.category] = category_id
-            
+
             # Try to parse and add feed
             try:
                 parsed = await parse_feed(opml_feed.url)
@@ -769,31 +745,33 @@ class FeedService:
                     description=parsed.description,
                     site_url=parsed.site_url or opml_feed.site_url,
                     icon_url=parsed.icon_url,
-                    category_id=category_id
+                    category_id=category_id,
                 )
                 imported += 1
             except FeedParserError as e:
                 errors.append(f"{opml_feed.url}: {str(e)}")
-        
+
         return OPMLImportResult(imported=imported, skipped=skipped, errors=errors)
 
     async def export_opml(self, user_id: int) -> str:
         """Export feeds to OPML format."""
         feeds = await self.repo.get_all_by_user(user_id)
         categories = await self.category_repo.get_all_by_user(user_id)
-        
+
         # Build category name lookup
         cat_names = {c.id: c.name for c in categories}
-        
+
         feed_data = []
         for feed in feeds:
-            feed_data.append({
-                "title": feed.title,
-                "url": feed.url,
-                "site_url": feed.site_url,
-                "category": cat_names.get(feed.category_id) if feed.category_id else None
-            })
-        
+            feed_data.append(
+                {
+                    "title": feed.title,
+                    "url": feed.url,
+                    "site_url": feed.site_url,
+                    "category": cat_names.get(feed.category_id) if feed.category_id else None,
+                }
+            )
+
         return generate_opml(feed_data)
 
     async def _save_articles(self, user_id: int, feed: Feed, parsed: ParsedFeed) -> int:
@@ -804,7 +782,7 @@ class FeedService:
             (article.guid for article in parsed.articles),
         )
         new_articles: list[Article] = []
-        fetched_at = datetime.utcnow()
+        fetched_at = utc_now()
 
         for article in parsed.articles:
             if not article.guid or article.guid in existing_guids:
@@ -817,7 +795,7 @@ class FeedService:
                 link=article.link,
                 content=article.content,
                 author=article.author,
-                published_at=article.published_at or fetched_at
+                published_at=article.published_at or fetched_at,
             )
             self.session.add(saved_article)
             new_articles.append(saved_article)
@@ -837,15 +815,15 @@ class FeedService:
         if queued_translation_article_ids:
             await self.session.commit()
             await self._dispatch_translation_tasks(queued_translation_article_ids)
-        
+
         return len(new_articles)
 
     async def _queue_article_translation(self, feed: Feed, article) -> bool:
         """Mark a newly saved article for background translation."""
-        translate_method = getattr(feed, 'translate_method', None) or (
-            'ai' if feed.auto_translate else 'none'
+        translate_method = getattr(feed, "translate_method", None) or (
+            "ai" if feed.auto_translate else "none"
         )
-        if translate_method == 'none' or not feed.target_language:
+        if translate_method == "none" or not feed.target_language:
             return False
 
         if not has_translatable_article_text(article, feed):
@@ -876,9 +854,7 @@ class FeedService:
             if queued or error == "duplicate":
                 continue
 
-            result = await self.session.execute(
-                select(Article).where(Article.id == article_id)
-            )
+            result = await self.session.execute(select(Article).where(Article.id == article_id))
             article = result.scalar_one_or_none()
             if article:
                 article.translation_status = "failed"
@@ -886,17 +862,19 @@ class FeedService:
                 await self.session.commit()
             print(f"[FeedService] Translation dispatch failed for article {article_id}: {error}")
 
-    async def reorder(self, user_id: int, data: FeedReorder) -> List[FeedResponse]:
+    async def reorder(self, user_id: int, data: FeedReorder) -> list[FeedResponse]:
         """Reorder feeds by updating their positions."""
         # Update positions based on order in feed_ids
         for position, feed_id in enumerate(data.feed_ids):
             feed = await self.repo.get_by_id(feed_id, user_id)
             if feed:
                 await self.repo.update(feed, position=position)
-        
+
         return await self.get_all(user_id)
 
-    def _to_response(self, feed: Feed, article_count: int = 0, unread_count: int = 0) -> FeedResponse:
+    def _to_response(
+        self, feed: Feed, article_count: int = 0, unread_count: int = 0
+    ) -> FeedResponse:
         """Convert feed model to response schema."""
         return FeedResponse(
             id=feed.id,
@@ -912,26 +890,26 @@ class FeedService:
             auto_summarize=feed.auto_summarize,
             source_language=getattr(feed, "source_language", None),
             target_language=feed.target_language,
-            translate_method=getattr(feed, 'translate_method', 'none'),
-            translate_title=getattr(feed, 'translate_title', True),
-            translate_content=getattr(feed, 'translate_content', False),
+            translate_method=getattr(feed, "translate_method", "none"),
+            translate_title=getattr(feed, "translate_title", True),
+            translate_content=getattr(feed, "translate_content", False),
             is_active=feed.is_active,
             use_playwright=feed.use_playwright,
             browser_engine=getattr(
                 feed,
-                'browser_engine',
+                "browser_engine",
                 "playwright" if feed.use_playwright else "http",
             ),
-            proxy_enabled=getattr(feed, 'proxy_enabled', False),
-            proxy_url=getattr(feed, 'proxy_url', None),
+            proxy_enabled=getattr(feed, "proxy_enabled", False),
+            proxy_url=getattr(feed, "proxy_url", None),
             proxy_mode=getattr(
                 feed,
-                'proxy_mode',
-                "single" if getattr(feed, 'proxy_enabled', False) else "none",
+                "proxy_mode",
+                "single" if getattr(feed, "proxy_enabled", False) else "none",
             ),
-            proxy_pool_country=getattr(feed, 'proxy_pool_country', None),
-            proxy_pool_protocol=getattr(feed, 'proxy_pool_protocol', None),
+            proxy_pool_country=getattr(feed, "proxy_pool_country", None),
+            proxy_pool_protocol=getattr(feed, "proxy_pool_protocol", None),
             position=feed.position,
             unread_count=unread_count,
-            article_count=article_count
+            article_count=article_count,
         )

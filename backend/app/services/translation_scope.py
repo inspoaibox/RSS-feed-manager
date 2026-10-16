@@ -1,4 +1,5 @@
 """Helpers for title/content translation scope."""
+
 import json
 from typing import Any
 

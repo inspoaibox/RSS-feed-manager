@@ -1,5 +1,4 @@
 """AI Provider and Model repository for database operations."""
-from typing import List
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,20 +14,11 @@ class AIProviderRepository:
         self.session = session
 
     async def create(
-        self,
-        user_id: int,
-        name: str,
-        type: str,
-        api_key: str,
-        base_url: str | None = None
+        self, user_id: int, name: str, type: str, api_key: str, base_url: str | None = None
     ) -> AIProvider:
         """Create a new AI provider."""
         provider = AIProvider(
-            user_id=user_id,
-            name=name,
-            type=type,
-            api_key=api_key,
-            base_url=base_url
+            user_id=user_id, name=name, type=type, api_key=api_key, base_url=base_url
         )
         self.session.add(provider)
         await self.session.flush()
@@ -37,10 +27,7 @@ class AIProviderRepository:
     async def get_by_id(self, provider_id: int, user_id: int) -> AIProvider | None:
         """Get provider by ID for a specific user."""
         result = await self.session.execute(
-            select(AIProvider).where(
-                AIProvider.id == provider_id,
-                AIProvider.user_id == user_id
-            )
+            select(AIProvider).where(AIProvider.id == provider_id, AIProvider.user_id == user_id)
         )
         return result.scalar_one_or_none()
 
@@ -53,7 +40,7 @@ class AIProviderRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_all_by_user(self, user_id: int) -> List[AIProvider]:
+    async def get_all_by_user(self, user_id: int) -> list[AIProvider]:
         """Get all providers for a user."""
         result = await self.session.execute(
             select(AIProvider)
@@ -84,18 +71,11 @@ class AIModelRepository:
         self.session = session
 
     async def create(
-        self,
-        provider_id: int,
-        model_id: str,
-        name: str,
-        description: str | None = None
+        self, provider_id: int, model_id: str, name: str, description: str | None = None
     ) -> AIModel:
         """Create a new AI model."""
         model = AIModel(
-            provider_id=provider_id,
-            model_id=model_id,
-            name=name,
-            description=description
+            provider_id=provider_id, model_id=model_id, name=name, description=description
         )
         self.session.add(model)
         await self.session.flush()
@@ -103,17 +83,13 @@ class AIModelRepository:
 
     async def get_by_id(self, model_id: int) -> AIModel | None:
         """Get model by ID."""
-        result = await self.session.execute(
-            select(AIModel).where(AIModel.id == model_id)
-        )
+        result = await self.session.execute(select(AIModel).where(AIModel.id == model_id))
         return result.scalar_one_or_none()
 
-    async def get_by_provider(self, provider_id: int) -> List[AIModel]:
+    async def get_by_provider(self, provider_id: int) -> list[AIModel]:
         """Get all models for a provider."""
         result = await self.session.execute(
-            select(AIModel)
-            .where(AIModel.provider_id == provider_id)
-            .order_by(AIModel.name)
+            select(AIModel).where(AIModel.provider_id == provider_id).order_by(AIModel.name)
         )
         return list(result.scalars().all())
 
@@ -122,7 +98,7 @@ class AIModelRepository:
         result = await self.session.execute(
             select(AIModel)
             .join(AIProvider, AIModel.provider_id == AIProvider.id)
-            .where(AIProvider.user_id == user_id, AIModel.is_default == True)
+            .where(AIProvider.user_id == user_id, AIModel.is_default.is_(True))
         )
         return result.scalar_one_or_none()
 
@@ -132,18 +108,14 @@ class AIModelRepository:
         await self.session.execute(
             update(AIModel)
             .where(
-                AIModel.provider_id.in_(
-                    select(AIProvider.id).where(AIProvider.user_id == user_id)
-                )
+                AIModel.provider_id.in_(select(AIProvider.id).where(AIProvider.user_id == user_id))
             )
             .values(is_default=False)
         )
-        
+
         # Set new default
         await self.session.execute(
-            update(AIModel)
-            .where(AIModel.id == model_id)
-            .values(is_default=True)
+            update(AIModel).where(AIModel.id == model_id).values(is_default=True)
         )
         await self.session.flush()
 
@@ -152,9 +124,7 @@ class AIModelRepository:
         await self.session.execute(
             update(AIModel)
             .where(
-                AIModel.provider_id.in_(
-                    select(AIProvider.id).where(AIProvider.user_id == user_id)
-                )
+                AIModel.provider_id.in_(select(AIProvider.id).where(AIProvider.user_id == user_id))
             )
             .values(is_default=False)
         )
@@ -173,30 +143,28 @@ class AIModelRepository:
         await self.session.delete(model)
         await self.session.flush()
 
-    async def bulk_create(self, provider_id: int, models: List[dict]) -> List[AIModel]:
+    async def bulk_create(self, provider_id: int, models: list[dict]) -> list[AIModel]:
         """Bulk create models for a provider, skipping duplicates."""
         # Get existing model_ids for this provider
         result = await self.session.execute(
             select(AIModel.model_id).where(AIModel.provider_id == provider_id)
         )
         existing_model_ids = {row[0] for row in result.fetchall()}
-        
+
         created = []
         for m in models:
             model_id = m["model_id"]
             # Skip if model already exists
             if model_id in existing_model_ids:
                 continue
-            
+
             model = AIModel(
-                provider_id=provider_id,
-                model_id=model_id,
-                name=m.get("name", model_id)
+                provider_id=provider_id, model_id=model_id, name=m.get("name", model_id)
             )
             self.session.add(model)
             created.append(model)
             existing_model_ids.add(model_id)  # Prevent duplicates within same batch
-        
+
         if created:
             await self.session.flush()
         return created

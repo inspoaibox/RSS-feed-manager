@@ -8,6 +8,7 @@ __pycache__/
 htmlcov/
 .coverage*
 *.db
+*.db.bak*
 *.sqlite
 *.sqlite3
 .env

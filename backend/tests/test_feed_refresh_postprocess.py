@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from app.core.clock import utc_now
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
@@ -44,7 +45,7 @@ def test_refresh_feed_dispatches_heavy_postprocess_without_sync_embedding(monkey
                 link="https://example.com/postprocess-1",
                 content="body",
                 author=None,
-                published_at=datetime.utcnow(),
+                published_at=utc_now(),
             )
         ],
     ))
@@ -108,7 +109,7 @@ def test_refresh_feed_does_not_dispatch_auto_embedding_when_switch_disabled(monk
                 link="https://example.com/postprocess-disabled-1",
                 content="body",
                 author=None,
-                published_at=datetime.utcnow(),
+                published_at=utc_now(),
             )
         ],
     ))
@@ -174,7 +175,7 @@ def test_refresh_feed_does_not_dispatch_summary_when_global_switch_disabled(monk
                 link="https://example.com/summary-global-disabled-1",
                 content="body",
                 author=None,
-                published_at=datetime.utcnow(),
+                published_at=utc_now(),
             )
         ],
     ))

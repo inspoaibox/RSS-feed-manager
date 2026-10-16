@@ -1,9 +1,9 @@
 """Launch Celery workers using runtime settings stored in the database."""
+
 from __future__ import annotations
 
 import argparse
 import os
-import sys
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -26,12 +26,14 @@ def _coerce_int(value: str | None, fallback: int, minimum: int, maximum: int) ->
 
 def _load_system_settings(keys: list[str]) -> dict[str, str]:
     engine = create_engine(get_sync_database_url())
-    SessionLocal = sessionmaker(bind=engine)
+    session_local = sessionmaker(bind=engine)
     try:
-        with SessionLocal() as session:
-            rows = session.execute(
-                select(SystemSettings).where(SystemSettings.key.in_(keys))
-            ).scalars().all()
+        with session_local() as session:
+            rows = (
+                session.execute(select(SystemSettings).where(SystemSettings.key.in_(keys)))
+                .scalars()
+                .all()
+            )
             return {row.key: row.value for row in rows if row.value is not None}
     finally:
         engine.dispose()

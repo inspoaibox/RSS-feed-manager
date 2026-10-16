@@ -6,7 +6,7 @@ services:
     restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-rss_manager}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rss_manager_prod_2024}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}
       POSTGRES_DB: ${POSTGRES_DB:-rss_manager}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -23,11 +23,11 @@ services:
     image: redis:7-alpine
     container_name: rss_manager_redis
     restart: always
-    command: redis-server --requirepass ${REDIS_PASSWORD:-redis_prod_2024}
+    command: redis-server --requirepass ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.production}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_prod_2024}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.production}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -41,13 +41,25 @@ services:
     restart: always
     expose:
       - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rss_manager}:${POSTGRES_PASSWORD:-rss_manager_prod_2024}@postgres:5432/${POSTGRES_DB:-rss_manager}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_prod_2024}@redis:6379/0
-      - SECRET_KEY=${SECRET_KEY:-rss_manager_secret_key_2024_production}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rss_manager}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}@postgres:5432/${POSTGRES_DB:-rss_manager}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.production}@redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:?Set SECRET_KEY in .env.production}
+      - NOTIFICATION_ENCRYPTION_KEY=${NOTIFICATION_ENCRYPTION_KEY:-}
+      - ENVIRONMENT=production
+      - COOKIE_SECURE=true
       - DEBUG=false
-      - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:5666"]}
-      - BASE_URL=${BASE_URL:-https://rss.8y.cx}
+      - CORS_ORIGINS=${CORS_ORIGINS:?Set CORS_ORIGINS in .env.production}
+      - BASE_URL=${BASE_URL:?Set BASE_URL in .env.production}
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
+      - VAPID_CONTACT_EMAIL=${VAPID_CONTACT_EMAIL:-}
       - XDG_DATA_HOME=/data
       - ARGOS_PACKAGES_DIR=/data/argos-translate/packages
       - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-5}
@@ -74,9 +86,15 @@ services:
     cpus: ${WORKER_CPUS:-1.0}
     command: python -m app.tasks.worker_launcher --kind worker
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rss_manager}:${POSTGRES_PASSWORD:-rss_manager_prod_2024}@postgres:5432/${POSTGRES_DB:-rss_manager}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_prod_2024}@redis:6379/0
-      - SECRET_KEY=${SECRET_KEY:-rss_manager_secret_key_2024_production}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rss_manager}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}@postgres:5432/${POSTGRES_DB:-rss_manager}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.production}@redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:?Set SECRET_KEY in .env.production}
+      - NOTIFICATION_ENCRYPTION_KEY=${NOTIFICATION_ENCRYPTION_KEY:-}
+      - ENVIRONMENT=production
+      - COOKIE_SECURE=true
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
+      - VAPID_CONTACT_EMAIL=${VAPID_CONTACT_EMAIL:-}
       - XDG_DATA_HOME=/data
       - ARGOS_PACKAGES_DIR=/data/argos-translate/packages
       - FEED_REFRESH_DISPATCH_LIMIT=${FEED_REFRESH_DISPATCH_LIMIT:-100}
@@ -97,6 +115,8 @@ services:
     volumes:
       - argos_data:/data/argos-translate
     depends_on:
+      backend:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
@@ -114,9 +134,12 @@ services:
     cpus: ${BROWSER_WORKER_CPUS:-0}
     command: python -m app.tasks.worker_launcher --kind browser
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rss_manager}:${POSTGRES_PASSWORD:-rss_manager_prod_2024}@postgres:5432/${POSTGRES_DB:-rss_manager}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_prod_2024}@redis:6379/0
-      - SECRET_KEY=${SECRET_KEY:-rss_manager_secret_key_2024_production}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rss_manager}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}@postgres:5432/${POSTGRES_DB:-rss_manager}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.production}@redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:?Set SECRET_KEY in .env.production}
+      - NOTIFICATION_ENCRYPTION_KEY=${NOTIFICATION_ENCRYPTION_KEY:-}
+      - ENVIRONMENT=production
+      - COOKIE_SECURE=true
       - XDG_DATA_HOME=/data
       - ARGOS_PACKAGES_DIR=/data/argos-translate/packages
       - FEED_REFRESH_DISPATCH_LIMIT=${FEED_REFRESH_DISPATCH_LIMIT:-100}
@@ -138,6 +161,8 @@ services:
       - argos_data:/data/argos-translate
       - cloakbrowser_data:/root/.cloakbrowser
     depends_on:
+      backend:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
@@ -152,9 +177,12 @@ services:
     restart: always
     command: celery -A app.tasks.celery_app beat --loglevel=info --scheduler celery.beat:PersistentScheduler
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rss_manager}:${POSTGRES_PASSWORD:-rss_manager_prod_2024}@postgres:5432/${POSTGRES_DB:-rss_manager}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_prod_2024}@redis:6379/0
-      - SECRET_KEY=${SECRET_KEY:-rss_manager_secret_key_2024_production}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rss_manager}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}@postgres:5432/${POSTGRES_DB:-rss_manager}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.production}@redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:?Set SECRET_KEY in .env.production}
+      - NOTIFICATION_ENCRYPTION_KEY=${NOTIFICATION_ENCRYPTION_KEY:-}
+      - ENVIRONMENT=production
+      - COOKIE_SECURE=true
       - FEED_REFRESH_DISPATCH_LIMIT=${FEED_REFRESH_DISPATCH_LIMIT:-100}
       - FEED_BROWSER_REFRESH_DISPATCH_LIMIT=${FEED_BROWSER_REFRESH_DISPATCH_LIMIT:-50}
       - CUSTOM_RULE_DISPATCH_LIMIT=${CUSTOM_RULE_DISPATCH_LIMIT:-10}
@@ -168,6 +196,8 @@ services:
       - CUSTOM_RULE_TASK_SOFT_TIME_LIMIT=${CUSTOM_RULE_TASK_SOFT_TIME_LIMIT:-300}
       - CUSTOM_RULE_TASK_TIME_LIMIT=${CUSTOM_RULE_TASK_TIME_LIMIT:-360}
     depends_on:
+      backend:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
@@ -181,9 +211,10 @@ services:
     container_name: rss_manager_frontend
     restart: always
     ports:
-      - "5666:80"
+      - "127.0.0.1:5666:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - rss_network
 

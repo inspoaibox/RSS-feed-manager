@@ -1,12 +1,14 @@
 """Google Translate API key pool and rotation service."""
+
+from collections.abc import Iterable
 from datetime import datetime, timedelta
-from typing import Iterable, List
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
+from app.core.clock import utc_now
 from app.models.google_translate_key import GoogleTranslateKey
 from app.models.user import User
 from app.repositories.google_translate_key_repository import GoogleTranslateKeyRepository
@@ -20,7 +22,7 @@ from app.services.google_translate_service import GoogleTranslateError, GoogleTr
 
 
 def _now() -> datetime:
-    return datetime.utcnow()
+    return utc_now()
 
 
 def _naive(value: datetime | None) -> datetime | None:
@@ -57,7 +59,9 @@ def _reset_usage(entry: GoogleTranslateKey) -> None:
     entry.last_error = None
 
 
-def _key_sequence(entries: Iterable[GoogleTranslateKey], at: datetime | None = None) -> list[GoogleTranslateKey]:
+def _key_sequence(
+    entries: Iterable[GoogleTranslateKey], at: datetime | None = None
+) -> list[GoogleTranslateKey]:
     """Build the ordered key sequence to try for one translation."""
     current = at or _now()
     active_entries = sorted(
@@ -94,7 +98,9 @@ def _key_sequence(entries: Iterable[GoogleTranslateKey], at: datetime | None = N
     return sequence
 
 
-def _record_key_success(entry: GoogleTranslateKey, article_count: int, character_count: int) -> None:
+def _record_key_success(
+    entry: GoogleTranslateKey, article_count: int, character_count: int
+) -> None:
     now = _now()
     if entry.usage_started_at is None:
         entry.usage_started_at = now
@@ -121,7 +127,7 @@ class GoogleTranslateKeyService:
         self.session = session
         self.repo = GoogleTranslateKeyRepository(session)
 
-    async def list(self, user_id: int) -> List[GoogleTranslateKeyResponse]:
+    async def list(self, user_id: int) -> list[GoogleTranslateKeyResponse]:
         entries = await self.repo.list(user_id)
         return [self._to_response(entry) for entry in entries]
 
@@ -162,7 +168,9 @@ class GoogleTranslateKeyService:
             update_data["name"] = update_data["name"].strip()
         if "api_key" in update_data and update_data["api_key"]:
             update_data["api_key"] = update_data["api_key"].strip()
-            if await self.repo.exists_by_api_key(user_id, update_data["api_key"], exclude_id=key_id):
+            if await self.repo.exists_by_api_key(
+                user_id, update_data["api_key"], exclude_id=key_id
+            ):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Google Translate API Key 已存在",
@@ -262,7 +270,9 @@ class GoogleTranslateKeyService:
         return translated_title, translated_content
 
     async def _get_legacy_api_key(self, user_id: int) -> str | None:
-        result = await self.session.execute(select(User.google_translate_api_key).where(User.id == user_id))
+        result = await self.session.execute(
+            select(User.google_translate_api_key).where(User.id == user_id)
+        )
         return result.scalar_one_or_none()
 
     def _to_response(self, entry: GoogleTranslateKey) -> GoogleTranslateKeyResponse:
@@ -301,10 +311,12 @@ def translate_google_article_sync(
             select(GoogleTranslateKey)
             .where(
                 GoogleTranslateKey.user_id == user_id,
-                GoogleTranslateKey.is_active == True,
+                GoogleTranslateKey.is_active.is_(True),
             )
             .order_by(GoogleTranslateKey.position, GoogleTranslateKey.id)
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     sequence = _key_sequence(entries)
     character_count = len(title or "") + len(content or "")
@@ -347,13 +359,9 @@ def _translate_with_key_sync(
 ) -> tuple[str, str]:
     service = GoogleTranslateService(api_key=api_key)
     translated_title = (
-        loop.run_until_complete(service.translate(title, target_language))
-        if title
-        else ""
+        loop.run_until_complete(service.translate(title, target_language)) if title else ""
     )
     translated_content = (
-        loop.run_until_complete(service.translate(content, target_language))
-        if content
-        else ""
+        loop.run_until_complete(service.translate(content, target_language)) if content else ""
     )
     return translated_title, translated_content

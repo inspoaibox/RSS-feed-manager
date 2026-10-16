@@ -1,6 +1,6 @@
 """Embedding service for generating vector embeddings using OpenAI API."""
+
 import logging
-from typing import List
 
 import httpx
 
@@ -13,21 +13,17 @@ EMBEDDING_DIMENSIONS = 1536
 
 class EmbeddingServiceError(Exception):
     """Exception raised when embedding generation fails."""
+
     pass
 
 
 class EmbeddingService:
     """Service for generating text embeddings using OpenAI API."""
 
-    def __init__(
-        self,
-        api_key: str,
-        base_url: str | None = None,
-        model: str | None = None
-    ):
+    def __init__(self, api_key: str, base_url: str | None = None, model: str | None = None):
         """
         Initialize the embedding service.
-        
+
         Args:
             api_key: OpenAI API key
             base_url: Optional custom base URL for OpenAI-compatible APIs
@@ -37,13 +33,13 @@ class EmbeddingService:
         self.base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
         self.model = model or DEFAULT_EMBEDDING_MODEL
 
-    async def generate_embedding(self, text: str) -> List[float] | None:
+    async def generate_embedding(self, text: str) -> list[float] | None:
         """
         Generate embedding vector for a single text.
-        
+
         Args:
             text: The text to generate embedding for
-            
+
         Returns:
             List of floats representing the embedding vector, or None if failed
         """
@@ -64,21 +60,19 @@ class EmbeddingService:
                     f"{self.base_url}/embeddings",
                     headers={
                         "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json"
+                        "Content-Type": "application/json",
                     },
-                    json={
-                        "model": self.model,
-                        "input": text,
-                        "dimensions": EMBEDDING_DIMENSIONS
-                    },
-                    timeout=30.0
+                    json={"model": self.model, "input": text, "dimensions": EMBEDDING_DIMENSIONS},
+                    timeout=30.0,
                 )
                 response.raise_for_status()
                 data = response.json()
                 return data["data"][0]["embedding"]
 
         except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP error generating embedding: {e.response.status_code} - {e.response.text}")
+            logger.error(
+                f"HTTP error generating embedding: {e.response.status_code} - {e.response.text}"
+            )
             return None
         except httpx.RequestError as e:
             logger.error(f"Request error generating embedding: {str(e)}")
@@ -90,16 +84,16 @@ class EmbeddingService:
             logger.error(f"Unexpected error generating embedding: {str(e)}")
             return None
 
-    async def generate_query_embedding(self, query: str) -> List[float]:
+    async def generate_query_embedding(self, query: str) -> list[float]:
         """
         Generate embedding vector for a search query.
-        
+
         Args:
             query: The search query text
-            
+
         Returns:
             List of floats representing the embedding vector
-            
+
         Raises:
             EmbeddingServiceError: If embedding generation fails
         """
@@ -109,18 +103,16 @@ class EmbeddingService:
         embedding = await self.generate_embedding(query)
         if embedding is None:
             raise EmbeddingServiceError("Failed to generate embedding for query")
-        
+
         return embedding
 
-    async def batch_generate_embeddings(
-        self, texts: List[str]
-    ) -> List[List[float] | None]:
+    async def batch_generate_embeddings(self, texts: list[str]) -> list[list[float] | None]:
         """
         Generate embeddings for multiple texts.
-        
+
         Args:
             texts: List of texts to generate embeddings for
-            
+
         Returns:
             List of embedding vectors (or None for failed items)
         """
@@ -144,24 +136,24 @@ class EmbeddingService:
                     f"{self.base_url}/embeddings",
                     headers={
                         "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json"
+                        "Content-Type": "application/json",
                     },
                     json={
                         "model": self.model,
                         "input": valid_texts,
-                        "dimensions": EMBEDDING_DIMENSIONS
+                        "dimensions": EMBEDDING_DIMENSIONS,
                     },
-                    timeout=60.0
+                    timeout=60.0,
                 )
                 response.raise_for_status()
                 data = response.json()
-                
+
                 # 构建结果列表
-                results: List[List[float] | None] = [None] * len(texts)
+                results: list[list[float] | None] = [None] * len(texts)
                 for item in data["data"]:
                     original_index = valid_indices[item["index"]]
                     results[original_index] = item["embedding"]
-                
+
                 return results
 
         except Exception as e:

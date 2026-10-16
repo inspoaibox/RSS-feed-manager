@@ -1,11 +1,13 @@
 """AI schemas for request/response validation."""
+
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AIProviderCreate(BaseModel):
     """Schema for creating an AI provider."""
+
     name: str = Field(..., min_length=1, max_length=100)
     type: str = Field(..., pattern="^(openai|gemini|openai_compatible)$")
     api_key: str = Field(..., min_length=1, max_length=500)
@@ -14,6 +16,7 @@ class AIProviderCreate(BaseModel):
 
 class AIProviderUpdate(BaseModel):
     """Schema for updating an AI provider."""
+
     name: str | None = Field(None, min_length=1, max_length=100)
     api_key: str | None = Field(None, min_length=1, max_length=500)
     base_url: str | None = Field(None, max_length=2048)
@@ -22,6 +25,7 @@ class AIProviderUpdate(BaseModel):
 
 class AIModelResponse(BaseModel):
     """Schema for AI model response."""
+
     id: int
     provider_id: int
     model_id: str
@@ -30,12 +34,12 @@ class AIModelResponse(BaseModel):
     is_default: bool
     is_active: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AIProviderResponse(BaseModel):
     """Schema for AI provider response."""
+
     id: int
     name: str
     type: str
@@ -43,12 +47,12 @@ class AIProviderResponse(BaseModel):
     is_active: bool
     models: list[AIModelResponse] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AIModelCreate(BaseModel):
     """Schema for creating an AI model."""
+
     model_id: str = Field(..., min_length=1, max_length=100)
     name: str = Field(..., min_length=1, max_length=100)
     description: str | None = Field(None, max_length=500)
@@ -56,6 +60,7 @@ class AIModelCreate(BaseModel):
 
 class AIModelUpdate(BaseModel):
     """Schema for updating an AI model."""
+
     name: str | None = Field(None, min_length=1, max_length=100)
     description: str | None = Field(None, max_length=500)
     is_active: bool | None = None
@@ -63,27 +68,32 @@ class AIModelUpdate(BaseModel):
 
 class TestConnectionResponse(BaseModel):
     """Schema for connection test response."""
+
     success: bool
     message: str
 
 
 class TranslateRequest(BaseModel):
     """Schema for translation request."""
+
     target_language: str = Field(..., min_length=2, max_length=10)
 
 
 class SummarizeResponse(BaseModel):
     """Schema for summarize response."""
+
     summary: str
 
 
 class TranslateResponse(BaseModel):
     """Schema for translate response."""
+
     translation: str
 
 
 class ArgosPackageInfo(BaseModel):
     """Schema for an Argos translation package."""
+
     source_language: str
     source_name: str | None = None
     target_language: str
@@ -96,6 +106,7 @@ class ArgosPackageInfo(BaseModel):
 
 class ArgosPackagesResponse(BaseModel):
     """Schema for Argos package listing."""
+
     installed: list[ArgosPackageInfo] = []
     available: list[ArgosPackageInfo] = []
     available_error: str | None = None
@@ -103,12 +114,14 @@ class ArgosPackagesResponse(BaseModel):
 
 class ArgosPackageInstallRequest(BaseModel):
     """Schema for installing an Argos translation package."""
+
     source_language: str = Field(..., min_length=2, max_length=10)
     target_language: str = Field(..., min_length=2, max_length=10)
 
 
 class ArgosPackageTestRequest(BaseModel):
     """Schema for testing an Argos translation package."""
+
     source_language: str = Field(..., min_length=2, max_length=10)
     target_language: str = Field(..., min_length=2, max_length=10)
     text: str = Field(default="Hello", min_length=1, max_length=500)
@@ -116,6 +129,7 @@ class ArgosPackageTestRequest(BaseModel):
 
 class ArgosPackageTestResponse(BaseModel):
     """Schema for Argos translation test response."""
+
     success: bool
     message: str
     translation: str | None = None
@@ -123,6 +137,7 @@ class ArgosPackageTestResponse(BaseModel):
 
 class ArgosTranslationLogResponse(BaseModel):
     """Schema for one Argos local translation log entry."""
+
     id: int
     article_id: int | None
     feed_id: int | None
@@ -138,12 +153,12 @@ class ArgosTranslationLogResponse(BaseModel):
     started_at: datetime
     completed_at: datetime | None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ArgosTranslationLogsResponse(BaseModel):
     """Schema for paginated Argos local translation logs."""
+
     items: list[ArgosTranslationLogResponse]
     total: int
     page: int
@@ -153,8 +168,10 @@ class ArgosTranslationLogsResponse(BaseModel):
 
 # ============ Content Analysis Schemas ============
 
+
 class AnalyzeRequest(BaseModel):
     """Schema for content analysis request."""
+
     query: str = Field(..., min_length=1, max_length=500, description="搜索查询文本")
     page: int = Field(default=1, ge=1, description="页码")
     page_size: int = Field(default=20, ge=1, le=100, description="每页数量")
@@ -163,6 +180,7 @@ class AnalyzeRequest(BaseModel):
 
 class ArticleResult(BaseModel):
     """Schema for article in analysis results."""
+
     id: int
     title: str
     feed_title: str
@@ -171,12 +189,12 @@ class ArticleResult(BaseModel):
     relevance_score: float
     snippet: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AnalyzeResponse(BaseModel):
     """Schema for content analysis response."""
+
     query: str
     analysis: str | None
     articles: list[ArticleResult]
@@ -188,14 +206,15 @@ class AnalyzeResponse(BaseModel):
 
 class QueryHistoryItem(BaseModel):
     """Schema for query history item."""
+
     id: int
     query: str
     created_at: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class QueryHistoryResponse(BaseModel):
     """Schema for query history response."""
+
     queries: list[QueryHistoryItem]

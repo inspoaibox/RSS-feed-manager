@@ -1,11 +1,13 @@
 """Article schemas for request/response validation."""
+
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ArticleResponse(BaseModel):
     """Schema for article response."""
+
     id: int
     feed_id: int
     feed_title: str | None = None
@@ -25,12 +27,12 @@ class ArticleResponse(BaseModel):
     is_favorite: bool = False
     read_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ArticleListResponse(BaseModel):
     """Schema for paginated article list."""
+
     items: list[ArticleResponse]
     total: int
     page: int
@@ -40,6 +42,7 @@ class ArticleListResponse(BaseModel):
 
 class ArticleFilter(BaseModel):
     """Schema for article filtering."""
+
     feed_id: int | None = None
     category_id: int | None = None
     keyword_id: int | None = None
@@ -55,6 +58,7 @@ class ArticleFilter(BaseModel):
 
 class ArticleSearchRequest(BaseModel):
     """Schema for article search."""
+
     query: str = Field(..., min_length=1, max_length=200)
     feed_id: int | None = None
     category_id: int | None = None
@@ -64,6 +68,7 @@ class ArticleSearchRequest(BaseModel):
 
 class MarkAllReadRequest(BaseModel):
     """Schema for marking all articles as read."""
+
     feed_id: int | None = None
     category_id: int | None = None
     keyword_id: int | None = None
@@ -71,4 +76,5 @@ class MarkAllReadRequest(BaseModel):
 
 class FavoriteResponse(BaseModel):
     """Schema for favorite toggle response."""
+
     is_favorite: bool

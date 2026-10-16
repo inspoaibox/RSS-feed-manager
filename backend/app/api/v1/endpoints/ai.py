@@ -1,11 +1,18 @@
 """AI API endpoints."""
+
+import asyncio
 import math
-from typing import List
+import uuid
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import delete, func, select
 
-from app.api.deps import CurrentUserId, DbSession
+from app.api.deps import CurrentUser, CurrentUserId, DbSession
+from app.core.config import settings
+from app.models.argos_translation_log import ArgosTranslationLog
+from app.models.user import User
+from app.repositories.ai_repository import AIProviderRepository
+from app.repositories.analysis_query_repository import AnalysisQueryRepository
 from app.schemas.ai import (
     AIModelCreate,
     AIModelResponse,
@@ -13,14 +20,14 @@ from app.schemas.ai import (
     AIProviderCreate,
     AIProviderResponse,
     AIProviderUpdate,
+    AnalyzeRequest,
+    AnalyzeResponse,
     ArgosPackageInfo,
     ArgosPackageInstallRequest,
     ArgosPackagesResponse,
     ArgosPackageTestRequest,
     ArgosPackageTestResponse,
     ArgosTranslationLogsResponse,
-    AnalyzeRequest,
-    AnalyzeResponse,
     ArticleResult,
     QueryHistoryItem,
     QueryHistoryResponse,
@@ -35,8 +42,7 @@ from app.schemas.google_translate_key import (
     GoogleTranslateKeyTestResponse,
     GoogleTranslateKeyUpdate,
 )
-from app.models.argos_translation_log import ArgosTranslationLog
-from app.models.user import User
+from app.services.ai_client import create_ai_client
 from app.services.ai_service import AIService
 from app.services.argos_translate_service import (
     ArgosTranslateError,
@@ -49,15 +55,42 @@ from app.services.content_analysis_service import ContentAnalysisService
 from app.services.embedding_service import EmbeddingService
 from app.services.google_translate_key_service import GoogleTranslateKeyService
 from app.services.mc_translation_service import McTranslationError, McTranslationService
-from app.repositories.analysis_query_repository import AnalysisQueryRepository
-from app.repositories.ai_repository import AIProviderRepository
-from app.services.ai_client import create_ai_client
+
+EMBEDDING_TASK_OWNER_PREFIX = "rss:embedding-task-owner:"
+EMBEDDING_TASK_OWNER_TTL_SECONDS = 7 * 24 * 60 * 60
+
+
+async def _remember_embedding_task_owner(task_id: str, user_id: int) -> None:
+    from redis.asyncio import from_url
+
+    client = from_url(settings.REDIS_URL, decode_responses=True)
+    try:
+        await client.set(
+            f"{EMBEDDING_TASK_OWNER_PREFIX}{task_id}",
+            str(user_id),
+            ex=EMBEDDING_TASK_OWNER_TTL_SECONDS,
+        )
+    finally:
+        await client.aclose()
+
+
+async def _require_embedding_task_owner(task_id: str, user_id: int) -> None:
+    from redis.asyncio import from_url
+
+    client = from_url(settings.REDIS_URL, decode_responses=True)
+    try:
+        owner = await client.get(f"{EMBEDDING_TASK_OWNER_PREFIX}{task_id}")
+    finally:
+        await client.aclose()
+    if owner != str(user_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+
 
 router = APIRouter()
 
 
 # Provider endpoints
-@router.get("/providers", response_model=List[AIProviderResponse])
+@router.get("/providers", response_model=list[AIProviderResponse])
 async def get_providers(user_id: CurrentUserId, db: DbSession):
     """Get all AI providers for the current user."""
     service = AIService(db)
@@ -101,7 +134,7 @@ async def test_provider(provider_id: int, user_id: CurrentUserId, db: DbSession)
     return await service.test_provider(user_id, provider_id)
 
 
-@router.post("/providers/{provider_id}/fetch-models", response_model=List[AIModelResponse])
+@router.post("/providers/{provider_id}/fetch-models", response_model=list[AIModelResponse])
 async def fetch_models(provider_id: int, user_id: CurrentUserId, db: DbSession):
     """Fetch available models from the AI provider."""
     service = AIService(db)
@@ -109,14 +142,18 @@ async def fetch_models(provider_id: int, user_id: CurrentUserId, db: DbSession):
 
 
 # Model endpoints
-@router.get("/providers/{provider_id}/models", response_model=List[AIModelResponse])
+@router.get("/providers/{provider_id}/models", response_model=list[AIModelResponse])
 async def get_models(provider_id: int, user_id: CurrentUserId, db: DbSession):
     """Get all models for a provider."""
     service = AIService(db)
     return await service.get_models(user_id, provider_id)
 
 
-@router.post("/providers/{provider_id}/models", response_model=AIModelResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/providers/{provider_id}/models",
+    response_model=AIModelResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_model(
     provider_id: int, data: AIModelCreate, user_id: CurrentUserId, db: DbSession
 ):
@@ -146,7 +183,7 @@ async def set_default_model(model_id: int, user_id: CurrentUserId, db: DbSession
     return await service.set_default_model(user_id, model_id)
 
 
-@router.get("/models", response_model=List[AIModelResponse])
+@router.get("/models", response_model=list[AIModelResponse])
 async def get_all_models(user_id: CurrentUserId, db: DbSession):
     """Get all AI models for the current user."""
     service = AIService(db)
@@ -188,11 +225,7 @@ async def get_ai_settings(user_id: CurrentUserId, db: DbSession):
 
 
 @router.put("/settings")
-async def update_ai_settings(
-    data: dict,
-    user_id: CurrentUserId,
-    db: DbSession
-):
+async def update_ai_settings(data: dict, user_id: CurrentUserId, db: DbSession):
     """Update AI prompt settings."""
     service = AIService(db)
     return await service.update_settings(user_id, data)
@@ -238,9 +271,11 @@ async def get_argos_packages(user_id: CurrentUserId, refresh: bool = False):
 @router.post("/argos/packages/install", response_model=ArgosPackageInfo)
 async def install_argos_package_endpoint(
     data: ArgosPackageInstallRequest,
-    user_id: CurrentUserId,
+    user: CurrentUser,
 ):
     """Install an Argos translation package."""
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="管理共享语言包需要管理员权限")
     try:
         return await install_argos_package(data.source_language, data.target_language)
     except ArgosTranslateError as exc:
@@ -254,9 +289,11 @@ async def install_argos_package_endpoint(
 async def uninstall_argos_package_endpoint(
     source_language: str,
     target_language: str,
-    user_id: CurrentUserId,
+    user: CurrentUser,
 ):
     """Uninstall an Argos translation package."""
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="管理共享语言包需要管理员权限")
     try:
         return await uninstall_argos_package(source_language, target_language)
     except ArgosTranslateError as exc:
@@ -289,9 +326,7 @@ async def get_argos_translation_logs(
     """Get local Argos translation execution logs."""
     total = (
         await db.execute(
-            select(func.count(ArgosTranslationLog.id)).where(
-                ArgosTranslationLog.user_id == user_id
-            )
+            select(func.count(ArgosTranslationLog.id)).where(ArgosTranslationLog.user_id == user_id)
         )
     ).scalar() or 0
 
@@ -325,7 +360,7 @@ async def clear_argos_translation_logs(user_id: CurrentUserId, db: DbSession):
     }
 
 
-@router.get("/google-translate-keys", response_model=List[GoogleTranslateKeyResponse])
+@router.get("/google-translate-keys", response_model=list[GoogleTranslateKeyResponse])
 async def get_google_translate_keys(user_id: CurrentUserId, db: DbSession):
     """Get paid Google Translate API keys for rotation."""
     return await GoogleTranslateKeyService(db).list(user_id)
@@ -384,69 +419,61 @@ async def test_google_translate_key(
 
 # ============ Content Analysis Endpoints ============
 
+
 @router.post("/analyze", response_model=AnalyzeResponse)
-async def analyze_content(
-    data: AnalyzeRequest,
-    user_id: CurrentUserId,
-    db: DbSession
-):
+async def analyze_content(data: AnalyzeRequest, user_id: CurrentUserId, db: DbSession):
     """
     Analyze content based on a natural language query.
-    
+
     Returns AI-generated analysis and related articles.
     """
     # 获取用户的默认 AI 模型配置
     ai_service = AIService(db)
     default_model = await ai_service.get_default_model(user_id)
-    
+
     embedding_service = None
     ai_client = None
-    
+
     # 获取用户的 embedding 配置
     embedding_config = await ai_service.get_embedding_config(user_id)
     if embedding_config:
         embedding_service = EmbeddingService(
             api_key=embedding_config["api_key"],
             base_url=embedding_config["base_url"],
-            model=embedding_config["model"]
+            model=embedding_config["model"],
         )
-    
+
     if default_model:
         # 获取 provider 信息
         provider_repo = AIProviderRepository(db)
         provider = await provider_repo.get_by_id(default_model.provider_id, user_id)
-        
+
         if provider:
             # 创建 AI 客户端用于生成分析
             ai_client = create_ai_client(
-                provider.type,
-                provider.api_key,
-                provider.base_url,
-                default_model.model_id
+                provider.type, provider.api_key, provider.base_url, default_model.model_id
             )
-    
+
     # 创建内容分析服务
     analysis_service = ContentAnalysisService(
-        session=db,
-        embedding_service=embedding_service,
-        ai_client=ai_client
+        session=db, embedding_service=embedding_service, ai_client=ai_client
     )
-    
+
     # 执行分析
     result = await analysis_service.analyze(
         user_id=user_id,
         query=data.query,
         page=data.page,
         page_size=data.page_size,
-        use_semantic_search=data.use_semantic_search
+        use_semantic_search=data.use_semantic_search,
     )
-    
+
     # 保存查询历史
     query_repo = AnalysisQueryRepository(db)
     await query_repo.create(user_id=user_id, query=data.query)
     await query_repo.delete_old_queries(user_id=user_id, keep_count=10)
     await db.commit()
-    
+
     # 转换为响应格式
     articles = [
         ArticleResult(
@@ -456,11 +483,11 @@ async def analyze_content(
             link=a.link,
             published_at=a.published_at.isoformat() if a.published_at else None,
             relevance_score=a.relevance_score,
-            snippet=a.get_snippet()
+            snippet=a.get_snippet(),
         )
         for a in result.articles
     ]
-    
+
     return AnalyzeResponse(
         query=result.query,
         analysis=result.analysis,
@@ -468,7 +495,7 @@ async def analyze_content(
         total=result.total,
         page=result.page,
         page_size=result.page_size,
-        search_type=result.search_type
+        search_type=result.search_type,
     )
 
 
@@ -477,13 +504,11 @@ async def get_query_history(user_id: CurrentUserId, db: DbSession):
     """Get user's recent analysis query history."""
     query_repo = AnalysisQueryRepository(db)
     queries = await query_repo.get_recent_by_user(user_id, limit=10)
-    
+
     return QueryHistoryResponse(
         queries=[
             QueryHistoryItem(
-                id=q.id,
-                query=q.query,
-                created_at=q.created_at.isoformat() if q.created_at else ""
+                id=q.id, query=q.query, created_at=q.created_at.isoformat() if q.created_at else ""
             )
             for q in queries
         ]
@@ -491,19 +516,16 @@ async def get_query_history(user_id: CurrentUserId, db: DbSession):
 
 
 @router.delete("/history/{query_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_query_history(
-    query_id: int,
-    user_id: CurrentUserId,
-    db: DbSession
-):
+async def delete_query_history(query_id: int, user_id: CurrentUserId, db: DbSession):
     """Delete a query from history."""
     query_repo = AnalysisQueryRepository(db)
     deleted = await query_repo.delete(query_id, user_id)
-    
+
     if not deleted:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=404, detail="Query not found")
-    
+
     await db.commit()
 
 
@@ -511,9 +533,10 @@ async def delete_query_history(
 async def get_embedding_status(user_id: CurrentUserId, db: DbSession):
     """Get embedding generation status for user's articles."""
     from sqlalchemy import func, select
+
     from app.models.article import Article
     from app.models.feed import Feed
-    
+
     # Count total articles
     total_result = await db.execute(
         select(func.count(Article.id))
@@ -521,7 +544,7 @@ async def get_embedding_status(user_id: CurrentUserId, db: DbSession):
         .where(Feed.user_id == user_id)
     )
     total = total_result.scalar() or 0
-    
+
     # Count articles with embedding (use isnot for proper NULL comparison)
     with_embedding_result = await db.execute(
         select(func.count(Article.id))
@@ -529,37 +552,40 @@ async def get_embedding_status(user_id: CurrentUserId, db: DbSession):
         .where(Feed.user_id == user_id, Article.embedding.isnot(None))
     )
     with_embedding = with_embedding_result.scalar() or 0
-    
+
     return {
         "total": total,
         "with_embedding": with_embedding,
         "without_embedding": total - with_embedding,
-        "percentage": round(with_embedding / total * 100, 1) if total > 0 else 0
+        "percentage": round(with_embedding / total * 100, 1) if total > 0 else 0,
     }
 
 
 @router.post("/embeddings/generate")
-async def generate_embeddings(user_id: CurrentUserId, db: DbSession, limit: int | None = None):
+async def generate_embeddings(
+    user_id: CurrentUserId,
+    db: DbSession,
+    limit: int | None = Query(None, ge=1, le=100_000),
+):
     """Trigger batch embedding generation for articles without embeddings.
-    
+
     If limit is not specified, processes all articles without embeddings.
     """
-    import os
-    from celery import Celery
     from sqlalchemy import func, select
+
     from app.models.article import Article
     from app.models.feed import Feed
-    
+    from app.tasks.celery_app import celery_app
+
     # Check if user has embedding config
     ai_service = AIService(db)
     embedding_config = await ai_service.get_embedding_config(user_id)
-    
+
     if not embedding_config:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请先在 AI 设置中配置 Embedding 模型"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="请先在 AI 设置中配置 Embedding 模型"
         )
-    
+
     # If no limit specified, count all articles without embeddings
     if limit is None:
         count_result = await db.execute(
@@ -568,56 +594,46 @@ async def generate_embeddings(user_id: CurrentUserId, db: DbSession, limit: int 
             .where(Feed.user_id == user_id, Article.embedding.is_(None))
         )
         limit = count_result.scalar() or 0
-    
+
     if limit == 0:
-        return {
-            "message": "所有文章已完成索引",
-            "task_id": None
-        }
-    
-    # Create a fresh Celery app with correct Redis URL to send task
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-    celery = Celery(broker=redis_url)
-    
-    # Send task by name (doesn't require importing the task module)
-    task = celery.send_task(
+        return {"message": "所有文章已完成索引", "task_id": None}
+
+    task_id = str(uuid.uuid4())
+    # Persist ownership before exposing or executing the task.
+    await _remember_embedding_task_owner(task_id, user_id)
+    await asyncio.to_thread(
+        celery_app.send_task,
         "app.tasks.feed_tasks.generate_embeddings_batch",
-        args=[user_id, limit]
+        args=[user_id, min(limit, 100_000)],
+        task_id=task_id,
     )
-    
-    return {
-        "message": f"已启动 Embedding 生成任务，将处理 {limit} 篇文章",
-        "task_id": task.id
-    }
+
+    return {"message": f"已启动 Embedding 生成任务，将处理 {limit} 篇文章", "task_id": task_id}
 
 
 @router.get("/embeddings/task/{task_id}")
 async def get_embedding_task_status(task_id: str, user_id: CurrentUserId):
     """Get the status of an embedding generation task."""
-    import os
-    from celery import Celery
-    
-    # Create fresh Celery app to get task status
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-    celery = Celery(broker=redis_url, backend=redis_url)
-    
-    result = celery.AsyncResult(task_id)
-    
+    from app.tasks.celery_app import celery_app
+
+    await _require_embedding_task_owner(task_id, user_id)
+    result = celery_app.AsyncResult(task_id)
+
     response = {
         "task_id": task_id,
         "status": result.status,
         "ready": result.ready(),
     }
-    
+
     # Include progress info for PROGRESS state
-    if result.status == 'PROGRESS' and result.info:
+    if result.status == "PROGRESS" and result.info:
         response["result"] = result.info
     elif result.ready():
         if result.successful():
             response["result"] = result.result
         elif result.failed():
             response["error"] = str(result.result)
-    
+
     return response
 
 
@@ -625,47 +641,62 @@ async def get_embedding_task_status(task_id: str, user_id: CurrentUserId):
 async def cancel_embedding_task(task_id: str, user_id: CurrentUserId):
     """Cancel/revoke an embedding generation task."""
     from app.tasks.celery_app import celery_app
-    
-    # Revoke the task (terminate if running)
-    celery_app.control.revoke(task_id, terminate=True, signal='SIGTERM')
-    
-    return {
-        "task_id": task_id,
-        "message": "任务已取消"
-    }
+
+    await _require_embedding_task_owner(task_id, user_id)
+    from redis.asyncio import from_url
+
+    client = from_url(settings.REDIS_URL)
+    try:
+        await client.set(
+            f"rss:embedding-cancel:{task_id}", "1", ex=EMBEDDING_TASK_OWNER_TTL_SECONDS
+        )
+    finally:
+        await client.aclose()
+    # A running worker stops between batches; do not kill a process mid-commit.
+    await asyncio.to_thread(celery_app.control.revoke, task_id, terminate=False)
+
+    return {"task_id": task_id, "message": "已请求取消任务"}
 
 
 @router.get("/embeddings/tasks")
 async def get_active_embedding_tasks(user_id: CurrentUserId):
     """Get all active embedding tasks for the user."""
     from app.tasks.celery_app import celery_app
-    
-    # Get active tasks from Celery
+
+    # Celery inspection is synchronous; keep it off the API event loop.
     inspect = celery_app.control.inspect()
-    active = inspect.active() or {}
-    reserved = inspect.reserved() or {}
-    
+    active, reserved = await asyncio.gather(
+        asyncio.to_thread(lambda: inspect.active() or {}),
+        asyncio.to_thread(lambda: inspect.reserved() or {}),
+    )
+
     tasks = []
-    
+
     # Collect active tasks
     for worker, worker_tasks in active.items():
         for task in worker_tasks:
-            if task.get('name') == 'app.tasks.feed_tasks.generate_embeddings_batch':
-                tasks.append({
-                    "task_id": task.get('id'),
-                    "status": "RUNNING",
-                    "worker": worker,
-                    "started": task.get('time_start')
-                })
-    
+            if task.get("name") == "app.tasks.feed_tasks.generate_embeddings_batch":
+                try:
+                    await _require_embedding_task_owner(task.get("id"), user_id)
+                except HTTPException:
+                    continue
+                tasks.append(
+                    {
+                        "task_id": task.get("id"),
+                        "status": "RUNNING",
+                        "worker": worker,
+                        "started": task.get("time_start"),
+                    }
+                )
+
     # Collect reserved (queued) tasks
     for worker, worker_tasks in reserved.items():
         for task in worker_tasks:
-            if task.get('name') == 'app.tasks.feed_tasks.generate_embeddings_batch':
-                tasks.append({
-                    "task_id": task.get('id'),
-                    "status": "PENDING",
-                    "worker": worker
-                })
-    
+            if task.get("name") == "app.tasks.feed_tasks.generate_embeddings_batch":
+                try:
+                    await _require_embedding_task_owner(task.get("id"), user_id)
+                except HTTPException:
+                    continue
+                tasks.append({"task_id": task.get("id"), "status": "PENDING", "worker": worker})
+
     return {"tasks": tasks}

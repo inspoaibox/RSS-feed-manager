@@ -1,4 +1,5 @@
 """AnalysisQuery model for storing user query history."""
+
 from typing import TYPE_CHECKING
 
 from sqlalchemy import ForeignKey, Text
@@ -16,9 +17,7 @@ class AnalysisQuery(BaseModel):
     __tablename__ = "analysis_queries"
 
     user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     query: Mapped[str] = mapped_column(Text, nullable=False)
 

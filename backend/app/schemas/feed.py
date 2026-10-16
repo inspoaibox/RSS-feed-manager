@@ -1,8 +1,9 @@
 """Feed schemas for request/response validation."""
+
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field
 
 FeedBrowserEngine = Literal["http", "playwright", "cloakbrowser"]
 FeedProxyMode = Literal["none", "single", "pool"]
@@ -13,6 +14,7 @@ FeedSourceType = Literal["rss", "whmcs"]
 
 class FeedCreate(BaseModel):
     """Schema for creating a feed."""
+
     url: str = Field(..., max_length=2048)
     source_type: FeedSourceType = "rss"
     category_id: int | None = None
@@ -26,7 +28,9 @@ class FeedCreate(BaseModel):
     proxy_pool_protocol: FeedProxyProtocol | None = None
     auto_translate: bool = False  # Auto translate articles using AI
     auto_summarize: bool = False  # Auto summarize articles using AI
-    source_language: str | None = Field(None, max_length=10)  # Source language for local translation
+    source_language: str | None = Field(
+        None, max_length=10
+    )  # Source language for local translation
     target_language: str | None = Field(None, max_length=10)  # Target language for translation
     translate_method: FeedTranslateMethod = "none"  # Translation method
     translate_title: bool = True
@@ -41,6 +45,7 @@ class FeedCreate(BaseModel):
 
 class FeedUpdate(BaseModel):
     """Schema for updating a feed."""
+
     title: str | None = Field(None, max_length=255)
     category_id: int | None = None
     fetch_interval: int | None = Field(None, ge=60, le=86400)
@@ -64,11 +69,13 @@ class FeedUpdate(BaseModel):
 
 class FeedReorder(BaseModel):
     """Schema for reordering feeds."""
+
     feed_ids: list[int] = Field(..., description="Feed IDs in desired order")
 
 
 class FeedResponse(BaseModel):
     """Schema for feed response."""
+
     id: int
     url: str
     title: str
@@ -97,18 +104,19 @@ class FeedResponse(BaseModel):
     unread_count: int = 0
     article_count: int = 0
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class FeedListResponse(BaseModel):
     """Schema for list of feeds."""
+
     items: list[FeedResponse]
     total: int
 
 
 class OPMLImportResult(BaseModel):
     """Schema for OPML import result."""
+
     imported: int
     skipped: int
     errors: list[str]

@@ -1,5 +1,4 @@
 """Proxy pool API endpoints."""
-from typing import List
 
 from fastapi import APIRouter, Query, status
 
@@ -19,7 +18,7 @@ from app.services.proxy_pool_service import ProxyPoolService
 router = APIRouter()
 
 
-@router.get("", response_model=List[ProxyPoolEntryResponse])
+@router.get("", response_model=list[ProxyPoolEntryResponse])
 async def list_proxies(
     user_id: CurrentUserId,
     db: DbSession,

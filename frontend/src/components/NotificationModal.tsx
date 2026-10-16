@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Bell, Info, Wrench, ChevronLeft, ChevronRight } from 'lucide-react'
 import api from '@/services/api'
+import { sanitizeHtml } from '@/utils/sanitizeHtml'
 import type { NotificationListResponse, MarkReadResponse } from '@/types/notification'
 import clsx from 'clsx'
 
@@ -135,7 +136,9 @@ export default function NotificationModal({ isOpen, onClose }: NotificationModal
               </h2>
               <div 
                 className="text-gray-600 dark:text-gray-300 prose dark:prose-invert max-w-none"
-                dangerouslySetInnerHTML={{ __html: currentNotification.content.replace(/\n/g, '<br/>') }}
+                dangerouslySetInnerHTML={{
+                  __html: sanitizeHtml(currentNotification.content).replace(/\n/g, '<br/>'),
+                }}
               />
               <p className="mt-4 text-xs text-gray-400 dark:text-gray-500">
                 {new Date(currentNotification.created_at).toLocaleString('zh-CN')}

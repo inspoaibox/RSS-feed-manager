@@ -1,10 +1,12 @@
 """Article repository for database operations."""
-from datetime import datetime
-from typing import Iterable, List, Tuple
 
-from sqlalchemy import and_, func, or_, select, update
+from collections.abc import Iterable
+from datetime import UTC, datetime
+
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import utc_now
 from app.models.article import Article, UserArticle
 from app.models.feed import Feed
 from app.models.keyword_article_match import KeywordArticleMatch
@@ -40,10 +42,7 @@ def build_article_search_conditions(query: str) -> list:
         Feed.title,
     )
 
-    return [
-        or_(*(field.ilike(f"%{term}%") for field in fields))
-        for term in terms
-    ]
+    return [or_(*(field.ilike(f"%{term}%") for field in fields)) for term in terms]
 
 
 class ArticleRepository:
@@ -60,7 +59,7 @@ class ArticleRepository:
         link: str,
         content: str | None = None,
         author: str | None = None,
-        published_at: datetime | None = None
+        published_at: datetime | None = None,
     ) -> Article:
         """Create a new article."""
         article = Article(
@@ -70,7 +69,7 @@ class ArticleRepository:
             link=link,
             content=content,
             author=author,
-            published_at=published_at or datetime.utcnow()
+            published_at=published_at or utc_now(),
         )
         self.session.add(article)
         await self.session.flush()
@@ -78,18 +77,13 @@ class ArticleRepository:
 
     async def get_by_id(self, article_id: int) -> Article | None:
         """Get article by ID."""
-        result = await self.session.execute(
-            select(Article).where(Article.id == article_id)
-        )
+        result = await self.session.execute(select(Article).where(Article.id == article_id))
         return result.scalar_one_or_none()
 
     async def get_by_guid(self, feed_id: int, guid: str) -> Article | None:
         """Get article by feed ID and GUID."""
         result = await self.session.execute(
-            select(Article).where(
-                Article.feed_id == feed_id,
-                Article.guid == guid
-            )
+            select(Article).where(Article.feed_id == feed_id, Article.guid == guid)
         )
         return result.scalar_one_or_none()
 
@@ -123,27 +117,24 @@ class ArticleRepository:
         date_from: str | None = None,
         date_to: str | None = None,
         page: int = 1,
-        page_size: int = 20
-    ) -> Tuple[List[dict], int]:
+        page_size: int = 20,
+    ) -> tuple[list[dict], int]:
         """Get paginated articles with user state."""
         # Base query joining articles with feeds
         base_query = (
-            select(Article, UserArticle, Feed.title.label('feed_title'))
+            select(Article, UserArticle, Feed.title.label("feed_title"))
             .join(Feed, Article.feed_id == Feed.id)
             .outerjoin(
                 UserArticle,
-                and_(
-                    UserArticle.article_id == Article.id,
-                    UserArticle.user_id == user_id
-                )
+                and_(UserArticle.article_id == Article.id, UserArticle.user_id == user_id),
             )
             .where(Feed.user_id == user_id)
         )
-        
+
         # Apply filters
         if feed_id is not None:
             base_query = base_query.where(Article.feed_id == feed_id)
-        
+
         if category_id is not None:
             base_query = base_query.where(Feed.category_id == category_id)
 
@@ -155,83 +146,84 @@ class ArticleRepository:
                     KeywordArticleMatch.keyword_subscription_id == keyword.id,
                 ),
             )
-        
+
         if is_read is not None:
             if is_read:
-                base_query = base_query.where(UserArticle.is_read == True)
+                base_query = base_query.where(UserArticle.is_read.is_(True))
             else:
                 base_query = base_query.where(
-                    or_(UserArticle.is_read == False, UserArticle.is_read == None)
+                    or_(UserArticle.is_read.is_(False), UserArticle.is_read.is_(None))
                 )
-        
+
         if is_favorite is not None:
             if is_favorite:
-                base_query = base_query.where(UserArticle.is_favorite == True)
+                base_query = base_query.where(UserArticle.is_favorite.is_(True))
             else:
                 base_query = base_query.where(
-                    or_(UserArticle.is_favorite == False, UserArticle.is_favorite == None)
+                    or_(UserArticle.is_favorite.is_(False), UserArticle.is_favorite.is_(None))
                 )
-        
+
         # Date filter - expects ISO format datetime strings from frontend
         if date_from:
-            from datetime import datetime, timezone, timedelta
+            from datetime import timedelta
+
             from dateutil import parser as date_parser
+
             try:
                 date_start = date_parser.isoparse(date_from)
                 # Ensure timezone-aware UTC datetime
                 if date_start.tzinfo is None:
-                    date_start = date_start.replace(tzinfo=timezone.utc)
+                    date_start = date_start.replace(tzinfo=UTC)
                 base_query = base_query.where(Article.published_at >= date_start)
             except (ValueError, Exception):
                 pass
-        
+
         if date_to:
-            from datetime import datetime, timezone, timedelta
+            from datetime import timedelta
+
             from dateutil import parser as date_parser
+
             try:
                 date_end = date_parser.isoparse(date_to)
                 # Ensure timezone-aware UTC datetime
                 if date_end.tzinfo is None:
-                    date_end = date_end.replace(tzinfo=timezone.utc)
+                    date_end = date_end.replace(tzinfo=UTC)
                 # Add 1 second to include the end time (23:59:59 -> 24:00:00)
                 date_end = date_end + timedelta(seconds=1)
                 base_query = base_query.where(Article.published_at < date_end)
             except (ValueError, Exception):
                 pass
-        
+
         # Count total
         count_query = select(func.count()).select_from(base_query.subquery())
         total_result = await self.session.execute(count_query)
         total = total_result.scalar() or 0
-        
+
         # Apply sorting
         sort_column = getattr(Article, sort_by, Article.published_at)
         if sort_order == "asc":
             order_clause = sort_column.asc()
         else:
             order_clause = sort_column.desc()
-        
+
         # Get paginated results
-        query = (
-            base_query
-            .order_by(order_clause)
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-        )
-        
+        query = base_query.order_by(order_clause).offset((page - 1) * page_size).limit(page_size)
+
         result = await self.session.execute(query)
         rows = result.all()
-        
+
         articles = []
         for article, user_article, feed_title in rows:
-            articles.append({
-                "article": article,
-                "feed_title": feed_title,
-                "is_read": user_article.is_read if user_article else False,
-                "is_favorite": user_article.is_favorite if user_article else False,
-                "read_at": user_article.read_at if user_article else None
-            })
-        
+            articles.append(
+                {
+                    "article": article,
+                    "feed_title": feed_title,
+                    "is_read": user_article.is_read if user_article else False,
+                    "is_favorite": user_article.is_favorite if user_article else False,
+                    "read_at": user_article.read_at if user_article else None,
+                }
+            )
+
         return articles, total
 
     async def search(
@@ -241,66 +233,62 @@ class ArticleRepository:
         feed_id: int | None = None,
         category_id: int | None = None,
         page: int = 1,
-        page_size: int = 20
-    ) -> Tuple[List[dict], int]:
+        page_size: int = 20,
+    ) -> tuple[list[dict], int]:
         """Search articles by title and content."""
         search_conditions = build_article_search_conditions(query)
-        
+
         base_query = (
-            select(Article, UserArticle, Feed.title.label('feed_title'))
+            select(Article, UserArticle, Feed.title.label("feed_title"))
             .join(Feed, Article.feed_id == Feed.id)
             .outerjoin(
                 UserArticle,
-                and_(
-                    UserArticle.article_id == Article.id,
-                    UserArticle.user_id == user_id
-                )
+                and_(UserArticle.article_id == Article.id, UserArticle.user_id == user_id),
             )
             .where(
-                Feed.user_id == user_id,
-                and_(*search_conditions) if search_conditions else False
+                Feed.user_id == user_id, and_(*search_conditions) if search_conditions else False
             )
         )
-        
+
         if feed_id is not None:
             base_query = base_query.where(Article.feed_id == feed_id)
-        
+
         if category_id is not None:
             base_query = base_query.where(Feed.category_id == category_id)
-        
+
         # Count total
         count_query = select(func.count()).select_from(base_query.subquery())
         total_result = await self.session.execute(count_query)
         total = total_result.scalar() or 0
-        
+
         # Get paginated results
         query_stmt = (
-            base_query
-            .order_by(Article.published_at.desc())
+            base_query.order_by(Article.published_at.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
-        
+
         result = await self.session.execute(query_stmt)
         rows = result.all()
-        
+
         articles = []
         for article, user_article, feed_title in rows:
-            articles.append({
-                "article": article,
-                "feed_title": feed_title,
-                "is_read": user_article.is_read if user_article else False,
-                "is_favorite": user_article.is_favorite if user_article else False
-            })
-        
+            articles.append(
+                {
+                    "article": article,
+                    "feed_title": feed_title,
+                    "is_read": user_article.is_read if user_article else False,
+                    "is_favorite": user_article.is_favorite if user_article else False,
+                }
+            )
+
         return articles, total
 
     async def get_user_article(self, user_id: int, article_id: int) -> UserArticle | None:
         """Get user article state."""
         result = await self.session.execute(
             select(UserArticle).where(
-                UserArticle.user_id == user_id,
-                UserArticle.article_id == article_id
+                UserArticle.user_id == user_id, UserArticle.article_id == article_id
             )
         )
         return result.scalar_one_or_none()
@@ -318,7 +306,7 @@ class ArticleRepository:
         """Mark article as read."""
         user_article = await self.get_or_create_user_article(user_id, article_id)
         user_article.is_read = True
-        user_article.read_at = datetime.utcnow()
+        user_article.read_at = utc_now()
         await self.session.flush()
 
     async def mark_unread(self, user_id: int, article_id: int) -> None:
@@ -332,7 +320,7 @@ class ArticleRepository:
         """Toggle article favorite status. Returns new status."""
         user_article = await self.get_or_create_user_article(user_id, article_id)
         user_article.is_favorite = not user_article.is_favorite
-        user_article.favorited_at = datetime.utcnow() if user_article.is_favorite else None
+        user_article.favorited_at = utc_now() if user_article.is_favorite else None
         await self.session.flush()
         return user_article.is_favorite
 
@@ -354,11 +342,7 @@ class ArticleRepository:
         article_ids = [row[0] for row in article_ids_result.all()]
         return await self._mark_article_ids_read(user_id, article_ids)
 
-    async def mark_all_read_by_keyword(
-        self,
-        user_id: int,
-        keyword: KeywordSubscription
-    ) -> int:
+    async def mark_all_read_by_keyword(self, user_id: int, keyword: KeywordSubscription) -> int:
         """Mark all articles matching a keyword subscription as read."""
         conditions = build_keyword_conditions(keyword)
         if not conditions:
@@ -380,7 +364,7 @@ class ArticleRepository:
 
         return await self._mark_article_ids_read(user_id, article_ids)
 
-    async def _mark_article_ids_read(self, user_id: int, article_ids: List[int]) -> int:
+    async def _mark_article_ids_read(self, user_id: int, article_ids: list[int]) -> int:
         """Mark article IDs as read with batched state loading."""
         if not article_ids:
             return 0
@@ -395,11 +379,10 @@ class ArticleRepository:
                 )
             )
             existing_by_article_id.update(
-                (user_article.article_id, user_article)
-                for user_article in result.scalars().all()
+                (user_article.article_id, user_article) for user_article in result.scalars().all()
             )
 
-        now = datetime.utcnow()
+        now = utc_now()
         count = 0
         new_user_articles: list[UserArticle] = []
         for article_id in unique_article_ids:
@@ -431,14 +414,11 @@ class ArticleRepository:
             select(func.count(Article.id))
             .outerjoin(
                 UserArticle,
-                and_(
-                    UserArticle.article_id == Article.id,
-                    UserArticle.user_id == user_id
-                )
+                and_(UserArticle.article_id == Article.id, UserArticle.user_id == user_id),
             )
             .where(
                 Article.feed_id == feed_id,
-                or_(UserArticle.is_read == False, UserArticle.is_read == None)
+                or_(UserArticle.is_read.is_(False), UserArticle.is_read.is_(None)),
             )
         )
         return result.scalar() or 0
@@ -448,7 +428,7 @@ class ArticleRepository:
         article: Article,
         full_content: str | None = None,
         summary: str | None = None,
-        translation: str | None = None
+        translation: str | None = None,
     ) -> Article:
         """Update article content fields."""
         if full_content is not None:
@@ -460,51 +440,40 @@ class ArticleRepository:
         await self.session.flush()
         return article
 
-    async def update_embedding(
-        self,
-        article_id: int,
-        embedding: list[float] | None
-    ) -> bool:
+    async def update_embedding(self, article_id: int, embedding: list[float] | None) -> bool:
         """
         Update article embedding.
-        
+
         Args:
             article_id: The article ID
             embedding: The embedding vector
-            
+
         Returns:
             True if updated, False if article not found
         """
         article = await self.get_by_id(article_id)
         if not article:
             return False
-        
+
         article.embedding = embedding
         await self.session.flush()
         return True
 
-    async def get_articles_without_embedding(
-        self,
-        user_id: int,
-        limit: int = 100
-    ) -> List[Article]:
+    async def get_articles_without_embedding(self, user_id: int, limit: int = 100) -> list[Article]:
         """
         Get articles without embedding for a user.
-        
+
         Args:
             user_id: The user ID
             limit: Maximum number of articles to return
-            
+
         Returns:
             List of articles without embedding
         """
         result = await self.session.execute(
             select(Article)
             .join(Feed, Article.feed_id == Feed.id)
-            .where(
-                Feed.user_id == user_id,
-                Article.embedding == None
-            )
+            .where(Feed.user_id == user_id, Article.embedding.is_(None))
             .order_by(Article.created_at.desc())
             .limit(limit)
         )

@@ -1,18 +1,23 @@
 """Push notification service for triggering and sending notifications."""
+
 import json
 import logging
-from datetime import datetime, time
+from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select, or_, and_, func
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
-from app.models.push_notification import NotificationSubscription, NotificationPush, WebPushSubscription
+from app.core.clock import utc_now
 from app.models.article import Article
-from app.models.feed import Feed
+from app.models.push_notification import (
+    NotificationPush,
+    NotificationSubscription,
+    WebPushSubscription,
+)
 
 if TYPE_CHECKING:
-    from app.models.user import User
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +75,8 @@ class PushNotificationService:
         # Feed subscription
         conditions.append(
             and_(
-                NotificationSubscription.subscription_type == 'feed',
-                NotificationSubscription.target_id == feed_id
+                NotificationSubscription.subscription_type == "feed",
+                NotificationSubscription.target_id == feed_id,
             )
         )
 
@@ -79,35 +84,40 @@ class PushNotificationService:
         if category_id:
             conditions.append(
                 and_(
-                    NotificationSubscription.subscription_type == 'category',
-                    NotificationSubscription.target_id == category_id
+                    NotificationSubscription.subscription_type == "category",
+                    NotificationSubscription.target_id == category_id,
                 )
             )
 
         # Keyword subscription
         # Check if article title or content contains keyword (case-insensitive)
-        keyword_subs = self.db.execute(
-            select(NotificationSubscription)
-            .where(
-                NotificationSubscription.subscription_type == 'keyword',
-                NotificationSubscription.is_enabled == True
+        keyword_subs = (
+            self.db.execute(
+                select(NotificationSubscription).where(
+                    NotificationSubscription.user_id == article.feed.user_id,
+                    NotificationSubscription.subscription_type == "keyword",
+                    NotificationSubscription.is_enabled.is_(True),
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         matching_keyword_subs = []
         for sub in keyword_subs:
             if sub.keyword:
                 keyword_lower = sub.keyword.lower()
-                title_lower = (article.title or '').lower()
-                content_lower = (article.content or '').lower()
+                title_lower = (article.title or "").lower()
+                content_lower = (article.content or "").lower()
 
                 if keyword_lower in title_lower or keyword_lower in content_lower:
                     matching_keyword_subs.append(sub.id)
 
         # Query feed/category subscriptions
         query = select(NotificationSubscription).where(
-            NotificationSubscription.is_enabled == True,
-            or_(*conditions) if conditions else False
+            NotificationSubscription.user_id == article.feed.user_id,
+            NotificationSubscription.is_enabled.is_(True),
+            or_(*conditions) if conditions else False,
         )
 
         feed_category_subs = list(self.db.execute(query).scalars().all())
@@ -127,7 +137,7 @@ class PushNotificationService:
         result = self.db.execute(
             select(NotificationPush).where(
                 NotificationPush.subscription_id == subscription_id,
-                NotificationPush.article_id == article_id
+                NotificationPush.article_id == article_id,
             )
         )
         return result.scalar_one_or_none() is not None
@@ -139,15 +149,15 @@ class PushNotificationService:
 
         try:
             hours_data = json.loads(quiet_hours)
-            start_str = hours_data.get('start')
-            end_str = hours_data.get('end')
+            start_str = hours_data.get("start")
+            end_str = hours_data.get("end")
 
             if not start_str or not end_str:
                 return False
 
             # Parse time strings
-            start_time = datetime.strptime(start_str, '%H:%M').time()
-            end_time = datetime.strptime(end_str, '%H:%M').time()
+            start_time = datetime.strptime(start_str, "%H:%M").time()
+            end_time = datetime.strptime(end_str, "%H:%M").time()
             current_time = datetime.now().time()
 
             # Handle quiet hours that span midnight
@@ -171,8 +181,8 @@ class PushNotificationService:
             user_id=user.id,
             subscription_id=subscription.id,
             article_id=article.id,
-            status='sent',
-            pushed_at=datetime.utcnow()
+            status="sent",
+            pushed_at=utc_now(),
         )
         self.db.add(push)
         self.db.flush()  # Get push ID
@@ -192,63 +202,69 @@ class PushNotificationService:
             logger.info(f"Desktop notification for push {push.id} (handled by frontend)")
 
         self.db.commit()
-        logger.info(f"Push sent: subscription={subscription.id}, article={article.id}, push={push.id}")
+        logger.info(
+            f"Push sent: subscription={subscription.id}, article={article.id}, push={push.id}"
+        )
 
     def _send_web_push(self, user_id: int, title: str, body: str, url: str, push_id: int) -> None:
         """Send Web Push notification."""
         try:
-            from pywebpush import webpush, WebPushException
+            from pywebpush import WebPushException, webpush
+
             from app.core.config import settings
         except ImportError:
             logger.warning("pywebpush not installed, skipping Web Push")
             return
 
         # Get user's Web Push subscriptions
-        web_subs = self.db.execute(
-            select(WebPushSubscription).where(WebPushSubscription.user_id == user_id)
-        ).scalars().all()
+        web_subs = (
+            self.db.execute(
+                select(WebPushSubscription).where(WebPushSubscription.user_id == user_id)
+            )
+            .scalars()
+            .all()
+        )
 
         if not web_subs:
             logger.info(f"No Web Push subscriptions for user {user_id}")
             return
 
         # Check VAPID keys
-        vapid_private_key = getattr(settings, 'VAPID_PRIVATE_KEY', None)
-        vapid_contact_email = getattr(settings, 'VAPID_CONTACT_EMAIL', None)
+        vapid_private_key = getattr(settings, "VAPID_PRIVATE_KEY", None)
+        vapid_contact_email = getattr(settings, "VAPID_CONTACT_EMAIL", None)
 
         if not vapid_private_key or not vapid_contact_email:
             logger.warning("VAPID keys not configured, skipping Web Push")
             return
 
-        payload = json.dumps({
-            'title': title,
-            'body': body,
-            'icon': '/icon.png',
-            'badge': '/badge.png',
-            'url': url,
-            'push_id': push_id,
-            'tag': f'push-{push_id}',
-            'timestamp': int(datetime.utcnow().timestamp() * 1000)
-        })
+        payload = json.dumps(
+            {
+                "title": title,
+                "body": body,
+                "icon": "/icon.png",
+                "badge": "/badge.png",
+                "url": url,
+                "push_id": push_id,
+                "tag": f"push-{push_id}",
+                "timestamp": int(utc_now().timestamp() * 1000),
+            }
+        )
 
         for web_sub in web_subs:
             try:
                 webpush(
                     subscription_info={
-                        'endpoint': web_sub.endpoint,
-                        'keys': {
-                            'p256dh': web_sub.p256dh,
-                            'auth': web_sub.auth
-                        }
+                        "endpoint": web_sub.endpoint,
+                        "keys": {"p256dh": web_sub.p256dh, "auth": web_sub.auth},
                     },
                     data=payload,
                     vapid_private_key=vapid_private_key,
-                    vapid_claims={
-                        'sub': f'mailto:{vapid_contact_email}'
-                    },
-                    timeout=10
+                    vapid_claims={"sub": f"mailto:{vapid_contact_email}"},
+                    timeout=10,
                 )
-                logger.info(f"Web Push sent to user {user_id}, endpoint: {web_sub.endpoint[:50]}...")
+                logger.info(
+                    f"Web Push sent to user {user_id}, endpoint: {web_sub.endpoint[:50]}..."
+                )
             except WebPushException as e:
                 logger.error(f"Web Push failed for user {user_id}: {e}")
 
@@ -260,7 +276,7 @@ class PushNotificationService:
                 # Update push status
                 push = self.db.get(NotificationPush, push_id)
                 if push:
-                    push.status = 'failed'
+                    push.status = "failed"
 
                 self.db.commit()
             except Exception as e:
@@ -269,9 +285,7 @@ class PushNotificationService:
 
 def trigger_push_notifications_for_article(db: Session, article_id: int) -> None:
     """Trigger push notifications for an article (to be called from tasks)."""
-    article = db.execute(
-        select(Article).where(Article.id == article_id)
-    ).scalar_one_or_none()
+    article = db.execute(select(Article).where(Article.id == article_id)).scalar_one_or_none()
 
     if not article:
         logger.warning(f"Article {article_id} not found for push notifications")

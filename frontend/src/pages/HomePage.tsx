@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, Check, Star, ExternalLink, Search, SortAsc, SortDesc, X, Languages, FileText, Loader2, ChevronLeft, ChevronRight, Calendar } from 'lucide-react'
 import api from '@/services/api'
+import { sanitizeHtml } from '@/utils/sanitizeHtml'
+import { safeExternalUrl } from '@/utils/safeExternalUrl'
 import type { Article, PaginatedResponse, TranslationStatus } from '@/types'
 import clsx from 'clsx'
 
@@ -351,22 +353,24 @@ export default function HomePage() {
   }
 
   const currentData = isSearching ? searchData : data
-  const articles = currentData?.items || []
+  const articles = useMemo(() => currentData?.items || [], [currentData?.items])
   const loading = isSearching ? isSearchLoading : isLoading
   const totalPages = currentData?.total_pages || 1
   const page = isSearching ? searchPage : currentPage
   const setPage = isSearching ? setSearchPage : setCurrentPage
 
+  const selectedArticleId = selectedArticle?.id
+  const selectedTranslationStatus = selectedArticle ? getTranslationStatus(selectedArticle) : 'none'
   useEffect(() => {
-    if (!selectedArticle) return
-    const latest = articles.find((article) => article.id === selectedArticle.id)
+    if (!selectedArticleId) return
+    const latest = articles.find((article) => article.id === selectedArticleId)
     if (latest) {
       setSelectedArticle((prev) => prev ? { ...prev, ...latest } : latest)
     }
-  }, [articles, selectedArticle?.id])
+  }, [articles, selectedArticleId])
 
   useEffect(() => {
-    if (!selectedArticle || !isTranslationActive(getTranslationStatus(selectedArticle))) {
+    if (!selectedArticleId || !isTranslationActive(selectedTranslationStatus)) {
       return
     }
 
@@ -376,7 +380,7 @@ export default function HomePage() {
     }, 5000)
 
     return () => window.clearInterval(interval)
-  }, [queryClient, selectedArticle?.id, selectedArticle?.translation_status])
+  }, [queryClient, selectedArticleId, selectedTranslationStatus])
 
   const goToPage = (newPage: number) => {
     if (newPage >= 1 && newPage <= totalPages) {
@@ -752,7 +756,7 @@ export default function HomePage() {
                   </button>
                   {selectedArticle.link && (
                     <a
-                      href={selectedArticle.link}
+                      href={safeExternalUrl(selectedArticle.link)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-gray-300"
@@ -837,14 +841,14 @@ export default function HomePage() {
                         <div
                           className="prose prose-sm dark:prose-invert max-w-none dark:text-gray-200"
                           dangerouslySetInnerHTML={{
-                            __html: translatedData.content
+                            __html: sanitizeHtml(translatedData.content)
                           }}
                         />
                       ) : (
                         <div
                           className="prose prose-sm dark:prose-invert max-w-none dark:text-gray-200"
                           dangerouslySetInnerHTML={{
-                            __html: selectedArticle.full_content || selectedArticle.content || ''
+                            __html: sanitizeHtml(selectedArticle.full_content || selectedArticle.content || '')
                           }}
                         />
                       )}

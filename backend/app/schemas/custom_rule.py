@@ -1,8 +1,9 @@
 """Custom rule schemas."""
+
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field
 
 TranslateMethod = str
 CustomRuleProxyMode = Literal["none", "single", "pool"]
@@ -12,9 +13,10 @@ TRANSLATE_METHOD_PATTERN = "^(none|ai|google|argos|mc_translation)$"
 
 class CustomRuleBase(BaseModel):
     """Base custom rule schema."""
+
     name: str = Field(..., min_length=1, max_length=100)
     target_url: str = Field(..., max_length=2048)
-    rule_type: str = Field(default='general', max_length=20)  # general, telegram, twitter
+    rule_type: str = Field(default="general", max_length=20)  # general, telegram, twitter
     cookies: str | None = Field(None, max_length=10000)  # Cookies for authenticated requests
     list_selector: str = Field(..., max_length=500)
     title_selector: str = Field(..., max_length=500)
@@ -32,7 +34,7 @@ class CustomRuleBase(BaseModel):
     auto_summarize: bool = False
     source_language: str | None = Field(None, max_length=10)
     target_language: str | None = Field(None, max_length=10)
-    translate_method: TranslateMethod = Field(default='none', pattern=TRANSLATE_METHOD_PATTERN)
+    translate_method: TranslateMethod = Field(default="none", pattern=TRANSLATE_METHOD_PATTERN)
     translate_title: bool = True
     translate_content: bool = False
     is_active: bool = True
@@ -40,11 +42,13 @@ class CustomRuleBase(BaseModel):
 
 class CustomRuleCreate(CustomRuleBase):
     """Schema for creating a custom rule."""
+
     category_id: int | None = None
 
 
 class CustomRuleUpdate(BaseModel):
     """Schema for updating a custom rule."""
+
     name: str | None = Field(None, min_length=1, max_length=100)
     target_url: str | None = Field(None, max_length=2048)
     rule_type: str | None = Field(None, max_length=20)
@@ -74,6 +78,7 @@ class CustomRuleUpdate(BaseModel):
 
 class CustomRuleResponse(BaseModel):
     """Schema for custom rule response."""
+
     id: int
     user_id: int
     category_id: int | None
@@ -98,7 +103,7 @@ class CustomRuleResponse(BaseModel):
     auto_summarize: bool
     source_language: str | None
     target_language: str | None
-    translate_method: str = 'none'
+    translate_method: str = "none"
     translate_title: bool = True
     translate_content: bool = False
     is_active: bool
@@ -108,12 +113,12 @@ class CustomRuleResponse(BaseModel):
     created_at: datetime
     updated_at: datetime | None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CustomRuleTestRequest(BaseModel):
     """Schema for testing a custom rule."""
+
     target_url: str = Field(..., max_length=2048)
     list_selector: str = Field(..., max_length=500)
     title_selector: str = Field(..., max_length=500)
@@ -130,6 +135,7 @@ class CustomRuleTestRequest(BaseModel):
 
 class CustomRuleTestResult(BaseModel):
     """Schema for custom rule test result."""
+
     success: bool
     items_found: int
     sample_items: list[dict]
@@ -138,12 +144,14 @@ class CustomRuleTestResult(BaseModel):
 
 class AIGenerateRuleRequest(BaseModel):
     """Schema for AI-generated rule request."""
+
     target_url: str = Field(..., max_length=2048)
     custom_prompt: str | None = Field(None, max_length=10000)  # Custom prompt for AI generation
 
 
 class AIGenerateRuleResponse(BaseModel):
     """Schema for AI-generated rule response."""
+
     success: bool
     name: str | None = None
     list_selector: str | None = None

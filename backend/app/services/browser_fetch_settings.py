@@ -1,15 +1,14 @@
 """Browser-backed fetch settings helpers."""
-from dataclasses import asdict, dataclass, field
+
 import os
+from dataclasses import asdict, dataclass, field
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.core.config import settings as app_settings
 from app.models.system_settings import SystemSettings
 from app.repositories.system_settings_repository import SystemSettingsRepository
-
 
 DEFAULT_BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -149,6 +148,7 @@ def load_browser_fetch_settings_sync(db: Session) -> BrowserFetchSettings:
 def browser_fetch_settings_from_values(values: dict[str, str | None]) -> BrowserFetchSettings:
     """Coerce raw key/value settings into a typed settings object."""
     import json
+
     defaults = default_browser_fetch_settings()
 
     # 解析 user_agent_pool
@@ -195,8 +195,12 @@ def browser_fetch_settings_from_values(values: dict[str, str | None]) -> Browser
             values.get("cloakbrowser_wait_until"),
             defaults.cloakbrowser_wait_until,
         ),
-        viewport_width=_coerce_int(values.get("viewport_width"), defaults.viewport_width, 320, 3840),
-        viewport_height=_coerce_int(values.get("viewport_height"), defaults.viewport_height, 240, 2160),
+        viewport_width=_coerce_int(
+            values.get("viewport_width"), defaults.viewport_width, 320, 3840
+        ),
+        viewport_height=_coerce_int(
+            values.get("viewport_height"), defaults.viewport_height, 240, 2160
+        ),
         user_agent=_coerce_str(values.get("user_agent"), defaults.user_agent, 500),
         user_agent_pool=user_agent_pool,
         user_agent_rotate=_coerce_bool(values.get("user_agent_rotate"), False),
@@ -206,7 +210,9 @@ def browser_fetch_settings_from_values(values: dict[str, str | None]) -> Browser
             values.get("cloakbrowser_humanize"),
             defaults.cloakbrowser_humanize,
         ),
-        cloakbrowser_geoip=_coerce_bool(values.get("cloakbrowser_geoip"), defaults.cloakbrowser_geoip),
+        cloakbrowser_geoip=_coerce_bool(
+            values.get("cloakbrowser_geoip"), defaults.cloakbrowser_geoip
+        ),
     )
 
 

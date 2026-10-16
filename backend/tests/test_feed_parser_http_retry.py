@@ -19,7 +19,7 @@ class RetrySuccessAsyncClient:
     async def __aexit__(self, exc_type, exc, tb):
         return False
 
-    async def get(self, url, timeout, follow_redirects, headers):
+    async def get(self, url, timeout, follow_redirects, headers, **kwargs):
         self.requests.append(headers)
         request = Request("GET", url)
         if len(self.requests) == 1:
@@ -46,7 +46,7 @@ class AlwaysFailAsyncClient:
     async def __aexit__(self, exc_type, exc, tb):
         return False
 
-    async def get(self, url, timeout, follow_redirects, headers):
+    async def get(self, url, timeout, follow_redirects, headers, **kwargs):
         self.requests.append(headers)
         raise RequestError("connection failed", request=Request("GET", url))
 

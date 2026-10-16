@@ -1,4 +1,5 @@
 """Custom rules API endpoints."""
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,10 +50,7 @@ async def get_rule(
     service = CustomRuleService(db)
     rule = await service.get_rule(rule_id, current_user.id)
     if not rule:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Rule not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
     return rule
 
 
@@ -67,10 +65,7 @@ async def update_rule(
     service = CustomRuleService(db)
     rule = await service.update_rule(rule_id, current_user.id, data)
     if not rule:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Rule not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
     return rule
 
 
@@ -84,10 +79,7 @@ async def delete_rule(
     service = CustomRuleService(db)
     deleted = await service.delete_rule(rule_id, current_user.id)
     if not deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Rule not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
 
 
 @router.post("/test", response_model=CustomRuleTestResult)
@@ -132,16 +124,13 @@ async def execute_rule(
     service = CustomRuleService(db)
     rule = await service.get_rule(rule_id, current_user.id)
     if not rule:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Rule not found"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
+
     try:
         articles = await service.execute_rule(rule)
         return {"success": True, "articles_found": len(articles)}
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to execute rule: {str(e)}"
+            detail=f"Failed to execute rule: {str(e)}",
         )

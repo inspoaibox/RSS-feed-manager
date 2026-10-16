@@ -1,0 +1,76 @@
+{
+  "source": "https://open.workbuddy.cn/",
+  "observedDate": "2026-10-13",
+  "sourceType": "Published frontend messages; server enforcement not verified",
+  "paySetting": {
+    "title": "付费设置",
+    "mode": {
+      "label": "付费方式",
+      "once": "一次性付费",
+      "monthly": "按月付费",
+      "none": "不开启",
+      "desc": {
+        "once": "用户支付一次即可长期使用，适合功能完整、更新频率较低的资产；付费方式发布上架后不可更改。",
+        "monthly": "用户按月订阅，停止续费后失去使用权限，适合需要持续更新的资产；付费方式发布上架后不可更改。",
+        "none": "用户可免费使用"
+      }
+    },
+    "amount": {
+      "label": "付费金额",
+      "placeholder": "输入 1-9999 的整数",
+      "hint": "金额需为 1-9999 的整数",
+      "unit": "元",
+      "unitMonthly": "元/月"
+    },
+    "originality": {
+      "label": "原创声明",
+      "description": "承诺本内容是本人独立原创，无抄袭、搬运等侵权情形"
+    },
+    "agreement": {
+      "prefix": "我已阅读并同意《",
+      "link": "付费服务开发者规则",
+      "suffix": "》"
+    },
+    "cancel": "取消",
+    "save": "保存",
+    "amountOnly": {
+      "limitHintDynamic": "付费金额每年可修改{total}次，当前还可以修改{remaining}次",
+      "quotaExhausted": "本年度改价次数已用完，将于{year}年1月1日重置"
+    }
+  },
+  "indicator": {
+    "skill": "付费技能",
+    "expert": "付费专家"
+  },
+  "purchaseUi": {
+    "authError": "服务异常，请重试",
+    "close": "关闭",
+    "usage": "使用：",
+    "usageHelp": "限平台内已接入的模型调用",
+    "refund": "退款：",
+    "refundHelp": "退款说明",
+    "creating": "下单中...",
+    "loadFailed": "加载失败",
+    "notFound": "内容不存在或已下架",
+    "payFailed": "支付失败",
+    "notFoundTip": "请检查链接是否正确，或返回重新选择",
+    "confirm": "确定",
+    "owned": "您已经拥有该{type}",
+    "purchased": "已拥有",
+    "ownedTip": "无需重复购买，可直接开始使用",
+    "expertName": "专家",
+    "skillName": "技能",
+    "buyButton": "<amount>{price}</amount>购买{duration}",
+    "buyButtonWithDuration": "<amount>{price}</amount>购买{duration}",
+    "agreement": "我已阅读并同意《<link>第三方付费服务使用规则</link>》",
+    "payMethodScan": "微信扫码支付",
+    "payMethodCard": "微信AI专属卡",
+    "refresh": "刷新",
+    "cancel": "取消",
+    "wechatPayBrand": "微信支付",
+    "aiCardTitle": "AI 专属卡",
+    "aiCardUnbound": "当前智能体未绑定 AI 专属卡",
+    "aiCardCancel": "取消",
+    "aiCardBindAndPay": "绑定并授权支付"
+  }
+}

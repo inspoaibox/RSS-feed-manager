@@ -1,6 +1,6 @@
 """Proxy pool service."""
+
 import time
-from typing import List
 
 import httpx
 from fastapi import HTTPException, status
@@ -35,7 +35,7 @@ class ProxyPoolService:
         country: str | None = None,
         protocol: str | None = None,
         active: bool | None = None,
-    ) -> List[ProxyPoolEntryResponse]:
+    ) -> list[ProxyPoolEntryResponse]:
         entries = await self.repo.list(
             user_id,
             country=country,

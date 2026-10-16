@@ -1,13 +1,16 @@
+import { getApiErrorMessage } from '@/utils/apiError'
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Rss, User, Mail, Lock, ShieldCheck } from 'lucide-react'
 import { useSiteStore } from '@/stores/siteStore'
+import { useAuthStore } from '@/stores/authStore'
 import api from '@/services/api'
-import type { RegisterRequest } from '@/types'
+import type { AuthResponse, RegisterRequest } from '@/types'
 
 export default function RegisterPage() {
   const navigate = useNavigate()
+  const setAuth = useAuthStore((state) => state.setAuth)
   const { siteName, setSiteName } = useSiteStore()
   const [formData, setFormData] = useState<RegisterRequest>({
     username: '',
@@ -40,16 +43,17 @@ export default function RegisterPage() {
 
   const registerMutation = useMutation({
     mutationFn: async (data: RegisterRequest) => {
-      const response = await api.post('/auth/register', data)
+      const response = await api.post<AuthResponse>('/auth/register', data)
       return response.data
     },
-    onSuccess: () => {
-      navigate('/login', { state: { message: '注册成功，请登录' } })
+    onSuccess: (data) => {
+      setAuth(data.user, data.access_token)
+      navigate('/')
     },
-    onError: (err: any) => {
-      const detail = err.response?.data?.detail
+    onError: (err: unknown) => {
+      const detail = getApiErrorMessage(err, '请求失败，请重试')
       if (Array.isArray(detail)) {
-        setError(detail.map((d: any) => d.msg).join(', '))
+        setError(detail.map((d: { msg: string }) => d.msg).join(', '))
       } else {
         setError(detail || '注册失败，请重试')
       }
@@ -65,8 +69,8 @@ export default function RegisterPage() {
       return
     }
     
-    if (formData.password.length < 6) {
-      setError('密码长度至少为6位')
+    if (formData.password.length < 8) {
+      setError('密码长度至少为8位')
       return
     }
     

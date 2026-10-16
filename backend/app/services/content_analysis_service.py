@@ -1,11 +1,11 @@
 """Content analysis service for AI-powered article search and analysis."""
+
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Tuple
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.article import Article
@@ -15,7 +15,8 @@ from app.services.embedding_service import EmbeddingService, EmbeddingServiceErr
 logger = logging.getLogger(__name__)
 
 # 分析生成 Prompt
-ANALYSIS_PROMPT = """你是一个内容分析助手。请根据以下文章内容，为用户生成一份关于"{query}"的分析总结。
+ANALYSIS_PROMPT = """你是一个内容分析助手。
+请根据以下文章内容，为用户生成一份关于"{query}"的分析总结。
 
 要求：
 1. 按主题分类组织内容
@@ -34,6 +35,7 @@ ANALYSIS_PROMPT = """你是一个内容分析助手。请根据以下文章内�
 @dataclass
 class ArticleWithScore:
     """Article with relevance score."""
+
     id: int
     title: str
     content: str | None
@@ -53,9 +55,10 @@ class ArticleWithScore:
 @dataclass
 class AnalysisResult:
     """Result of content analysis."""
+
     query: str
     analysis: str | None
-    articles: List[ArticleWithScore]
+    articles: list[ArticleWithScore]
     total: int
     page: int
     page_size: int
@@ -69,7 +72,7 @@ class ContentAnalysisService:
         self,
         session: AsyncSession,
         embedding_service: EmbeddingService | None = None,
-        ai_client=None
+        ai_client=None,
     ):
         self.session = session
         self.embedding_service = embedding_service
@@ -81,45 +84,45 @@ class ContentAnalysisService:
         query: str,
         page: int = 1,
         page_size: int = 20,
-        use_semantic_search: bool = True
+        use_semantic_search: bool = True,
     ) -> AnalysisResult:
         """
         Execute content analysis for a query.
-        
+
         Args:
             user_id: The user ID
             query: The search query
             page: Page number (1-indexed)
             page_size: Number of results per page
             use_semantic_search: Whether to use semantic search
-            
+
         Returns:
             AnalysisResult with analysis and articles
         """
         # 验证查询
         if not query or not query.strip():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="请输入查询内容"
-            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请输入查询内容")
 
         query = query.strip()
         search_type = "keyword"
-        articles: List[ArticleWithScore] = []
+        articles: list[ArticleWithScore] = []
         total = 0
 
         # 尝试语义搜索
-        if use_semantic_search and self.embedding_service:
+        dialect = self.session.get_bind().dialect.name
+        if use_semantic_search and self.embedding_service and dialect == "postgresql":
             try:
                 query_embedding = await self.embedding_service.generate_query_embedding(query)
                 articles, total = await self.semantic_search(
                     user_id, query_embedding, page, page_size
                 )
                 search_type = "semantic"
-                
+
                 # 如果语义搜索没有结果（可能是文章没有 embedding），回退到关键词搜索
                 if total == 0:
-                    logger.info("Semantic search returned no results, falling back to keyword search")
+                    logger.info(
+                        "Semantic search returned no results, falling back to keyword search"
+                    )
                     articles, total = await self.keyword_search(user_id, query, page, page_size)
                     search_type = "keyword"
             except EmbeddingServiceError as e:
@@ -144,35 +147,30 @@ class ContentAnalysisService:
             total=total,
             page=page,
             page_size=page_size,
-            search_type=search_type
+            search_type=search_type,
         )
 
-
     async def semantic_search(
-        self,
-        user_id: int,
-        query_embedding: List[float],
-        page: int = 1,
-        page_size: int = 20
-    ) -> Tuple[List[ArticleWithScore], int]:
+        self, user_id: int, query_embedding: list[float], page: int = 1, page_size: int = 20
+    ) -> tuple[list[ArticleWithScore], int]:
         """
         Search articles using vector similarity.
-        
+
         Args:
             user_id: The user ID
             query_embedding: The query embedding vector
             page: Page number
             page_size: Results per page
-            
+
         Returns:
             Tuple of (articles with scores, total count)
         """
         offset = (page - 1) * page_size
-        
+
         # 使用原生 SQL 进行向量搜索
         # pgvector 使用 <=> 操作符计算余弦距离
         embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
-        
+
         # 计算总数
         count_sql = text("""
             SELECT COUNT(*)
@@ -184,10 +182,9 @@ class ContentAnalysisService:
         total = count_result.scalar() or 0
 
         # 搜索文章 - 使用 bindparams 绑定参数
-        from sqlalchemy import bindparam, literal_column
-        
+
         search_sql = text("""
-            SELECT 
+            SELECT
                 a.id,
                 a.title,
                 a.content,
@@ -200,13 +197,8 @@ class ContentAnalysisService:
             WHERE f.user_id = :user_id AND a.embedding IS NOT NULL
             ORDER BY a.embedding <=> cast(:embedding as vector)
             LIMIT :limit OFFSET :offset
-        """).bindparams(
-            user_id=user_id,
-            embedding=embedding_str,
-            limit=page_size,
-            offset=offset
-        )
-        
+        """).bindparams(user_id=user_id, embedding=embedding_str, limit=page_size, offset=offset)
+
         result = await self.session.execute(search_sql)
         rows = result.fetchall()
 
@@ -218,30 +210,25 @@ class ContentAnalysisService:
                 link=row.link,
                 published_at=row.published_at,
                 feed_title=row.feed_title,
-                relevance_score=float(row.relevance_score) if row.relevance_score else 0.0
+                relevance_score=float(row.relevance_score) if row.relevance_score else 0.0,
             )
             for row in rows
         ]
 
         return articles, total
 
-
     async def keyword_search(
-        self,
-        user_id: int,
-        query: str,
-        page: int = 1,
-        page_size: int = 20
-    ) -> Tuple[List[ArticleWithScore], int]:
+        self, user_id: int, query: str, page: int = 1, page_size: int = 20
+    ) -> tuple[list[ArticleWithScore], int]:
         """
         Search articles using keyword matching (fallback).
-        
+
         Args:
             user_id: The user ID
             query: The search query
             page: Page number
             page_size: Results per page
-            
+
         Returns:
             Tuple of (articles with scores, total count)
         """
@@ -254,10 +241,7 @@ class ContentAnalysisService:
             .join(Feed, Article.feed_id == Feed.id)
             .where(
                 Feed.user_id == user_id,
-                or_(
-                    Article.title.ilike(search_pattern),
-                    Article.content.ilike(search_pattern)
-                )
+                or_(Article.title.ilike(search_pattern), Article.content.ilike(search_pattern)),
             )
         )
         count_result = await self.session.execute(count_query)
@@ -271,15 +255,12 @@ class ContentAnalysisService:
                 Article.content,
                 Article.link,
                 Article.published_at,
-                Feed.title.label("feed_title")
+                Feed.title.label("feed_title"),
             )
             .join(Feed, Article.feed_id == Feed.id)
             .where(
                 Feed.user_id == user_id,
-                or_(
-                    Article.title.ilike(search_pattern),
-                    Article.content.ilike(search_pattern)
-                )
+                or_(Article.title.ilike(search_pattern), Article.content.ilike(search_pattern)),
             )
             .order_by(Article.published_at.desc())
             .offset(offset)
@@ -296,35 +277,32 @@ class ContentAnalysisService:
             score = 0.5
             if row.title and query.lower() in row.title.lower():
                 score = 0.8
-            
-            articles.append(ArticleWithScore(
-                id=row.id,
-                title=row.title,
-                content=row.content,
-                link=row.link,
-                published_at=row.published_at,
-                feed_title=row.feed_title,
-                relevance_score=score
-            ))
+
+            articles.append(
+                ArticleWithScore(
+                    id=row.id,
+                    title=row.title,
+                    content=row.content,
+                    link=row.link,
+                    published_at=row.published_at,
+                    feed_title=row.feed_title,
+                    relevance_score=score,
+                )
+            )
 
         # 按相关度排序
         articles.sort(key=lambda x: x.relevance_score, reverse=True)
 
         return articles, total
 
-
-    async def generate_analysis(
-        self,
-        query: str,
-        articles: List[ArticleWithScore]
-    ) -> str:
+    async def generate_analysis(self, query: str, articles: list[ArticleWithScore]) -> str:
         """
         Generate AI analysis summary for the articles.
-        
+
         Args:
             query: The search query
             articles: List of relevant articles
-            
+
         Returns:
             AI-generated analysis summary
         """
@@ -344,12 +322,9 @@ class ContentAnalysisService:
             articles_content.append(f"{i}. 【{article.title}】\n{content}")
 
         articles_text = "\n\n".join(articles_content)
-        
+
         # 生成分析
-        prompt = ANALYSIS_PROMPT.format(
-            query=query,
-            articles_content=articles_text
-        )
+        prompt = ANALYSIS_PROMPT.format(query=query, articles_content=articles_text)
 
         try:
             analysis = await self.ai_client.chat(prompt)

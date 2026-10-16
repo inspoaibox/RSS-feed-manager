@@ -1,17 +1,22 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
+import axios from 'axios'
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { Loader2 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { useSiteStore } from '@/stores/siteStore'
 import { ThemeProvider } from '@/components/ThemeProvider'
-import LoginPage from '@/pages/LoginPage'
-import RegisterPage from '@/pages/RegisterPage'
 import MainLayout from '@/components/layout/MainLayout'
-import HomePage from '@/pages/HomePage'
-import SettingsPage from '@/pages/SettingsPage'
-import StatsPage from '@/pages/StatsPage'
-import AIAnalysisPage from '@/pages/AIAnalysisPage'
-import RecommendationsPage from '@/pages/RecommendationsPage'
-import { queryClient } from '@/main'
+import api, { refreshAccessToken } from '@/services/api'
+import { queryClient } from '@/queryClient'
+import type { User } from '@/types'
+
+const LoginPage = lazy(() => import('@/pages/LoginPage'))
+const RegisterPage = lazy(() => import('@/pages/RegisterPage'))
+const HomePage = lazy(() => import('@/pages/HomePage'))
+const SettingsPage = lazy(() => import('@/pages/SettingsPage'))
+const StatsPage = lazy(() => import('@/pages/StatsPage'))
+const AIAnalysisPage = lazy(() => import('@/pages/AIAnalysisPage'))
+const RecommendationsPage = lazy(() => import('@/pages/RecommendationsPage'))
 
 const CACHE_USER_KEY = 'cache-user-id'
 
@@ -26,7 +31,34 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function App() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
   const user = useAuthStore((state) => state.user)
+  const isInitialized = useAuthStore((state) => state.isInitialized)
+  const setAuth = useAuthStore((state) => state.setAuth)
+  const clearAuth = useAuthStore((state) => state.clearAuth)
+  const setInitialized = useAuthStore((state) => state.setInitialized)
   const siteName = useSiteStore((state) => state.siteName)
+
+  useEffect(() => {
+    let active = true
+    localStorage.removeItem('auth-storage')
+    const initialize = async () => {
+      try {
+        const accessToken = await refreshAccessToken()
+        const response = await api.get<User>('/auth/me')
+        if (active) setAuth(response.data, accessToken)
+      } catch (error) {
+        if (active) clearAuth()
+        if (axios.isAxiosError(error) && error.response?.status !== 401) {
+          console.error('Failed to initialize session', error)
+        }
+      } finally {
+        if (active) setInitialized()
+      }
+    }
+    initialize()
+    return () => {
+      active = false
+    }
+  }, [clearAuth, setAuth, setInitialized])
 
   // 检查缓存的用户 ID 是否与当前用户匹配
   useEffect(() => {
@@ -58,9 +90,18 @@ function App() {
     }
   }, [siteName])
 
+  if (!isInitialized) {
+    return (
+      <div className="min-h-screen grid place-items-center bg-gray-50 dark:bg-gray-900">
+        <Loader2 className="h-6 w-6 animate-spin text-primary-600" aria-label="Loading" />
+      </div>
+    )
+  }
+
   return (
     <ThemeProvider>
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
+        <Suspense fallback={<div className="min-h-screen grid place-items-center"><Loader2 className="h-6 w-6 animate-spin text-primary-600" /></div>}>
         <Routes>
         {/* Public routes */}
         <Route
@@ -90,7 +131,8 @@ function App() {
 
         {/* Catch all */}
         <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+        </Routes>
+        </Suspense>
       </div>
     </ThemeProvider>
   )

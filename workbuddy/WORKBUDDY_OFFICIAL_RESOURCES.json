@@ -1,0 +1,427 @@
+{
+  "schema_version": 1,
+  "title": "WorkBuddy 独立应用官方资料索引",
+  "last_checked": "2026-10-13",
+  "timezone": "Asia/Singapore",
+  "guide": "WORKBUDDY_DEVELOPMENT_GUIDE.md",
+  "verification_policy": "last_checked 是检查日期，不是官方发布日期。verification 区分已读取、已检查下载及仅在官方资料中发现链接；不表示所有接口已实测。",
+  "resources": [
+    {
+      "id": "platform-overview",
+      "title": "开放平台概述",
+      "url": "https://open.workbuddy.cn/docs/what-is-open-platform",
+      "provider": "WorkBuddy",
+      "kind": "official_documentation",
+      "verification": "retrieved_public_page",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "平台定位",
+        "开发流程"
+      ]
+    },
+    {
+      "id": "onboarding",
+      "title": "开发者入驻与主体认证",
+      "url": "https://open.workbuddy.cn/docs/onboarding",
+      "provider": "WorkBuddy",
+      "kind": "official_documentation",
+      "verification": "retrieved_public_page",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "个人认证",
+        "企业认证"
+      ]
+    },
+    {
+      "id": "developer-profile",
+      "title": "开发者资料与主页",
+      "url": "https://open.workbuddy.cn/docs/developer-profile",
+      "provider": "WorkBuddy",
+      "kind": "official_documentation",
+      "verification": "retrieved_public_page",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "署名",
+        "展示",
+        "个人分发"
+      ]
+    },
+    {
+      "id": "buddy-app",
+      "title": "Buddy 应用配置与发布",
+      "url": "https://open.workbuddy.cn/docs/buddy-app",
+      "provider": "WorkBuddy",
+      "kind": "official_documentation",
+      "verification": "retrieved_public_page",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "独立应用",
+        "工作模式",
+        "场景胶囊",
+        "预览",
+        "企业单"
+      ]
+    },
+    {
+      "id": "skill",
+      "title": "技能开发规范",
+      "url": "https://open.workbuddy.cn/docs/skill",
+      "provider": "WorkBuddy",
+      "kind": "official_documentation",
+      "verification": "retrieved_public_page",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "SKILL.md",
+        "技能包",
+        "脚本",
+        "参考资料"
+      ]
+    },
+    {
+      "id": "expert",
+      "title": "专家开发规范",
+      "url": "https://open.workbuddy.cn/docs/expert",
+      "provider": "WorkBuddy",
+      "kind": "official_documentation",
+      "verification": "retrieved_public_page",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "plugin.json",
+        "Agent",
+        "dependencies",
+        "头像"
+      ]
+    },
+    {
+      "id": "expert-team",
+      "title": "专家团开发规范",
+      "url": "https://open.workbuddy.cn/docs/expert-team",
+      "provider": "WorkBuddy",
+      "kind": "official_documentation",
+      "verification": "retrieved_public_page",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "主理人",
+        "团队成员",
+        "settings.json",
+        "setting.json"
+      ]
+    },
+    {
+      "id": "connector",
+      "title": "连接器开发规范",
+      "url": "https://open.workbuddy.cn/docs/connector",
+      "provider": "WorkBuddy",
+      "kind": "official_documentation",
+      "verification": "retrieved_public_page",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "MCP",
+        "CLI",
+        "OAuth",
+        "Token",
+        "minWorkbuddyVersion"
+      ]
+    },
+    {
+      "id": "third-party-app",
+      "title": "第三方应用授权接入",
+      "url": "https://open.workbuddy.cn/docs/third-party-app",
+      "provider": "WorkBuddy",
+      "kind": "official_documentation",
+      "verification": "retrieved_public_page",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "OAuth",
+        "Scope",
+        "Open API"
+      ]
+    },
+    {
+      "id": "openapi-zh",
+      "title": "Open API 中文参考",
+      "url": "https://open.workbuddy.cn/docs/openapi",
+      "provider": "WorkBuddy",
+      "kind": "official_documentation",
+      "verification": "retrieved_public_page",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "Token",
+        "用户资料",
+        "本地助理",
+        "任务",
+        "ACP",
+        "兑换码"
+      ]
+    },
+    {
+      "id": "operations-data",
+      "title": "运营数据与指标",
+      "url": "https://open.workbuddy.cn/docs/operations-data",
+      "provider": "WorkBuddy",
+      "kind": "official_documentation",
+      "verification": "retrieved_public_page",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "调用量",
+        "安装量",
+        "留存",
+        "T+1"
+      ]
+    },
+    {
+      "id": "contact",
+      "title": "官方联系渠道",
+      "url": "https://open.workbuddy.cn/docs/contact",
+      "provider": "WorkBuddy",
+      "kind": "official_documentation",
+      "verification": "retrieved_public_page",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "支持",
+        "邮箱",
+        "社群"
+      ]
+    },
+    {
+      "id": "openapi-en",
+      "title": "Open API 英文参考",
+      "url": "https://open.workbuddy.cn/en/docs/openapi",
+      "provider": "WorkBuddy",
+      "kind": "official_documentation",
+      "verification": "retrieved_public_page",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "user.credit.readable",
+        "个人积分",
+        "中英文差异"
+      ],
+      "notes": "英文与中文内容不同；权限开放情况需要后台与官方确认。"
+    },
+    {
+      "id": "service-categories-enterprise",
+      "title": "服务类目 非个人主体",
+      "url": "https://open.workbuddy.cn/docs/service-categories-enterprise",
+      "provider": "WorkBuddy",
+      "kind": "official_documentation",
+      "verification": "retrieved_public_page",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "业务类目",
+        "资质",
+        "发布"
+      ]
+    },
+    {
+      "id": "service-categories-individual",
+      "title": "服务类目 个人主体",
+      "url": "https://open.workbuddy.cn/docs/service-categories-individual",
+      "provider": "WorkBuddy",
+      "kind": "official_documentation",
+      "verification": "retrieved_public_page",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "业务类目",
+        "资质",
+        "发布"
+      ]
+    },
+    {
+      "id": "legal-basis",
+      "title": "法规依据及示例",
+      "url": "https://open.workbuddy.cn/docs/legal-basis-and-examples",
+      "provider": "WorkBuddy",
+      "kind": "official_documentation",
+      "verification": "retrieved_public_page",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "业务类目",
+        "资质",
+        "发布"
+      ]
+    },
+    {
+      "id": "open-platform",
+      "title": "开放平台入口",
+      "url": "https://open.workbuddy.cn/",
+      "provider": "WorkBuddy",
+      "kind": "official_entry",
+      "verification": "retrieved_public_page_and_frontend_assets",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "后台",
+        "发布",
+        "配置"
+      ]
+    },
+    {
+      "id": "monetization",
+      "title": "收入变现后台",
+      "url": "https://open.workbuddy.cn/monetization",
+      "provider": "WorkBuddy",
+      "kind": "authenticated_console",
+      "verification": "route_observed_in_public_frontend_anonymous_request_redirects_to_login",
+      "last_checked": "2026-10-13",
+      "requires_login": true,
+      "topics": [
+        "订阅",
+        "付费技能",
+        "付费专家",
+        "收入",
+        "提现"
+      ],
+      "evidence": "research/workbuddy-subscription/sources.json",
+      "notes": "后台账号权限及交易行为尚未实测。"
+    },
+    {
+      "id": "merchant-account",
+      "title": "收款账户后台",
+      "url": "https://open.workbuddy.cn/monetization/account",
+      "provider": "WorkBuddy",
+      "kind": "authenticated_console",
+      "verification": "route_observed_in_public_frontend_anonymous_request_redirects_to_login",
+      "last_checked": "2026-10-13",
+      "requires_login": true,
+      "topics": [
+        "订阅",
+        "付费技能",
+        "付费专家",
+        "收入",
+        "提现"
+      ],
+      "evidence": "research/workbuddy-subscription/sources.json",
+      "notes": "后台账号权限及交易行为尚未实测。"
+    },
+    {
+      "id": "enterprise-orders",
+      "title": "企业单管理章节",
+      "url": "https://open.workbuddy.cn/docs/buddy-app#企业单管理",
+      "provider": "WorkBuddy",
+      "kind": "official_documentation_section",
+      "verification": "retrieved_parent_page",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "企业版",
+        "授权",
+        "席位",
+        "分发"
+      ]
+    },
+    {
+      "id": "expert-template",
+      "title": "官方单专家模板",
+      "url": "https://codebuddy-platform-1258344699.cos.ap-beijing.myqcloud.com/open/static/files/design-experts.zip",
+      "provider": "WorkBuddy",
+      "kind": "official_template",
+      "verification": "downloaded_and_inspected_archive_without_execution",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "模板",
+        "代码",
+        "包结构"
+      ],
+      "evidence": "research/workbuddy-templates/official-template-inspection.json",
+      "notes": "存在缺失头像和提示词差异；专家团设置文件名与文档不同。不能直接视为已通过导入的发布包。"
+    },
+    {
+      "id": "team-template",
+      "title": "官方专家团模板",
+      "url": "https://codebuddy-platform-1258344699.cos.ap-beijing.myqcloud.com/open/static/files/trading-team.zip",
+      "provider": "WorkBuddy",
+      "kind": "official_template",
+      "verification": "downloaded_and_inspected_archive_without_execution",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "模板",
+        "代码",
+        "包结构"
+      ],
+      "evidence": "research/workbuddy-templates/official-template-inspection.json",
+      "notes": "存在缺失头像和提示词差异；专家团设置文件名与文档不同。不能直接视为已通过导入的发布包。"
+    },
+    {
+      "id": "buddy-design-assets",
+      "title": "Buddy 应用官方设计规范配图",
+      "url": "https://codebuddy-platform-1258344699.cos.ap-beijing.myqcloud.com/open/static/files/buddy-app.zip",
+      "provider": "WorkBuddy",
+      "kind": "official_design_assets",
+      "verification": "link_observed_in_buddy_app_documentation_download_not_inspected",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "图标",
+        "精选场景",
+        "日夜间素材"
+      ]
+    },
+    {
+      "id": "mcp-spec",
+      "title": "MCP 官方协议",
+      "url": "https://modelcontextprotocol.io/",
+      "provider": "Model Context Protocol",
+      "kind": "official_protocol_documentation",
+      "verification": "linked_from_workbuddy_connector_documentation",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "MCP",
+        "工具协议",
+        "授权"
+      ]
+    },
+    {
+      "id": "mcp-typescript-sdk",
+      "title": "MCP TypeScript SDK",
+      "url": "https://github.com/modelcontextprotocol/typescript-sdk",
+      "provider": "Model Context Protocol",
+      "kind": "official_sdk",
+      "verification": "linked_from_workbuddy_connector_documentation",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "MCP",
+        "TypeScript",
+        "SDK"
+      ]
+    },
+    {
+      "id": "mcp-python-sdk",
+      "title": "MCP Python SDK",
+      "url": "https://github.com/modelcontextprotocol/python-sdk",
+      "provider": "Model Context Protocol",
+      "kind": "official_sdk",
+      "verification": "linked_from_workbuddy_connector_documentation",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "MCP",
+        "Python",
+        "SDK"
+      ]
+    },
+    {
+      "id": "skillpay-alternative",
+      "title": "SkillHub SkillPay 按次付费介绍",
+      "url": "https://www.skillhub.cn/skillpay",
+      "provider": "SkillHub",
+      "kind": "alternative_billing_product",
+      "verification": "read_in_current_research_session",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "按次付费",
+        "替代方案"
+      ],
+      "notes": "与 WorkBuddy 市场买断和包月是不同支付路径。不是当前已选订阅方案，不沿用其费率或结算规则。"
+    },
+    {
+      "id": "official-support-email",
+      "title": "官方咨询邮箱",
+      "url": "mailto:openworkbuddy@tencent.com",
+      "provider": "WorkBuddy",
+      "kind": "official_contact",
+      "verification": "address_observed_in_contact_documentation",
+      "last_checked": "2026-10-13",
+      "topics": [
+        "支持",
+        "订阅权益接口",
+        "模板差异"
+      ]
+    }
+  ]
+}

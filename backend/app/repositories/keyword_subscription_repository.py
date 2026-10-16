@@ -1,10 +1,11 @@
 """Keyword subscription repository."""
-from datetime import datetime
-from typing import Iterable, List
+
+from collections.abc import Iterable
 
 from sqlalchemy import and_, case, delete, func, insert, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import utc_now
 from app.models.article import Article, UserArticle
 from app.models.feed import Feed
 from app.models.keyword_article_match import KeywordArticleMatch
@@ -24,12 +25,14 @@ def build_keyword_conditions(keyword: KeywordSubscription) -> list:
     if keyword.match_title:
         conditions.append(Article.title.ilike(pattern))
     if keyword.match_content:
-        conditions.extend([
-            Article.content.ilike(pattern),
-            Article.full_content.ilike(pattern),
-            Article.summary.ilike(pattern),
-            Article.translation.ilike(pattern),
-        ])
+        conditions.extend(
+            [
+                Article.content.ilike(pattern),
+                Article.full_content.ilike(pattern),
+                Article.summary.ilike(pattern),
+                Article.translation.ilike(pattern),
+            ]
+        )
     if keyword.match_author:
         conditions.append(Article.author.ilike(pattern))
     if keyword.match_feed_title and not is_numeric_keyword:
@@ -75,8 +78,9 @@ class KeywordSubscriptionRepository:
     ) -> KeywordSubscription:
         """Create a keyword subscription."""
         result = await self.session.execute(
-            select(func.coalesce(func.max(KeywordSubscription.position), -1))
-            .where(KeywordSubscription.user_id == user_id)
+            select(func.coalesce(func.max(KeywordSubscription.position), -1)).where(
+                KeywordSubscription.user_id == user_id
+            )
         )
         max_position = result.scalar() or -1
 
@@ -107,7 +111,7 @@ class KeywordSubscriptionRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_all_by_user(self, user_id: int) -> List[KeywordSubscription]:
+    async def get_all_by_user(self, user_id: int) -> list[KeywordSubscription]:
         """Get all keyword subscriptions for a user."""
         result = await self.session.execute(
             select(KeywordSubscription)
@@ -175,7 +179,7 @@ class KeywordSubscriptionRepository:
                 )
             )
 
-        subscription.matches_built_at = datetime.utcnow()
+        subscription.matches_built_at = utc_now()
         await self.session.flush()
         await self.session.refresh(subscription)
 
@@ -195,7 +199,9 @@ class KeywordSubscriptionRepository:
         article_ids: Iterable[int],
     ) -> None:
         """Refresh keyword matches for newly inserted or content-updated articles."""
-        unique_article_ids = list(dict.fromkeys(article_id for article_id in article_ids if article_id))
+        unique_article_ids = list(
+            dict.fromkeys(article_id for article_id in article_ids if article_id)
+        )
         if not unique_article_ids:
             return
 
@@ -251,7 +257,7 @@ class KeywordSubscriptionRepository:
         for subscription_id in subscription_ids:
             counts[subscription_id] = {"article_count": 0, "unread_count": 0}
 
-        unread_condition = or_(UserArticle.is_read == False, UserArticle.is_read == None)
+        unread_condition = or_(UserArticle.is_read.is_(False), UserArticle.is_read.is_(None))
         result = await self.session.execute(
             select(
                 KeywordArticleMatch.keyword_subscription_id,

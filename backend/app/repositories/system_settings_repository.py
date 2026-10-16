@@ -1,4 +1,5 @@
 """System settings repository for database operations."""
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,19 +14,15 @@ class SystemSettingsRepository:
 
     async def get(self, key: str) -> str | None:
         """Get a setting value by key."""
-        result = await self.session.execute(
-            select(SystemSettings).where(SystemSettings.key == key)
-        )
+        result = await self.session.execute(select(SystemSettings).where(SystemSettings.key == key))
         setting = result.scalar_one_or_none()
         return setting.value if setting else None
 
     async def set(self, key: str, value: str, description: str | None = None) -> SystemSettings:
         """Set a setting value."""
-        result = await self.session.execute(
-            select(SystemSettings).where(SystemSettings.key == key)
-        )
+        result = await self.session.execute(select(SystemSettings).where(SystemSettings.key == key))
         setting = result.scalar_one_or_none()
-        
+
         if setting:
             setting.value = value
             if description:
@@ -33,7 +30,7 @@ class SystemSettingsRepository:
         else:
             setting = SystemSettings(key=key, value=value, description=description)
             self.session.add(setting)
-        
+
         await self.session.flush()
         return setting
 
@@ -47,4 +44,4 @@ class SystemSettingsRepository:
         value = await self.get(key)
         if value is None:
             return default
-        return value.lower() in ('true', '1', 'yes', 'on')
+        return value.lower() in ("true", "1", "yes", "on")

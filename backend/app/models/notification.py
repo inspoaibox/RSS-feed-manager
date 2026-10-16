@@ -1,4 +1,5 @@
 """Notification model for system announcements."""
+
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -18,18 +19,18 @@ class Notification(BaseModel):
 
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    
+
     # 通知类型: system(系统公告), update(更新通知), maintenance(维护通知)
-    type: Mapped[str] = mapped_column(String(50), default='system')
-    
+    type: Mapped[str] = mapped_column(String(50), default="system")
+
     # 是否启用（管理员可以禁用通知）
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    
+
     # 创建者（管理员）
     created_by: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    
+
     # 过期时间（可选，过期后不再显示）
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -51,13 +52,14 @@ class UserNotificationRead(BaseModel):
     notification_id: Mapped[int] = mapped_column(
         ForeignKey("notifications.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    read_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     # Relationships
     user: Mapped["User"] = relationship("User")
     notification: Mapped["Notification"] = relationship("Notification")
 
     def __repr__(self) -> str:
-        return f"<UserNotificationRead(user_id={self.user_id}, notification_id={self.notification_id})>"
+        return (
+            f"<UserNotificationRead(user_id={self.user_id}, "
+            f"notification_id={self.notification_id})>"
+        )

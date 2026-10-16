@@ -1,15 +1,16 @@
 """Push notification models."""
+
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import BaseModel
 
 if TYPE_CHECKING:
-    from app.models.user import User
     from app.models.article import Article
+    from app.models.user import User
 
 
 class NotificationSubscription(BaseModel):
@@ -45,7 +46,10 @@ class NotificationSubscription(BaseModel):
     user: Mapped["User"] = relationship("User", back_populates="push_subscriptions")
 
     def __repr__(self) -> str:
-        return f"<NotificationSubscription(id={self.id}, name={self.name}, type={self.subscription_type})>"
+        return (
+            f"<NotificationSubscription(id={self.id}, name={self.name}, "
+            f"type={self.subscription_type})>"
+        )
 
 
 class NotificationPush(BaseModel):
@@ -64,7 +68,9 @@ class NotificationPush(BaseModel):
     )
 
     # 推送状态: sent(已发送), failed(发送失败), read(已读), clicked(已点击)
-    status: Mapped[str] = mapped_column(String(50), default="sent", server_default="sent", index=True)
+    status: Mapped[str] = mapped_column(
+        String(50), default="sent", server_default="sent", index=True
+    )
 
     # 推送时间
     pushed_at: Mapped[datetime] = mapped_column(
@@ -83,13 +89,17 @@ class NotificationPush(BaseModel):
     article: Mapped["Article"] = relationship("Article")
 
     def __repr__(self) -> str:
-        return f"<NotificationPush(id={self.id}, user_id={self.user_id}, article_id={self.article_id})>"
+        return (
+            f"<NotificationPush(id={self.id}, user_id={self.user_id}, "
+            f"article_id={self.article_id})>"
+        )
 
 
 class WebPushSubscription(BaseModel):
     """Web Push 订阅信息"""
 
     __tablename__ = "web_push_subscriptions"
+    __table_args__ = (UniqueConstraint("endpoint", name="uq_web_push_endpoint"),)
 
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True

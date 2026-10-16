@@ -1,4 +1,5 @@
 """Argos local translation execution logs."""
+
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
@@ -26,7 +27,9 @@ class ArgosTranslationLog(BaseModel):
     article_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     source_language: Mapped[str] = mapped_column(String(10), nullable=False)
     target_language: Mapped[str] = mapped_column(String(10), nullable=False)
-    status: Mapped[str] = mapped_column(String(20), default="translating", nullable=False, index=True)
+    status: Mapped[str] = mapped_column(
+        String(20), default="translating", nullable=False, index=True
+    )
     title_chars: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     content_chars: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -35,4 +38,7 @@ class ArgosTranslationLog(BaseModel):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     def __repr__(self) -> str:
-        return f"<ArgosTranslationLog(id={self.id}, article_id={self.article_id}, status={self.status})>"
+        return (
+            f"<ArgosTranslationLog(id={self.id}, article_id={self.article_id}, "
+            f"status={self.status})>"
+        )

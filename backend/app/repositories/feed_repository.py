@@ -1,11 +1,10 @@
 """Feed repository for database operations."""
-from datetime import datetime
-from typing import List
 
-from sqlalchemy import and_, case, func, or_, select, update
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.clock import utc_now
 from app.models.article import Article, UserArticle
 from app.models.feed import Feed
 
@@ -37,18 +36,17 @@ class FeedRepository:
         auto_summarize: bool = False,
         source_language: str | None = None,
         target_language: str | None = None,
-        translate_method: str = 'none',
+        translate_method: str = "none",
         translate_title: bool = True,
         translate_content: bool = False,
     ) -> Feed:
         """Create a new feed."""
         # Get max position
         result = await self.session.execute(
-            select(func.coalesce(func.max(Feed.position), -1))
-            .where(Feed.user_id == user_id)
+            select(func.coalesce(func.max(Feed.position), -1)).where(Feed.user_id == user_id)
         )
-        max_position = result.scalar() or -1
-        
+        max_position = result.scalar()
+
         feed = Feed(
             user_id=user_id,
             url=url,
@@ -72,7 +70,7 @@ class FeedRepository:
             translate_method=translate_method,
             translate_title=translate_title,
             translate_content=translate_content,
-            position=max_position + 1
+            position=max_position + 1,
         )
         self.session.add(feed)
         await self.session.flush()
@@ -85,16 +83,14 @@ class FeedRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_all_by_user(self, user_id: int) -> List[Feed]:
+    async def get_all_by_user(self, user_id: int) -> list[Feed]:
         """Get all feeds for a user."""
         result = await self.session.execute(
-            select(Feed)
-            .where(Feed.user_id == user_id)
-            .order_by(Feed.position)
+            select(Feed).where(Feed.user_id == user_id).order_by(Feed.position)
         )
         return list(result.scalars().all())
 
-    async def get_by_category(self, user_id: int, category_id: int) -> List[Feed]:
+    async def get_by_category(self, user_id: int, category_id: int) -> list[Feed]:
         """Get feeds by category."""
         result = await self.session.execute(
             select(Feed)
@@ -112,21 +108,19 @@ class FeedRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_active_feeds(self) -> List[Feed]:
+    async def get_active_feeds(self) -> list[Feed]:
         """Get all active feeds for refresh."""
-        result = await self.session.execute(
-            select(Feed).where(Feed.is_active == True)
-        )
+        result = await self.session.execute(select(Feed).where(Feed.is_active.is_(True)))
         return list(result.scalars().all())
 
-    async def get_feeds_due_for_refresh(self) -> List[Feed]:
+    async def get_feeds_due_for_refresh(self) -> list[Feed]:
         """Get feeds that are due for refresh based on fetch_interval."""
-        now = datetime.utcnow()
+        now = utc_now()
         result = await self.session.execute(
             select(Feed).where(
-                Feed.is_active == True,
-                (Feed.last_fetched_at == None) | 
-                (func.extract('epoch', now - Feed.last_fetched_at) >= Feed.fetch_interval)
+                Feed.is_active.is_(True),
+                (Feed.last_fetched_at.is_(None))
+                | (func.extract("epoch", now - Feed.last_fetched_at) >= Feed.fetch_interval),
             )
         )
         return list(result.scalars().all())
@@ -148,13 +142,10 @@ class FeedRepository:
         return feed
 
     async def update_fetch_status(
-        self,
-        feed: Feed,
-        success: bool,
-        error: str | None = None
+        self, feed: Feed, success: bool, error: str | None = None
     ) -> Feed:
         """Update feed fetch status."""
-        feed.last_fetched_at = datetime.utcnow()
+        feed.last_fetched_at = utc_now()
         if success:
             feed.last_error = None
             feed.error_count = 0
@@ -184,7 +175,7 @@ class FeedRepository:
         )
         return result.scalar() or 0
 
-    async def get_article_counts(self, user_id: int, feed_ids: List[int]) -> dict[int, dict]:
+    async def get_article_counts(self, user_id: int, feed_ids: list[int]) -> dict[int, dict]:
         """Get article counts and unread counts for feeds."""
         if not feed_ids:
             return {}
@@ -197,7 +188,7 @@ class FeedRepository:
                     func.sum(
                         case(
                             (
-                                or_(UserArticle.is_read == False, UserArticle.is_read == None),
+                                or_(UserArticle.is_read.is_(False), UserArticle.is_read.is_(None)),
                                 1,
                             ),
                             else_=0,
@@ -208,26 +199,23 @@ class FeedRepository:
             )
             .outerjoin(
                 UserArticle,
-                and_(
-                    UserArticle.article_id == Article.id,
-                    UserArticle.user_id == user_id
-                )
+                and_(UserArticle.article_id == Article.id, UserArticle.user_id == user_id),
             )
             .where(Article.feed_id.in_(feed_ids))
             .group_by(Article.feed_id)
         )
         counts = {
             row.feed_id: {
-                'article_count': row.article_count or 0,
-                'unread_count': row.unread_count or 0,
+                "article_count": row.article_count or 0,
+                "unread_count": row.unread_count or 0,
             }
             for row in counts_result.all()
         }
-        
+
         result = {}
         for feed_id in feed_ids:
             result[feed_id] = {
-                'article_count': counts.get(feed_id, {}).get('article_count', 0),
-                'unread_count': counts.get(feed_id, {}).get('unread_count', 0)
+                "article_count": counts.get(feed_id, {}).get("article_count", 0),
+                "unread_count": counts.get(feed_id, {}).get("unread_count", 0),
             }
         return result

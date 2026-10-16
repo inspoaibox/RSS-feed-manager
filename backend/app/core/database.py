@@ -1,6 +1,6 @@
 """Database configuration and session management."""
+
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy import DateTime, Integer, func
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react'
 import api from '@/services/api'
+import { safeExternalUrl } from '@/utils/safeExternalUrl'
 import type { PushListResponse } from '@/types/push-notification'
 import clsx from 'clsx'
 
@@ -13,7 +14,7 @@ export default function PushHistory() {
   const { data, isLoading } = useQuery({
     queryKey: ['push-history', page, statusFilter],
     queryFn: async () => {
-      const params: any = { page, size: pageSize }
+      const params: { page: number; size: number; status?: string } = { page, size: pageSize }
       if (statusFilter) {
         params.status = statusFilter
       }
@@ -107,7 +108,7 @@ export default function PushHistory() {
 
                 {push.article_link && (
                   <a
-                    href={push.article_link}
+                    href={safeExternalUrl(push.article_link)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"

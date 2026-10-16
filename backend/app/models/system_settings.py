@@ -1,4 +1,5 @@
 """System settings model for global configuration."""
+
 from sqlalchemy import String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 

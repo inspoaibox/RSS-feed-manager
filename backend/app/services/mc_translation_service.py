@@ -1,5 +1,4 @@
 """Mc-Translation API client."""
-from typing import Optional
 
 import httpx
 
@@ -65,10 +64,10 @@ class McTranslationService:
 
     def __init__(
         self,
-        api_key: Optional[str],
-        base_url: Optional[str] = None,
-        model: Optional[str] = None,
-        source_language: Optional[str] = None,
+        api_key: str | None,
+        base_url: str | None = None,
+        model: str | None = None,
+        source_language: str | None = None,
     ):
         self.api_key = (api_key or "").strip()
         self.base_url = base_url or DEFAULT_BASE_URL
@@ -79,7 +78,7 @@ class McTranslationService:
         self,
         text: str,
         target_language: str,
-        source_language: Optional[str] = None,
+        source_language: str | None = None,
     ) -> str:
         if not text or not text.strip():
             return text
@@ -139,16 +138,12 @@ class McTranslationService:
         title: str,
         content: str,
         target_language: str,
-        source_language: Optional[str] = None,
+        source_language: str | None = None,
     ) -> tuple[str, str]:
         translated_title = (
-            await self.translate(title, target_language, source_language)
-            if title
-            else ""
+            await self.translate(title, target_language, source_language) if title else ""
         )
         translated_content = (
-            await self.translate(content, target_language, source_language)
-            if content
-            else ""
+            await self.translate(content, target_language, source_language) if content else ""
         )
         return translated_title, translated_content

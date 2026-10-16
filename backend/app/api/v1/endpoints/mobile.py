@@ -1,5 +1,6 @@
 """Mobile sync API endpoints."""
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Query
@@ -7,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, select
 
 from app.api.deps import CurrentUserId, DbSession
+from app.core.clock import utc_now
 from app.models.article import Article, UserArticle
 from app.models.category import Category
 from app.models.feed import Feed
@@ -130,7 +132,7 @@ def _parse_since(value: str | None) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
     return parsed
 
 
@@ -219,7 +221,7 @@ async def sync_mobile(
 ):
     """Return mobile-friendly metadata and recently changed articles."""
     since_dt = _parse_since(since)
-    server_time = datetime.now(timezone.utc)
+    server_time = datetime.now(UTC)
 
     categories_result = await db.execute(
         select(Category)
@@ -252,7 +254,7 @@ async def sync_mobile(
         .where(
             Feed.user_id == user_id,
             Feed.category_id.is_not(None),
-            or_(UserArticle.is_read == False, UserArticle.is_read == None),
+            or_(UserArticle.is_read.is_(False), UserArticle.is_read.is_(None)),
         )
         .group_by(Feed.category_id)
     )
@@ -288,8 +290,7 @@ async def sync_mobile(
         )
 
     article_query = (
-        article_query
-        .order_by(Article.created_at.desc(), Article.id.desc())
+        article_query.order_by(Article.created_at.desc(), Article.id.desc())
         .offset(offset)
         .limit(limit + 1)
     )
@@ -300,13 +301,17 @@ async def sync_mobile(
 
     articles = []
     for article, user_article, feed_title in rows:
-        articles.append(_article_to_mobile({
-            "article": article,
-            "feed_title": feed_title,
-            "is_read": user_article.is_read if user_article else False,
-            "is_favorite": user_article.is_favorite if user_article else False,
-            "read_at": user_article.read_at if user_article else None,
-        }))
+        articles.append(
+            _article_to_mobile(
+                {
+                    "article": article,
+                    "feed_title": feed_title,
+                    "is_read": user_article.is_read if user_article else False,
+                    "is_favorite": user_article.is_favorite if user_article else False,
+                    "read_at": user_article.read_at if user_article else None,
+                }
+            )
+        )
 
     state_result = await db.execute(
         select(UserArticle)
@@ -314,15 +319,19 @@ async def sync_mobile(
         .join(Feed, Article.feed_id == Feed.id)
         .where(UserArticle.user_id == user_id, Feed.user_id == user_id)
     )
-    states = [
-        MobileArticleState(
-            article_id=state.article_id,
-            is_read=state.is_read,
-            is_favorite=state.is_favorite,
-            read_at=state.read_at,
-        )
-        for state in state_result.scalars().all()
-    ] if offset == 0 else []
+    states = (
+        [
+            MobileArticleState(
+                article_id=state.article_id,
+                is_read=state.is_read,
+                is_favorite=state.is_favorite,
+                read_at=state.read_at,
+            )
+            for state in state_result.scalars().all()
+        ]
+        if offset == 0
+        else []
+    )
 
     return MobileSyncResponse(
         server_time=server_time,
@@ -337,10 +346,7 @@ async def sync_mobile(
             )
             for category in categories
         ],
-        feeds=[
-            _feed_to_mobile(feed, feed_counts.get(feed.id, {}))
-            for feed in feeds
-        ],
+        feeds=[_feed_to_mobile(feed, feed_counts.get(feed.id, {})) for feed in feeds],
         articles=articles,
         states=states,
     )
@@ -363,17 +369,19 @@ async def apply_mobile_actions(
             .where(Article.id == action.article_id, Feed.user_id == user_id)
         )
         if access_result.scalar_one_or_none() is None:
-            results.append(MobileActionResult(
-                client_action_id=action.client_action_id,
-                article_id=action.article_id,
-                type=action.type,
-                status="not_found",
-                detail="Article not found",
-            ))
+            results.append(
+                MobileActionResult(
+                    client_action_id=action.client_action_id,
+                    article_id=action.article_id,
+                    type=action.type,
+                    status="not_found",
+                    detail="Article not found",
+                )
+            )
             continue
 
         user_article = await repo.get_or_create_user_article(user_id, action.article_id)
-        now = datetime.utcnow()
+        now = utc_now()
         if action.type == "mark_read":
             user_article.is_read = True
             user_article.read_at = now
@@ -385,11 +393,13 @@ async def apply_mobile_actions(
             user_article.favorited_at = now if user_article.is_favorite else None
         await db.flush()
 
-        results.append(MobileActionResult(
-            client_action_id=action.client_action_id,
-            article_id=action.article_id,
-            type=action.type,
-            status="ok",
-        ))
+        results.append(
+            MobileActionResult(
+                client_action_id=action.client_action_id,
+                article_id=action.article_id,
+                type=action.type,
+                status="ok",
+            )
+        )
 
     return MobileActionsResponse(results=results)

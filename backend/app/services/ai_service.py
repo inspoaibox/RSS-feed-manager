@@ -1,15 +1,16 @@
 """AI service for managing providers, models, and AI operations."""
-from datetime import datetime
+
 import re
-from typing import List
 from urllib.parse import urlparse
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import utc_now
 from app.models.ai_provider import AIModel, AIProvider
 from app.repositories.ai_repository import AIModelRepository, AIProviderRepository
 from app.repositories.article_repository import ArticleRepository
+from app.repositories.feed_repository import FeedRepository
 from app.repositories.keyword_subscription_repository import KeywordSubscriptionRepository
 from app.schemas.ai import (
     AIModelCreate,
@@ -22,7 +23,6 @@ from app.schemas.ai import (
 from app.services.ai_client import AIClientError, create_ai_client
 from app.services.ai_translation_service import translate_text_with_chunking
 
-
 _OPENAI_COMPATIBLE_ENDPOINT_SUFFIXES = (
     "/chat/completions",
     "/responses",
@@ -32,7 +32,9 @@ _OPENAI_COMPATIBLE_ENDPOINT_SUFFIXES = (
 )
 
 
-def _normalize_provider_base_url(provider_type: str, base_url: str | None, *, required: bool) -> str | None:
+def _normalize_provider_base_url(
+    provider_type: str, base_url: str | None, *, required: bool
+) -> str | None:
     """Normalize and validate provider base URLs."""
     normalized = base_url.strip() if isinstance(base_url, str) else None
     if normalized == "":
@@ -61,7 +63,9 @@ def _normalize_provider_base_url(provider_type: str, base_url: str | None, *, re
     if any(lowered_path.endswith(suffix) for suffix in _OPENAI_COMPATIBLE_ENDPOINT_SUFFIXES):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Base URL 请填写到 API 根路径，不要直接填写 /chat/completions、/models 等具体接口",
+            detail=(
+                "Base URL 请填写到 API 根路径，不要直接填写 /chat/completions、/models 等具体接口"
+            ),
         )
 
     if not re.search(r"/v\d+([a-z0-9._-]*)?$", lowered_path):
@@ -80,6 +84,7 @@ class AIService:
         self.provider_repo = AIProviderRepository(session)
         self.model_repo = AIModelRepository(session)
         self.article_repo = ArticleRepository(session)
+        self.feed_repo = FeedRepository(session)
         self.keyword_repo = KeywordSubscriptionRepository(session)
 
     # Provider operations
@@ -95,13 +100,13 @@ class AIService:
             name=data.name,
             type=data.type,
             api_key=data.api_key,
-            base_url=normalized_base_url
+            base_url=normalized_base_url,
         )
 
         provider = await self.provider_repo.get_with_models(provider.id, user_id)
         return self._provider_to_response(provider)
 
-    async def get_providers(self, user_id: int) -> List[AIProviderResponse]:
+    async def get_providers(self, user_id: int) -> list[AIProviderResponse]:
         """Get all providers for a user."""
         providers = await self.provider_repo.get_all_by_user(user_id)
         return [self._provider_to_response(p) for p in providers]
@@ -120,7 +125,7 @@ class AIService:
         provider = await self.provider_repo.get_by_id(provider_id, user_id)
         if not provider:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found")
-        
+
         update_data = data.model_dump(exclude_unset=True)
         if "base_url" in update_data:
             update_data["base_url"] = _normalize_provider_base_url(
@@ -142,12 +147,12 @@ class AIService:
         provider = await self.provider_repo.get_by_id(provider_id, user_id)
         if not provider:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found")
-        
+
         # Check if any model is default
         default_model = await self.model_repo.get_default_model(user_id)
         if default_model and default_model.provider_id == provider_id:
             await self.model_repo.clear_defaults_for_user(user_id)
-        
+
         await self.provider_repo.delete(provider)
 
     async def test_provider(self, user_id: int, provider_id: int) -> dict:
@@ -155,26 +160,29 @@ class AIService:
         provider = await self.provider_repo.get_by_id(provider_id, user_id)
         if not provider:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found")
-        
+
         try:
             client = create_ai_client(provider.type, provider.api_key, provider.base_url)
             success = await client.test_connection()
-            return {"success": success, "message": "Connection successful" if success else "Connection failed"}
+            return {
+                "success": success,
+                "message": "Connection successful" if success else "Connection failed",
+            }
         except (AIClientError, ValueError) as e:
             return {"success": False, "message": str(e)}
 
-    async def fetch_models(self, user_id: int, provider_id: int) -> List[AIModelResponse]:
+    async def fetch_models(self, user_id: int, provider_id: int) -> list[AIModelResponse]:
         """Fetch available models from provider and save them."""
         provider = await self.provider_repo.get_by_id(provider_id, user_id)
         if not provider:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found")
-        
+
         try:
             client = create_ai_client(provider.type, provider.api_key, provider.base_url)
             models = await client.list_models()
             if models:
                 await self.model_repo.bulk_create(provider_id, models)
-            
+
             # Return updated models
             all_models = await self.model_repo.get_by_provider(provider_id)
             return [self._model_to_response(m) for m in all_models]
@@ -182,12 +190,12 @@ class AIService:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
 
     # Model operations
-    async def get_models(self, user_id: int, provider_id: int) -> List[AIModelResponse]:
+    async def get_models(self, user_id: int, provider_id: int) -> list[AIModelResponse]:
         """Get all models for a provider."""
         provider = await self.provider_repo.get_by_id(provider_id, user_id)
         if not provider:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found")
-        
+
         models = await self.model_repo.get_by_provider(provider_id)
         return [self._model_to_response(m) for m in models]
 
@@ -198,26 +206,28 @@ class AIService:
         provider = await self.provider_repo.get_by_id(provider_id, user_id)
         if not provider:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found")
-        
+
         model = await self.model_repo.create(
             provider_id=provider_id,
             model_id=data.model_id,
             name=data.name,
-            description=data.description
+            description=data.description,
         )
         return self._model_to_response(model)
 
-    async def update_model(self, user_id: int, model_id: int, data: AIModelUpdate) -> AIModelResponse:
+    async def update_model(
+        self, user_id: int, model_id: int, data: AIModelUpdate
+    ) -> AIModelResponse:
         """Update a model."""
         model = await self.model_repo.get_by_id(model_id)
         if not model:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model not found")
-        
+
         # Verify user owns the provider
         provider = await self.provider_repo.get_by_id(model.provider_id, user_id)
         if not provider:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model not found")
-        
+
         update_data = data.model_dump(exclude_unset=True)
         model = await self.model_repo.update(model, **update_data)
         return self._model_to_response(model)
@@ -227,15 +237,15 @@ class AIService:
         model = await self.model_repo.get_by_id(model_id)
         if not model:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model not found")
-        
+
         provider = await self.provider_repo.get_by_id(model.provider_id, user_id)
         if not provider:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model not found")
-        
+
         # If deleting the default model, clear the default flag
         if model.is_default:
             await self.model_repo.clear_defaults_for_user(user_id)
-        
+
         await self.model_repo.delete(model)
 
     async def set_default_model(self, user_id: int, model_id: int) -> AIModelResponse:
@@ -243,16 +253,16 @@ class AIService:
         model = await self.model_repo.get_by_id(model_id)
         if not model:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model not found")
-        
+
         provider = await self.provider_repo.get_by_id(model.provider_id, user_id)
         if not provider:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model not found")
-        
+
         await self.model_repo.set_default(user_id, model_id)
         model = await self.model_repo.get_by_id(model_id)
         return self._model_to_response(model)
 
-    async def get_all_models(self, user_id: int) -> List[AIModelResponse]:
+    async def get_all_models(self, user_id: int) -> list[AIModelResponse]:
         """Get all models for a user across all providers."""
         providers = await self.provider_repo.get_all_by_user(user_id)
         models = []
@@ -271,62 +281,72 @@ class AIService:
     # AI operations
     async def translate_article(self, user_id: int, article_id: int, target_language: str) -> str:
         """Translate an article."""
-        article = await self.article_repo.get_by_id(article_id)
-        if not article:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Article not found")
-        
+        article = await self._get_owned_article(user_id, article_id)
+
         default_model = await self.model_repo.get_default_model(user_id)
         if not default_model:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No default AI model configured")
-        
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="No default AI model configured"
+            )
+
         provider = await self.provider_repo.get_by_id(default_model.provider_id, user_id)
-        
+
         content = article.full_content or article.content or article.title
-        
+
         try:
-            client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
+            client = create_ai_client(
+                provider.type, provider.api_key, provider.base_url, default_model.model_id
+            )
             article.translation_status = "translating"
             article.translation_error = None
-            article.translation_started_at = datetime.utcnow()
+            article.translation_started_at = utc_now()
             article.translation_completed_at = None
             await self.article_repo.session.flush()
             translation = await translate_text_with_chunking(client, content, target_language)
             await self.article_repo.update_content(article, translation=translation)
             article.translation_status = "completed"
             article.translation_error = None
-            article.translation_completed_at = datetime.utcnow()
+            article.translation_completed_at = utc_now()
             await self.keyword_repo.sync_article_matches(user_id, [article.id])
             await self.article_repo.session.flush()
             return translation
         except AIClientError as e:
             article.translation_status = "failed"
             article.translation_error = str(e)[:1000]
-            article.translation_completed_at = datetime.utcnow()
+            article.translation_completed_at = utc_now()
             await self.article_repo.session.flush()
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
 
     async def summarize_article(self, user_id: int, article_id: int) -> str:
         """Generate summary for an article."""
-        article = await self.article_repo.get_by_id(article_id)
-        if not article:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Article not found")
-        
+        article = await self._get_owned_article(user_id, article_id)
+
         default_model = await self.model_repo.get_default_model(user_id)
         if not default_model:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No default AI model configured")
-        
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="No default AI model configured"
+            )
+
         provider = await self.provider_repo.get_by_id(default_model.provider_id, user_id)
-        
+
         content = article.full_content or article.content or article.title
-        
+
         try:
-            client = create_ai_client(provider.type, provider.api_key, provider.base_url, default_model.model_id)
+            client = create_ai_client(
+                provider.type, provider.api_key, provider.base_url, default_model.model_id
+            )
             summary = await client.summarize(content)
             await self.article_repo.update_content(article, summary=summary)
             await self.keyword_repo.sync_article_matches(user_id, [article.id])
             return summary
         except AIClientError as e:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+
+    async def _get_owned_article(self, user_id: int, article_id: int):
+        article = await self.article_repo.get_by_id(article_id)
+        if not article or not await self.feed_repo.get_by_id(article.feed_id, user_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Article not found")
+        return article
 
     def _provider_to_response(self, provider: AIProvider) -> AIProviderResponse:
         """Convert provider to response."""
@@ -336,7 +356,7 @@ class AIService:
             type=provider.type,
             base_url=provider.base_url,
             is_active=provider.is_active,
-            models=[self._model_to_response(m) for m in provider.models] if provider.models else []
+            models=[self._model_to_response(m) for m in provider.models] if provider.models else [],
         )
 
     def _model_to_response(self, model: AIModel) -> AIModelResponse:
@@ -348,25 +368,37 @@ class AIService:
             name=model.name,
             description=model.description,
             is_default=model.is_default,
-            is_active=model.is_active
+            is_active=model.is_active,
         )
 
     # Settings operations
     async def get_settings(self, user_id: int) -> dict:
         """Get AI settings for a user."""
-        from app.models.user import User
         from sqlalchemy import select
-        
+
+        from app.models.user import User
+
         result = await self.session.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
-        
+
         # Default prompts
-        default_translate = "You are a translator. Translate the following text to {target_language}. Keep the original paragraph structure and formatting. Only output the translation, nothing else."
-        default_summarize = "You are a summarizer. Provide a concise summary of the following text in 2-3 sentences. Output in the same language as the input text."
-        
+        default_translate = (
+            "You are a translator. Translate the following text to {target_language}. "
+            "Keep the original paragraph structure and formatting. "
+            "Only output the translation, nothing else."
+        )
+        default_summarize = (
+            "You are a summarizer. Provide a concise summary of the following text "
+            "in 2-3 sentences. Output in the same language as the input text."
+        )
+
         return {
-            "translate_prompt": user.translate_prompt or default_translate if user else default_translate,
-            "summarize_prompt": user.summarize_prompt or default_summarize if user else default_summarize,
+            "translate_prompt": user.translate_prompt or default_translate
+            if user
+            else default_translate,
+            "summarize_prompt": user.summarize_prompt or default_summarize
+            if user
+            else default_summarize,
             "auto_generate_summaries": bool(user.auto_generate_summaries) if user else False,
             "embedding_provider_id": user.embedding_provider_id if user else None,
             "embedding_model": user.embedding_model if user else None,
@@ -374,21 +406,24 @@ class AIService:
             "google_translate_api_key": user.google_translate_api_key if user else None,
             "argos_source_language": (user.argos_source_language or "en") if user else "en",
             "mc_translation_api_key": user.mc_translation_api_key if user else None,
-            "mc_translation_base_url": (user.mc_translation_base_url or "https://fanyi.aboen.com") if user else "https://fanyi.aboen.com",
+            "mc_translation_base_url": (user.mc_translation_base_url or "https://fanyi.aboen.com")
+            if user
+            else "https://fanyi.aboen.com",
             "mc_translation_model": (user.mc_translation_model or "argos") if user else "argos",
         }
 
     async def update_settings(self, user_id: int, data: dict) -> dict:
         """Update AI settings for a user."""
-        from app.models.user import User
         from sqlalchemy import select
-        
+
+        from app.models.user import User
+
         result = await self.session.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
-        
+
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-        
+
         if "translate_prompt" in data:
             user.translate_prompt = data["translate_prompt"]
         if "summarize_prompt" in data:
@@ -396,6 +431,11 @@ class AIService:
         if "auto_generate_summaries" in data:
             user.auto_generate_summaries = bool(data["auto_generate_summaries"])
         if "embedding_provider_id" in data:
+            provider_id = data["embedding_provider_id"]
+            if provider_id is not None and not await self.provider_repo.get_by_id(
+                provider_id, user_id
+            ):
+                raise HTTPException(status_code=404, detail="Embedding provider not found")
             user.embedding_provider_id = data["embedding_provider_id"]
         if "embedding_model" in data:
             user.embedding_model = data["embedding_model"]
@@ -411,26 +451,27 @@ class AIService:
             user.mc_translation_base_url = data["mc_translation_base_url"]
         if "mc_translation_model" in data:
             user.mc_translation_model = data["mc_translation_model"]
-        
+
         await self.session.commit()
-        
+
         return await self.get_settings(user_id)
-    
+
     async def get_embedding_config(self, user_id: int) -> dict | None:
         """Get embedding configuration for a user."""
-        from app.models.user import User
         from sqlalchemy import select
-        
+
+        from app.models.user import User
+
         result = await self.session.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
-        
+
         if not user or not user.embedding_provider_id or not user.embedding_model:
             return None
-        
+
         provider = await self.provider_repo.get_by_id(user.embedding_provider_id, user_id)
         if not provider:
             return None
-        
+
         return {
             "api_key": provider.api_key,
             "base_url": provider.base_url,

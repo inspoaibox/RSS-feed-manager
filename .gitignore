@@ -51,6 +51,16 @@ build/
 *.db
 *.sqlite
 *.sqlite3
+*.db.bak*
+*.backup
+.dotnet/
+tmp_argos_pkg/
+android/MRSS/.gradle/
+desktop/MRSS.Native/bin/
+desktop/MRSS.Native/obj/
+desktop/MRSS.Native/publish/
+desktop/MRSS.Native/installer-output/
+desktop/MRSS/installer-output/
 
 # Logs
 logs/
@@ -69,6 +79,8 @@ coverage/
 
 # Type checking
 .mypy_cache/
+.ruff_cache/
+*.tsbuildinfo
 
 # OS
 .DS_Store

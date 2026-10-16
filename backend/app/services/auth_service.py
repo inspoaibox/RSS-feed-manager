@@ -1,11 +1,12 @@
 """Authentication service for user management."""
+
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_access_token, create_refresh_token, decode_token
 from app.models.user import User
-from app.repositories.user_repository import UserRepository
 from app.repositories.system_settings_repository import SystemSettingsRepository
+from app.repositories.user_repository import UserRepository
 from app.schemas.auth import AuthResponse, UserCreate, UserLogin, UserResponse
 
 
@@ -17,143 +18,148 @@ class AuthService:
         self.user_repo = UserRepository(session)
         self.settings_repo = SystemSettingsRepository(session)
 
-    async def register(self, data: UserCreate) -> AuthResponse:
+    async def register(self, data: UserCreate) -> tuple[AuthResponse, str]:
         """Register a new user."""
         # Check if this is the first user (will be admin)
         user_count = await self.user_repo.count_users()
         is_first_user = user_count == 0
-        
+
         # Check if registration is allowed (skip for first user)
         if not is_first_user:
-            allow_registration = await self.settings_repo.get_bool('allow_registration', True)
+            allow_registration = await self.settings_repo.get_bool("allow_registration", True)
             if not allow_registration:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Registration is currently disabled"
+                    detail="Registration is currently disabled",
                 )
-        
+
         # Check if username exists
         if await self.user_repo.exists_by_username(data.username):
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Username already exists"
+                status_code=status.HTTP_409_CONFLICT, detail="Username already exists"
             )
-        
+
         # Check if email exists
         if await self.user_repo.exists_by_email(data.email):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Email already exists"
-            )
-        
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
+
         # Create user (first user is admin)
         user = await self.user_repo.create(
-            username=data.username,
-            email=data.email,
-            password=data.password,
-            is_admin=is_first_user
+            username=data.username, email=data.email, password=data.password, is_admin=is_first_user
         )
-        
+
         # Generate tokens
         tokens = self._generate_tokens(user)
-        
-        return AuthResponse(
-            access_token=tokens["access_token"],
-            refresh_token=tokens["refresh_token"],
-            user=UserResponse.model_validate(user)
+
+        return (
+            AuthResponse(
+                access_token=tokens["access_token"],
+                user=UserResponse.model_validate(user),
+            ),
+            tokens["refresh_token"],
         )
 
-    async def login(self, data: UserLogin) -> AuthResponse:
+    async def login(self, data: UserLogin) -> tuple[AuthResponse, str]:
         """Authenticate user and return tokens."""
         user = await self.user_repo.get_by_username(data.username)
-        
+
         if not user or not user.verify_password(data.password):
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid username or password"
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password"
             )
-        
+
         if not user.is_active:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User account is disabled"
+                status_code=status.HTTP_403_FORBIDDEN, detail="User account is disabled"
             )
-        
+
         # Update last login time
         await self.user_repo.update_last_login(user)
-        
+
         tokens = self._generate_tokens(user)
-        
-        return AuthResponse(
-            access_token=tokens["access_token"],
-            refresh_token=tokens["refresh_token"],
-            user=UserResponse.model_validate(user)
+
+        return (
+            AuthResponse(
+                access_token=tokens["access_token"],
+                user=UserResponse.model_validate(user),
+            ),
+            tokens["refresh_token"],
         )
 
-    async def refresh_token(self, refresh_token: str) -> dict:
+    async def refresh_token(self, refresh_token: str) -> tuple[dict, str]:
         """Refresh access token using refresh token."""
         payload = decode_token(refresh_token)
-        
+
         if not payload or payload.get("type") != "refresh":
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid refresh token"
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
             )
-        
+
         user_id = payload.get("sub")
         token_version = payload.get("token_version")
-        
-        user = await self.user_repo.get_by_id(int(user_id))
-        
-        if not user:
+
+        if user_id is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found"
+                detail="Invalid refresh token",
             )
-        
+
+        try:
+            parsed_user_id = int(user_id)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token",
+            ) from exc
+
+        user = await self.user_repo.get_by_id(parsed_user_id)
+
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
         # Check token version (invalidated if password changed)
         if user.token_version != token_version:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token has been invalidated"
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been invalidated"
             )
-        
+
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User account is disabled",
+            )
+
         tokens = self._generate_tokens(user)
-        
-        return {
-            "access_token": tokens["access_token"],
-            "refresh_token": tokens["refresh_token"],
-            "token_type": "bearer"
-        }
+
+        return (
+            {
+                "access_token": tokens["access_token"],
+                "token_type": "bearer",
+            },
+            tokens["refresh_token"],
+        )
 
     async def change_password(self, user_id: int, current_password: str, new_password: str) -> None:
         """Change user password."""
         user = await self.user_repo.get_by_id(user_id)
-        
+
         if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
-        
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
         if not user.verify_password(current_password):
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Current password is incorrect"
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is incorrect"
             )
-        
+
         await self.user_repo.update_password(user, new_password)
 
     async def get_current_user(self, user_id: int) -> User:
         """Get current user by ID."""
         user = await self.user_repo.get_by_id(user_id)
-        
+
         if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
-        
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
         return user
 
     def _generate_tokens(self, user: User) -> dict:
@@ -161,10 +167,10 @@ class AuthService:
         token_data = {
             "sub": str(user.id),
             "username": user.username,
-            "token_version": user.token_version
+            "token_version": user.token_version,
         }
-        
+
         return {
             "access_token": create_access_token(token_data),
-            "refresh_token": create_refresh_token(token_data)
+            "refresh_token": create_refresh_token(token_data),
         }

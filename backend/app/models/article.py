@@ -1,4 +1,5 @@
 """Article and UserArticle models for feed content."""
+
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base, BaseModel
 
 if TYPE_CHECKING:
+    from app.models.external_notification import NotificationDelivery
     from app.models.feed import Feed
     from app.models.user import User
 
@@ -17,18 +19,16 @@ class Article(BaseModel):
     """Article model representing a single feed entry."""
 
     __tablename__ = "articles"
-    __table_args__ = (
-        UniqueConstraint("feed_id", "guid", name="uq_article_feed_guid"),
-    )
+    __table_args__ = (UniqueConstraint("feed_id", "guid", name="uq_article_feed_guid"),)
 
     feed_id: Mapped[int] = mapped_column(
         ForeignKey("feeds.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    
+
     # Article identifiers
     guid: Mapped[str] = mapped_column(String(2048), nullable=False)
     link: Mapped[str | None] = mapped_column(String(2048), nullable=True)
-    
+
     # Content
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)  # Original RSS content
@@ -37,20 +37,27 @@ class Article(BaseModel):
     translation: Mapped[str | None] = mapped_column(Text, nullable=True)  # AI translation
     translation_status: Mapped[str] = mapped_column(String(20), default="none", nullable=False)
     translation_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    translation_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    translation_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    
+    translation_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    translation_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # Metadata
     author: Mapped[str | None] = mapped_column(String(500), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    
+
     # Cached images (JSON array of local paths)
     cached_images: Mapped[str | None] = mapped_column(Text, nullable=True)
-    
+
     # Vector embedding for semantic search (1536 dimensions for OpenAI text-embedding-3-small)
     embedding: Mapped[Any | None] = mapped_column(Vector(1536), nullable=True)
 
     # Relationships
+    external_deliveries: Mapped[list["NotificationDelivery"]] = relationship(
+        back_populates="article"
+    )
     feed: Mapped["Feed"] = relationship("Feed", back_populates="articles")
 
     def __repr__(self) -> str:
@@ -68,7 +75,7 @@ class UserArticle(Base):
     article_id: Mapped[int] = mapped_column(
         ForeignKey("articles.id", ondelete="CASCADE"), primary_key=True
     )
-    
+
     # User-specific state
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
     is_favorite: Mapped[bool] = mapped_column(Boolean, default=False)

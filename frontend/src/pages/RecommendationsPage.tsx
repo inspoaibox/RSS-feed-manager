@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '@/utils/apiError'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Rss, Users, Check, Plus, Loader2 } from 'lucide-react'
@@ -63,8 +64,8 @@ export default function RecommendationsPage() {
         queryClient.invalidateQueries({ queryKey: ['articles'] })
       }, 3000)
     },
-    onError: (err: any) => {
-      const detail = err.response?.data?.detail
+    onError: (err: unknown) => {
+      const detail = getApiErrorMessage(err, '请求失败，请重试')
       setMessage({ type: 'error', text: detail || '订阅失败' })
     },
   })

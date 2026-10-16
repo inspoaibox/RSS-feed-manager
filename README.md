@@ -2,6 +2,8 @@
 
 一个功能完善的 RSS 订阅管理器，支持多用户、分类管理、定时抓取、自定义抓取规则以及 AI 翻译和摘要功能。
 
+升级此版本前请阅读 [安全修复与升级](docs/SECURITY_UPGRADE.md)。生产入口使用 HTTPS，认证 Cookie 和备份格式已有更新。
+
 项目地址：[https://github.com/inspoaibox/RSS-feed-manager](https://github.com/inspoaibox/RSS-feed-manager)
 
 ## 功能特性
@@ -15,6 +17,7 @@
 - 🤖 AI 自动翻译和整理（支持 OpenAI、Gemini 及兼容 API）
 - 🧠 **AI 智能内容分析**（语义搜索 + AI 总结）
 - 🔔 **推送通知**（订阅 Feed/分组/关键词更新，浏览器/桌面实时推送）
+- 📣 **外部通知**（每个用户独立配置飞书、Telegram、企业微信、邮件、Bark、PushPlus、Server酱与通用 Webhook，按分类或 RSS 自动推送新文章，支持记录与重试，见 [使用说明](docs/NOTIFICATIONS.md)）
 - 🕷️ 自定义抓取规则
 - 📦 OPML 导入导出
 - 💾 配置备份恢复
@@ -40,7 +43,7 @@
 2. 复制并修改 `.env.production`
 3. 等 GitHub Actions 构建并发布 GHCR 镜像
 4. 在服务器使用 Docker Compose 拉取镜像并启动服务
-5. 通过 `http://服务器IP:5666` 测试访问
+5. 配置 HTTPS 反向代理到 `127.0.0.1:5666`
 6. 使用 Nginx 或 Caddy 反向代理到 `127.0.0.1:5666`
 7. 将 `.env.production` 中的 `CORS_ORIGINS` 和 `BASE_URL` 改为最终域名
 8. 后续通过 `git pull origin main`、`docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml pull` 和 `docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml up -d` 更新
@@ -83,7 +86,7 @@ docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.pr
 docker compose --profile browser -f docker-compose.prod.yml -f docker-compose.prod.build.yml --env-file .env.production up -d
 ```
 
-> 如果服务器没有 `.env.production`，可以先去掉 `--env-file .env.production`，Compose 会使用 `docker-compose.prod.yml` 中的默认值。公网部署仍建议创建 `.env.production` 并修改数据库密码、Redis 密码、`SECRET_KEY`、`CORS_ORIGINS` 和 `BASE_URL`。
+> 生产部署必须配置 `.env.production` 中的数据库和 Redis 密码、随机 `SECRET_KEY`、HTTPS `CORS_ORIGINS` 和 `BASE_URL`，缺少必填项会拒绝启动。
 > 浏览器抓取能力已拆到独立 browser 镜像。默认轻量模式不会拉取这个大镜像；只有添加 `--profile browser` 时才会拉取并启动 `rss_manager_celery_browser_worker`。
 > 更新或切换镜像只会替换应用容器，不会删除 PostgreSQL、Redis、Argos 语言包、CloakBrowser 浏览器内核缓存等 Docker 数据卷；只有执行 `down -v` 才会删除数据卷。
 

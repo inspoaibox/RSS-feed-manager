@@ -1,14 +1,14 @@
 """Recommended feeds API endpoints."""
-from typing import List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
-from sqlalchemy import select, func
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
-from app.models.user import User
 from app.models.feed import Feed
 from app.models.recommended_feed import RecommendedFeed
+from app.models.user import User
 from app.repositories.system_settings_repository import SystemSettingsRepository
 
 router = APIRouter()
@@ -18,123 +18,110 @@ router = APIRouter()
 class RecommendedFeedCreate(BaseModel):
     url: str
     title: str
-    description: Optional[str] = None
-    icon_url: Optional[str] = None
+    description: str | None = None
+    icon_url: str | None = None
     categories: str = ""  # comma-separated
     use_playwright: bool = False
 
 
 class RecommendedFeedUpdate(BaseModel):
-    url: Optional[str] = None
-    title: Optional[str] = None
-    description: Optional[str] = None
-    icon_url: Optional[str] = None
-    categories: Optional[str] = None
-    use_playwright: Optional[bool] = None
-    is_active: Optional[bool] = None
+    url: str | None = None
+    title: str | None = None
+    description: str | None = None
+    icon_url: str | None = None
+    categories: str | None = None
+    use_playwright: bool | None = None
+    is_active: bool | None = None
 
 
 class RecommendedFeedResponse(BaseModel):
     id: int
     url: str
     title: str
-    description: Optional[str]
-    icon_url: Optional[str]
+    description: str | None
+    icon_url: str | None
     categories: str
     use_playwright: bool
     is_active: bool
     subscriber_count: int
     is_subscribed: bool = False  # Whether current user has subscribed
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SubscribeRequest(BaseModel):
-    category_id: Optional[int] = None
+    category_id: int | None = None
 
 
 class RecommendationStatusResponse(BaseModel):
     enabled: bool
-    category_tags: List[str]  # All unique category tags
+    category_tags: list[str]  # All unique category tags
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:
     """Dependency to require admin user."""
     if not user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="需要管理员权限"
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要管理员权限")
     return user
 
 
 async def check_feature_enabled(db: AsyncSession) -> bool:
     """Check if recommendations feature is enabled."""
     settings_repo = SystemSettingsRepository(db)
-    return await settings_repo.get_bool('enable_feed_recommendations', False)
+    return await settings_repo.get_bool("enable_feed_recommendations", False)
 
 
 # Public endpoints (for all authenticated users)
 
+
 @router.get("/status", response_model=RecommendationStatusResponse)
 async def get_recommendation_status(
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
 ):
     """Get recommendation feature status and available category tags."""
     enabled = await check_feature_enabled(db)
-    
+
     # Get all unique category tags
     result = await db.execute(
-        select(RecommendedFeed.categories)
-        .where(RecommendedFeed.is_active == True)
+        select(RecommendedFeed.categories).where(RecommendedFeed.is_active.is_(True))
     )
     all_categories = result.scalars().all()
-    
+
     # Parse and deduplicate tags
     tags = set()
     for cats in all_categories:
         if cats:
-            for tag in cats.split(','):
+            for tag in cats.split(","):
                 tag = tag.strip()
                 if tag:
                     tags.add(tag)
-    
-    return RecommendationStatusResponse(
-        enabled=enabled,
-        category_tags=sorted(list(tags))
-    )
+
+    return RecommendationStatusResponse(enabled=enabled, category_tags=sorted(list(tags)))
 
 
-@router.get("", response_model=List[RecommendedFeedResponse])
+@router.get("", response_model=list[RecommendedFeedResponse])
 async def list_recommendations(
-    category: Optional[str] = None,
+    category: str | None = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
 ):
     """List all active recommended feeds."""
     enabled = await check_feature_enabled(db)
     if not enabled:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="订阅推荐功能未开启"
-        )
-    
-    query = select(RecommendedFeed).where(RecommendedFeed.is_active == True)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="订阅推荐功能未开启")
+
+    query = select(RecommendedFeed).where(RecommendedFeed.is_active.is_(True))
     result = await db.execute(query)
     feeds = result.scalars().all()
-    
+
     # Filter by category if specified
     if category:
-        feeds = [f for f in feeds if category in [c.strip() for c in f.categories.split(',')]]
-    
+        feeds = [f for f in feeds if category in [c.strip() for c in f.categories.split(",")]]
+
     # Get user's subscribed URLs
-    user_feeds_result = await db.execute(
-        select(Feed.url).where(Feed.user_id == user.id)
-    )
+    user_feeds_result = await db.execute(select(Feed.url).where(Feed.user_id == user.id))
     subscribed_urls = {row[0] for row in user_feeds_result.fetchall()}
-    
+
     # Build response
     response = []
     for feed in feeds:
@@ -148,10 +135,10 @@ async def list_recommendations(
             use_playwright=feed.use_playwright,
             is_active=feed.is_active,
             subscriber_count=feed.subscriber_count,
-            is_subscribed=feed.url in subscribed_urls
+            is_subscribed=feed.url in subscribed_urls,
         )
         response.append(resp)
-    
+
     return response
 
 
@@ -160,37 +147,28 @@ async def subscribe_to_recommendation(
     recommendation_id: int,
     data: SubscribeRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
 ):
     """Subscribe to a recommended feed."""
     enabled = await check_feature_enabled(db)
     if not enabled:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="订阅推荐功能未开启"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="订阅推荐功能未开启")
+
     # Get recommendation
     result = await db.execute(
         select(RecommendedFeed).where(
-            RecommendedFeed.id == recommendation_id,
-            RecommendedFeed.is_active == True
+            RecommendedFeed.id == recommendation_id, RecommendedFeed.is_active.is_(True)
         )
     )
     rec = result.scalar_one_or_none()
     if not rec:
         raise HTTPException(status_code=404, detail="推荐源不存在")
-    
+
     # Check if already subscribed
-    existing = await db.execute(
-        select(Feed).where(
-            Feed.user_id == user.id,
-            Feed.url == rec.url
-        )
-    )
+    existing = await db.execute(select(Feed).where(Feed.user_id == user.id, Feed.url == rec.url))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="您已订阅此源")
-    
+
     # Create feed for user
     feed = Feed(
         user_id=user.id,
@@ -201,41 +179,43 @@ async def subscribe_to_recommendation(
         icon_url=rec.icon_url,
         use_playwright=rec.use_playwright,
         browser_engine="playwright" if rec.use_playwright else "http",
-        is_active=True
+        is_active=True,
     )
     db.add(feed)
-    
+
     # Increment subscriber count
     rec.subscriber_count += 1
-    
+
     await db.commit()
     await db.refresh(feed)
-    
+
     # Trigger initial fetch via Celery task
     try:
         from app.tasks.feed_tasks import refresh_single_feed
+
         result = refresh_single_feed.delay(feed.id)
-        print(f"[Recommendations] Triggered refresh_single_feed for feed {feed.id}, task_id={result.id}")
+        print(
+            f"[Recommendations] Triggered refresh_single_feed for feed {feed.id}, "
+            f"task_id={result.id}"
+        )
     except Exception as e:
         # If Celery is not available, ignore - user can manually refresh
         print(f"[Recommendations] Failed to trigger Celery task for feed {feed.id}: {e}")
-    
+
     return {"success": True, "message": f"已订阅 {rec.title}，正在抓取文章...", "feed_id": feed.id}
 
 
 # Admin endpoints
 
-@router.get("/admin/all", response_model=List[RecommendedFeedResponse])
+
+@router.get("/admin/all", response_model=list[RecommendedFeedResponse])
 async def admin_list_all_recommendations(
-    db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin)
+    db: AsyncSession = Depends(get_db), admin: User = Depends(require_admin)
 ):
     """List all recommended feeds (admin only, includes inactive)."""
-    result = await db.execute(
-        select(RecommendedFeed).order_by(RecommendedFeed.created_at.desc())
-    )
+    result = await db.execute(select(RecommendedFeed).order_by(RecommendedFeed.created_at.desc()))
     feeds = result.scalars().all()
-    
+
     return [
         RecommendedFeedResponse(
             id=f.id,
@@ -247,7 +227,7 @@ async def admin_list_all_recommendations(
             use_playwright=f.use_playwright,
             is_active=f.is_active,
             subscriber_count=f.subscriber_count,
-            is_subscribed=False
+            is_subscribed=False,
         )
         for f in feeds
     ]
@@ -255,9 +235,7 @@ async def admin_list_all_recommendations(
 
 @router.post("/admin/validate")
 async def admin_validate_feed(
-    url: str,
-    use_playwright: bool = False,
-    admin: User = Depends(require_admin)
+    url: str, use_playwright: bool = False, admin: User = Depends(require_admin)
 ):
     """Validate a feed URL and return parsed info (admin only)."""
     from app.utils.feed_parser import parse_feed
@@ -265,20 +243,25 @@ async def admin_validate_feed(
     if use_playwright:
         raise HTTPException(
             status_code=400,
-            detail="浏览器模式推荐源验证需要 browser 镜像；请用普通模式验证，或创建订阅后由浏览器抓取队列处理。"
+            detail=(
+                "浏览器模式推荐源验证需要 browser 镜像；请用普通模式验证，"
+                "或创建订阅后由浏览器抓取队列处理。"
+            ),
         )
-    
+
     try:
         parsed = await parse_feed(url, use_playwright=use_playwright)
         if not parsed:
-            raise HTTPException(status_code=400, detail="无法解析该 RSS 源，请检查 URL 或尝试开启浏览器模式")
-        
+            raise HTTPException(
+                status_code=400, detail="无法解析该 RSS 源，请检查 URL 或尝试开启浏览器模式"
+            )
+
         return {
             "success": True,
             "title": parsed.title,
             "description": parsed.description,
             "icon_url": parsed.icon_url,
-            "article_count": len(parsed.articles)
+            "article_count": len(parsed.articles),
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"验证失败: {str(e)}")
@@ -288,18 +271,16 @@ async def admin_validate_feed(
 async def admin_create_recommendation(
     data: RecommendedFeedCreate,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin)
+    admin: User = Depends(require_admin),
 ):
     """Create a new recommended feed (admin only)."""
     from app.utils.feed_parser import parse_feed
-    
+
     # Check for duplicate URL
-    existing = await db.execute(
-        select(RecommendedFeed).where(RecommendedFeed.url == data.url)
-    )
+    existing = await db.execute(select(RecommendedFeed).where(RecommendedFeed.url == data.url))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="该 URL 已存在")
-    
+
     parsed = None
     if not data.use_playwright:
         # Validate regular feeds in the API image. Browser-backed recommendations are saved
@@ -312,12 +293,12 @@ async def admin_create_recommendation(
             raise
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"RSS 验证失败: {str(e)}")
-    
+
     # Use parsed info if not provided
     title = data.title or (parsed.title if parsed else None) or "未知标题"
     description = data.description or (parsed.description if parsed else None)
     icon_url = data.icon_url or (parsed.icon_url if parsed else None)
-    
+
     rec = RecommendedFeed(
         url=data.url,
         title=title,
@@ -325,12 +306,12 @@ async def admin_create_recommendation(
         icon_url=icon_url,
         categories=data.categories,
         use_playwright=data.use_playwright,
-        created_by=admin.id
+        created_by=admin.id,
     )
     db.add(rec)
     await db.commit()
     await db.refresh(rec)
-    
+
     return RecommendedFeedResponse(
         id=rec.id,
         url=rec.url,
@@ -341,7 +322,7 @@ async def admin_create_recommendation(
         use_playwright=rec.use_playwright,
         is_active=rec.is_active,
         subscriber_count=rec.subscriber_count,
-        is_subscribed=False
+        is_subscribed=False,
     )
 
 
@@ -350,7 +331,7 @@ async def admin_update_recommendation(
     recommendation_id: int,
     data: RecommendedFeedUpdate,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin)
+    admin: User = Depends(require_admin),
 ):
     """Update a recommended feed (admin only)."""
     result = await db.execute(
@@ -359,23 +340,21 @@ async def admin_update_recommendation(
     rec = result.scalar_one_or_none()
     if not rec:
         raise HTTPException(status_code=404, detail="推荐源不存在")
-    
+
     # Check URL uniqueness if changing
     if data.url and data.url != rec.url:
-        existing = await db.execute(
-            select(RecommendedFeed).where(RecommendedFeed.url == data.url)
-        )
+        existing = await db.execute(select(RecommendedFeed).where(RecommendedFeed.url == data.url))
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="该 URL 已存在")
-    
+
     # Update fields
     update_data = data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(rec, key, value)
-    
+
     await db.commit()
     await db.refresh(rec)
-    
+
     return RecommendedFeedResponse(
         id=rec.id,
         url=rec.url,
@@ -386,15 +365,13 @@ async def admin_update_recommendation(
         use_playwright=rec.use_playwright,
         is_active=rec.is_active,
         subscriber_count=rec.subscriber_count,
-        is_subscribed=False
+        is_subscribed=False,
     )
 
 
 @router.delete("/admin/{recommendation_id}")
 async def admin_delete_recommendation(
-    recommendation_id: int,
-    db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin)
+    recommendation_id: int, db: AsyncSession = Depends(get_db), admin: User = Depends(require_admin)
 ):
     """Delete a recommended feed (admin only)."""
     result = await db.execute(
@@ -403,8 +380,8 @@ async def admin_delete_recommendation(
     rec = result.scalar_one_or_none()
     if not rec:
         raise HTTPException(status_code=404, detail="推荐源不存在")
-    
+
     await db.delete(rec)
     await db.commit()
-    
+
     return {"success": True, "message": "已删除"}

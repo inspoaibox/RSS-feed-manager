@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '@/utils/apiError'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Edit2, Trash2, Bell, Info, Wrench, Check, X } from 'lucide-react'
@@ -47,8 +48,8 @@ export default function NotificationManagement() {
       setMessage({ type: 'success', text: '通知已发布' })
       setTimeout(() => setMessage(null), 3000)
     },
-    onError: (err: any) => {
-      const detail = err.response?.data?.detail
+    onError: (err: unknown) => {
+      const detail = getApiErrorMessage(err, '请求失败，请重试')
       setMessage({ type: 'error', text: detail || '发布失败' })
     },
   })
@@ -67,8 +68,8 @@ export default function NotificationManagement() {
       setMessage({ type: 'success', text: '通知已更新' })
       setTimeout(() => setMessage(null), 3000)
     },
-    onError: (err: any) => {
-      const detail = err.response?.data?.detail
+    onError: (err: unknown) => {
+      const detail = getApiErrorMessage(err, '请求失败，请重试')
       setMessage({ type: 'error', text: detail || '更新失败' })
     },
   })
@@ -84,8 +85,8 @@ export default function NotificationManagement() {
       setMessage({ type: 'success', text: '通知已删除' })
       setTimeout(() => setMessage(null), 3000)
     },
-    onError: (err: any) => {
-      const detail = err.response?.data?.detail
+    onError: (err: unknown) => {
+      const detail = getApiErrorMessage(err, '请求失败，请重试')
       setMessage({ type: 'error', text: detail || '删除失败' })
     },
   })

@@ -1,59 +1,36 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 import type { User } from '@/types'
+import { queryClient } from '@/queryClient'
 
 interface AuthState {
   user: User | null
   accessToken: string | null
-  refreshToken: string | null
   isAuthenticated: boolean
-  setAuth: (user: User, accessToken: string, refreshToken: string) => void
+  isInitialized: boolean
+  authEpoch: number
+  setAuth: (user: User, accessToken: string) => void
+  setAccessToken: (accessToken: string | null) => void
+  setInitialized: () => void
   clearAuth: () => void
 }
 
-// 清除 React Query 缓存的函数
-const clearQueryCache = () => {
-  // 动态导入避免循环依赖
-  import('@/main').then(({ queryClient }) => {
-    queryClient.clear()
-  }).catch(() => {
-    // 忽略导入错误
-  })
-}
-
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set, get) => ({
-      user: null,
-      accessToken: null,
-      refreshToken: null,
-      isAuthenticated: false,
-      setAuth: (user, accessToken, refreshToken) => {
-        // 如果是不同用户登录，清除缓存
-        const currentUser = get().user
-        if (currentUser && currentUser.id !== user.id) {
-          clearQueryCache()
-        }
-        set({
-          user,
-          accessToken,
-          refreshToken,
-          isAuthenticated: true,
-        })
-      },
-      clearAuth: () => {
-        // 登出时清除所有缓存
-        clearQueryCache()
-        set({
-          user: null,
-          accessToken: null,
-          refreshToken: null,
-          isAuthenticated: false,
-        })
-      },
-    }),
-    {
-      name: 'auth-storage',
+export const useAuthStore = create<AuthState>((set, get) => ({
+  user: null,
+  accessToken: null,
+  isAuthenticated: false,
+  isInitialized: false,
+  authEpoch: 0,
+  setAuth: (user, accessToken) => {
+    const currentUser = get().user
+    if (currentUser && currentUser.id !== user.id) {
+      queryClient.clear()
     }
-  )
-)
+    set({ user, accessToken, isAuthenticated: true, authEpoch: get().authEpoch + 1 })
+  },
+  setAccessToken: (accessToken) => set({ accessToken }),
+  setInitialized: () => set({ isInitialized: true }),
+  clearAuth: () => {
+    queryClient.clear()
+    set({ user: null, accessToken: null, isAuthenticated: false, authEpoch: get().authEpoch + 1 })
+  },
+}))

@@ -1,8 +1,9 @@
 """Proxy pool schemas."""
+
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 ProxyProtocol = Literal["http", "https", "socks4", "socks5", "socks5h"]
 
@@ -56,8 +57,7 @@ class ProxyPoolEntryResponse(BaseModel):
     created_at: datetime
     updated_at: datetime | None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProxyPoolImportResult(BaseModel):

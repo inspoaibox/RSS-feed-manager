@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '@/utils/apiError'
 import { useState, useEffect, useMemo } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -248,8 +249,8 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
       navigate(`/?keyword_id=${keyword.id}`)
       setTimeout(() => setKeywordMessage(null), 3000)
     },
-    onError: (err: any) => {
-      const detail = err.response?.data?.detail
+    onError: (err: unknown) => {
+      const detail = getApiErrorMessage(err, '请求失败，请重试')
       setKeywordMessage({ type: 'error', text: detail || '添加关键词失败' })
       setTimeout(() => setKeywordMessage(null), 3000)
     },
@@ -271,8 +272,8 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
       setKeywordMessage({ type: 'success', text: '关键词订阅已更新' })
       setTimeout(() => setKeywordMessage(null), 3000)
     },
-    onError: (err: any) => {
-      const detail = err.response?.data?.detail
+    onError: (err: unknown) => {
+      const detail = getApiErrorMessage(err, '请求失败，请重试')
       setKeywordMessage({ type: 'error', text: detail || '更新关键词失败' })
       setTimeout(() => setKeywordMessage(null), 3000)
     },
@@ -328,8 +329,8 @@ function Sidebar({ isOpen, onClose, onOpenNotifications, unreadCount }: SidebarP
       }
       setSelectedKeywordIds(new Set())
     },
-    onError: (err: any) => {
-      const detail = err.response?.data?.detail
+    onError: (err: unknown) => {
+      const detail = getApiErrorMessage(err, '请求失败，请重试')
       setKeywordMessage({ type: 'error', text: detail || '批量删除关键词失败' })
       setTimeout(() => setKeywordMessage(null), 3000)
     },

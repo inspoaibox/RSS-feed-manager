@@ -1,11 +1,14 @@
 """Celery application configuration."""
+
 import os
 
 from celery import Celery
 from celery.schedules import crontab
 
+from app.core.config import settings
+
 # Read REDIS_URL directly from environment to avoid caching issues
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+REDIS_URL = os.environ.get("REDIS_URL", settings.REDIS_URL)
 
 celery_app = Celery(
     "rss_reader",
@@ -13,7 +16,8 @@ celery_app = Celery(
     backend=REDIS_URL,
     include=[
         "app.tasks.feed_tasks",
-    ]
+        "app.tasks.notification_tasks",
+    ],
 )
 
 # Celery configuration
@@ -36,6 +40,10 @@ celery_app.conf.update(
 
 # Periodic tasks (beat schedule)
 celery_app.conf.beat_schedule = {
+    "dispatch-external-notifications": {
+        "task": "app.tasks.notification_tasks.dispatch_pending",
+        "schedule": 15.0,
+    },
     "check-feeds-due-for-refresh": {
         "task": "app.tasks.feed_tasks.refresh_due_feeds",
         "schedule": 60.0,  # Check every minute for feeds that need refresh

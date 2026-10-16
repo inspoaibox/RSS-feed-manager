@@ -1,11 +1,11 @@
 """Utilities for monitoring WHMCS product availability pages."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from urllib.parse import parse_qs, unquote, urlparse
 
 from bs4 import BeautifulSoup
-
 
 WHMCS_STATUS_MARKER = "WHMCS_STATUS="
 

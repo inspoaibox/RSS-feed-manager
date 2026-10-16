@@ -1,7 +1,8 @@
 """Google Translate key schemas."""
+
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class GoogleTranslateKeyCreate(BaseModel):
@@ -48,8 +49,7 @@ class GoogleTranslateKeyResponse(BaseModel):
     created_at: datetime
     updated_at: datetime | None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class GoogleTranslateKeyTestResponse(BaseModel):

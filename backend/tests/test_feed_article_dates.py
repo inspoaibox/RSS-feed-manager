@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from app.core.clock import utc_now
 import pytest
 from sqlalchemy import select
 
@@ -29,7 +30,7 @@ async def test_save_articles_uses_fetch_time_when_published_at_missing(db_sessio
     await db_session.commit()
     await db_session.refresh(feed)
 
-    before_save = datetime.utcnow()
+    before_save = utc_now()
     count = await FeedService(db_session)._save_articles(
         user.id,
         feed,
@@ -50,7 +51,7 @@ async def test_save_articles_uses_fetch_time_when_published_at_missing(db_sessio
             ],
         ),
     )
-    after_save = datetime.utcnow()
+    after_save = utc_now()
 
     article = (
         await db_session.execute(select(Article).where(Article.guid == "no-date-1"))

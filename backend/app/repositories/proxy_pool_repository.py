@@ -1,12 +1,14 @@
 """Proxy pool repository."""
+
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Iterable, List
+import builtins
+from collections.abc import Iterable
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import utc_now
 from app.models.proxy_pool import ProxyPoolEntry
 from app.utils.proxy_parser import ParsedProxy
 
@@ -67,7 +69,7 @@ class ProxyPoolRepository:
         self,
         user_id: int,
         proxy_ids: Iterable[int],
-    ) -> List[ProxyPoolEntry]:
+    ) -> builtins.list[ProxyPoolEntry]:
         ids = list(proxy_ids)
         if not ids:
             return []
@@ -84,7 +86,7 @@ class ProxyPoolRepository:
         country: str | None = None,
         protocol: str | None = None,
         active: bool | None = None,
-    ) -> List[ProxyPoolEntry]:
+    ) -> builtins.list[ProxyPoolEntry]:
         query = select(ProxyPoolEntry).where(ProxyPoolEntry.user_id == user_id)
         if country:
             query = query.where(ProxyPoolEntry.country == country.lower())
@@ -107,10 +109,10 @@ class ProxyPoolRepository:
         user_id: int,
         country: str | None = None,
         protocol: str | None = None,
-    ) -> List[ProxyPoolEntry]:
+    ) -> builtins.list[ProxyPoolEntry]:
         query = select(ProxyPoolEntry).where(
             ProxyPoolEntry.user_id == user_id,
-            ProxyPoolEntry.is_active == True,
+            ProxyPoolEntry.is_active.is_(True),
         )
         if country:
             query = query.where(ProxyPoolEntry.country == country.lower())
@@ -146,15 +148,15 @@ class ProxyPoolRepository:
         entry.fail_count = 0
         entry.last_latency_ms = latency_ms
         entry.last_error = None
-        entry.last_used_at = datetime.utcnow()
-        entry.last_tested_at = datetime.utcnow()
+        entry.last_used_at = utc_now()
+        entry.last_tested_at = utc_now()
         await self.session.flush()
 
     async def record_failure(self, entry: ProxyPoolEntry, error: str) -> None:
         entry.fail_count += 1
         entry.last_error = error[:1000]
-        entry.last_used_at = datetime.utcnow()
-        entry.last_tested_at = datetime.utcnow()
+        entry.last_used_at = utc_now()
+        entry.last_tested_at = utc_now()
         await self.session.flush()
 
     async def delete(self, entry: ProxyPoolEntry) -> None:
@@ -164,7 +166,7 @@ class ProxyPoolRepository:
     async def groups(self, user_id: int) -> tuple[list[str], list[str]]:
         country_result = await self.session.execute(
             select(ProxyPoolEntry.country)
-            .where(ProxyPoolEntry.user_id == user_id, ProxyPoolEntry.country != None)
+            .where(ProxyPoolEntry.user_id == user_id, ProxyPoolEntry.country.is_not(None))
             .group_by(ProxyPoolEntry.country)
             .order_by(ProxyPoolEntry.country)
         )
@@ -187,7 +189,7 @@ class ProxyPoolRepository:
     ) -> int:
         query = select(func.count(ProxyPoolEntry.id)).where(
             ProxyPoolEntry.user_id == user_id,
-            ProxyPoolEntry.is_active == True,
+            ProxyPoolEntry.is_active.is_(True),
         )
         if country:
             query = query.where(ProxyPoolEntry.country == country.lower())

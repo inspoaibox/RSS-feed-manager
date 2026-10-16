@@ -1,6 +1,7 @@
 """User model for authentication and user management."""
+
 from datetime import datetime
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -13,6 +14,11 @@ if TYPE_CHECKING:
     from app.models.analysis_query import AnalysisQuery
     from app.models.category import Category
     from app.models.custom_rule import CustomRule
+    from app.models.external_notification import (
+        NotificationChannel,
+        NotificationDelivery,
+        NotificationRule,
+    )
     from app.models.feed import Feed
     from app.models.google_translate_key import GoogleTranslateKey
     from app.models.keyword_subscription import KeywordSubscription
@@ -29,27 +35,27 @@ class User(BaseModel):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(default=True)
     is_admin: Mapped[bool] = mapped_column(default=False)
-    
+
     # Token version for invalidating tokens on password change
     token_version: Mapped[int] = mapped_column(default=0, nullable=False)
-    
+
     # AI Prompt settings
     translate_prompt: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     summarize_prompt: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     auto_generate_summaries: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    
+
     # Embedding model settings
     embedding_provider_id: Mapped[int | None] = mapped_column(nullable=True)
     embedding_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     auto_generate_embeddings: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    
+
     # OAuth fields
     oauth_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
     oauth_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
-    
+
     # Last login time
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    
+
     # Google Translate API key (optional, for paid API)
     google_translate_api_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
@@ -62,31 +68,43 @@ class User(BaseModel):
     mc_translation_model: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Relationships
-    categories: Mapped[List["Category"]] = relationship(
+    notification_channels: Mapped[list["NotificationChannel"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    notification_rules: Mapped[list["NotificationRule"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    notification_deliveries: Mapped[list["NotificationDelivery"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    categories: Mapped[list["Category"]] = relationship(
         "Category", back_populates="user", cascade="all, delete-orphan"
     )
-    feeds: Mapped[List["Feed"]] = relationship(
+    feeds: Mapped[list["Feed"]] = relationship(
         "Feed", back_populates="user", cascade="all, delete-orphan"
     )
-    ai_providers: Mapped[List["AIProvider"]] = relationship(
+    ai_providers: Mapped[list["AIProvider"]] = relationship(
         "AIProvider", back_populates="user", cascade="all, delete-orphan"
     )
-    custom_rules: Mapped[List["CustomRule"]] = relationship(
+    custom_rules: Mapped[list["CustomRule"]] = relationship(
         "CustomRule", back_populates="user", cascade="all, delete-orphan"
     )
-    analysis_queries: Mapped[List["AnalysisQuery"]] = relationship(
+    analysis_queries: Mapped[list["AnalysisQuery"]] = relationship(
         "AnalysisQuery", back_populates="user", cascade="all, delete-orphan"
     )
-    keyword_subscriptions: Mapped[List["KeywordSubscription"]] = relationship(
+    keyword_subscriptions: Mapped[list["KeywordSubscription"]] = relationship(
         "KeywordSubscription", back_populates="user", cascade="all, delete-orphan"
     )
-    google_translate_keys: Mapped[List["GoogleTranslateKey"]] = relationship(
+    google_translate_keys: Mapped[list["GoogleTranslateKey"]] = relationship(
         "GoogleTranslateKey", back_populates="user", cascade="all, delete-orphan"
     )
-    push_subscriptions: Mapped[List["NotificationSubscription"]] = relationship(
+    push_subscriptions: Mapped[list["NotificationSubscription"]] = relationship(
         "NotificationSubscription", back_populates="user", cascade="all, delete-orphan"
     )
-    web_push_subscriptions: Mapped[List["WebPushSubscription"]] = relationship(
+    web_push_subscriptions: Mapped[list["WebPushSubscription"]] = relationship(
         "WebPushSubscription", back_populates="user", cascade="all, delete-orphan"
     )
 
@@ -94,7 +112,7 @@ class User(BaseModel):
         """Hash and set the user's password."""
         self.password_hash = get_password_hash(password)
         # Invalidate existing tokens (handle None for new users)
-        current_version = getattr(self, 'token_version', None)
+        current_version = getattr(self, "token_version", None)
         if current_version is None:
             self.token_version = 0
         else:

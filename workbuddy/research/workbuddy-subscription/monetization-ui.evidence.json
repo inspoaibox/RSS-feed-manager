@@ -1,0 +1,48 @@
+{
+  "source": "https://open.workbuddy.cn/",
+  "observedDate": "2026-10-13",
+  "sourceType": "Published frontend messages; fees and account eligibility are not server-tested",
+  "htmlSha256": "9E13E97F8C26EB7696CC517EE51AA51E440D96218D295C96A93ACF8A1F565FAF",
+  "accountIntro": {
+    "title": "如何获取收入？",
+    "description": "开通收款账户后，即可将技能或专家发布到 WorkBuddy 市场并自主定价。用户购买后会产生收入，收入完成结算后可随时提现。",
+    "feePolicy": "内测期间平台服务费1%",
+    "publishSkillTitle": "发布付费技能",
+    "publishSkillDesc": "支持一次性买断或按月订阅，价格由你决定",
+    "publishExpertTitle": "发布付费专家",
+    "publishExpertDesc": "专家与专家团同样支持一次性买断或按月订阅，与技能独立定价",
+    "openAccountButton": "开通收款账户",
+    "conditionsTitle": "开通条件",
+    "conditionCertified": "已完成开放平台开发者认证",
+    "conditionNoViolation": "目前无账号违规记录",
+    "conditionApprovedAsset": "已有 ≥1 个通过审核的技能/专家",
+    "goPublish": "去发布",
+    "conditionInternalUnsupported": "内部主体不支持开通"
+  },
+  "feeMessages": [
+    {
+      "path": "messages.console.monetization.empty.feePolicy",
+      "text": "内测期间平台服务费1%"
+    },
+    {
+      "path": "messages.console.monetization.overview.billDetail.fields.fee",
+      "text": "平台服务费"
+    },
+    {
+      "path": "messages.console.monetization.overview.billDetail.fields.paymentFee",
+      "text": "支付手续费"
+    },
+    {
+      "path": "messages.console.monetization.overview.billDetail.feeValue",
+      "text": "{amount}"
+    },
+    {
+      "path": "messages.console.monetization.overview.billDetail.paymentFeeHint",
+      "text": "微信支付将收取0.6%，具体金额以结算为准"
+    },
+    {
+      "path": "messages.console.monetization.overview.billDetail.paymentFeeValue",
+      "text": "0.6%"
+    }
+  ]
+}

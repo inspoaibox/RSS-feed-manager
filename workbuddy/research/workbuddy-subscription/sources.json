@@ -1,0 +1,24 @@
+{
+  "observedDate": "2026-10-13",
+  "scope": "Static review of publicly delivered frontend assets. No merchant mutation APIs or payment transactions were executed.",
+  "apiSource": {
+    "url": "https://static.workbuddy.cn/web/open/497edfa5e57a20027b77597f84a4b1d49795f325/_next/static/chunks/4253-ad2ae83e05f40ebb.js",
+    "sha256": "5360B823BDBAA38C55CC67E0C728FFDCA1BDF2F290CB1412705E119455EA11AF",
+    "excerpt": "merchant-api.excerpt.js",
+    "formatting": "Exact class and helper excerpts, with newlines inserted between methods."
+  },
+  "uiSource": {
+    "url": "https://open.workbuddy.cn/",
+    "sha256": "9E13E97F8C26EB7696CC517EE51AA51E440D96218D295C96A93ACF8A1F565FAF",
+    "dataPath": "messages.console.monetization.paySetting and messages.pay",
+    "excerpt": "payment-ui.evidence.json"
+  },
+  "unverified": [
+    "Numeric payMode mapping",
+    "Server-side subscription entitlement enforcement",
+    "Renewal behavior and expiration timing",
+    "Subscriber identity or entitlement API available to an external image-generation backend",
+    "Per-month image quota and reset behavior",
+    "Direct pricing of Buddy applications"
+  ]
+}

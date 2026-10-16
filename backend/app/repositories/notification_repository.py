@@ -1,8 +1,8 @@
 """Notification repository for database operations."""
-from datetime import datetime, timezone
-from typing import List
 
-from sqlalchemy import and_, select, func, or_
+from datetime import UTC, datetime
+
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -19,9 +19,9 @@ class NotificationRepository:
         self,
         title: str,
         content: str,
-        type: str = 'system',
+        type: str = "system",
         created_by: int | None = None,
-        expires_at: datetime | None = None
+        expires_at: datetime | None = None,
     ) -> Notification:
         """Create a new notification."""
         notification = Notification(
@@ -30,7 +30,7 @@ class NotificationRepository:
             type=type,
             created_by=created_by,
             expires_at=expires_at,
-            is_active=True
+            is_active=True,
         )
         self.session.add(notification)
         await self.session.flush()
@@ -45,24 +45,19 @@ class NotificationRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_all_active(self) -> List[Notification]:
+    async def get_all_active(self) -> list[Notification]:
         """Get all active notifications (admin view)."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         result = await self.session.execute(
             select(Notification)
             .options(selectinload(Notification.creator))
-            .where(Notification.is_active == True)
-            .where(
-                or_(
-                    Notification.expires_at.is_(None),
-                    Notification.expires_at > now
-                )
-            )
+            .where(Notification.is_active.is_(True))
+            .where(or_(Notification.expires_at.is_(None), Notification.expires_at > now))
             .order_by(Notification.created_at.desc())
         )
         return list(result.scalars().all())
 
-    async def get_all(self) -> List[Notification]:
+    async def get_all(self) -> list[Notification]:
         """Get all notifications (admin view, including inactive)."""
         result = await self.session.execute(
             select(Notification)
@@ -71,26 +66,20 @@ class NotificationRepository:
         )
         return list(result.scalars().all())
 
-    async def get_unread_for_user(self, user_id: int) -> List[Notification]:
+    async def get_unread_for_user(self, user_id: int) -> list[Notification]:
         """Get unread active notifications for a user."""
-        now = datetime.now(timezone.utc)
-        
+        now = datetime.now(UTC)
+
         # Subquery to get read notification IDs for this user
-        read_subquery = (
-            select(UserNotificationRead.notification_id)
-            .where(UserNotificationRead.user_id == user_id)
+        read_subquery = select(UserNotificationRead.notification_id).where(
+            UserNotificationRead.user_id == user_id
         )
-        
+
         result = await self.session.execute(
             select(Notification)
             .options(selectinload(Notification.creator))
-            .where(Notification.is_active == True)
-            .where(
-                or_(
-                    Notification.expires_at.is_(None),
-                    Notification.expires_at > now
-                )
-            )
+            .where(Notification.is_active.is_(True))
+            .where(or_(Notification.expires_at.is_(None), Notification.expires_at > now))
             .where(Notification.id.not_in(read_subquery))
             .order_by(Notification.created_at.desc())
         )
@@ -103,17 +92,15 @@ class NotificationRepository:
             select(UserNotificationRead).where(
                 and_(
                     UserNotificationRead.user_id == user_id,
-                    UserNotificationRead.notification_id == notification_id
+                    UserNotificationRead.notification_id == notification_id,
                 )
             )
         )
         if existing.scalar_one_or_none():
             return False  # Already read
-        
+
         read_record = UserNotificationRead(
-            user_id=user_id,
-            notification_id=notification_id,
-            read_at=datetime.now(timezone.utc)
+            user_id=user_id, notification_id=notification_id, read_at=datetime.now(UTC)
         )
         self.session.add(read_record)
         await self.session.flush()
@@ -135,7 +122,7 @@ class NotificationRepository:
         content: str | None = None,
         type: str | None = None,
         is_active: bool | None = None,
-        expires_at: datetime | None = None
+        expires_at: datetime | None = None,
     ) -> Notification:
         """Update a notification."""
         if title is not None:
@@ -162,22 +149,16 @@ class NotificationRepository:
 
     async def get_unread_count(self, user_id: int) -> int:
         """Get count of unread notifications for a user."""
-        now = datetime.now(timezone.utc)
-        
-        read_subquery = (
-            select(UserNotificationRead.notification_id)
-            .where(UserNotificationRead.user_id == user_id)
+        now = datetime.now(UTC)
+
+        read_subquery = select(UserNotificationRead.notification_id).where(
+            UserNotificationRead.user_id == user_id
         )
-        
+
         result = await self.session.execute(
             select(func.count(Notification.id))
-            .where(Notification.is_active == True)
-            .where(
-                or_(
-                    Notification.expires_at.is_(None),
-                    Notification.expires_at > now
-                )
-            )
+            .where(Notification.is_active.is_(True))
+            .where(or_(Notification.expires_at.is_(None), Notification.expires_at > now))
             .where(Notification.id.not_in(read_subquery))
         )
         return result.scalar() or 0

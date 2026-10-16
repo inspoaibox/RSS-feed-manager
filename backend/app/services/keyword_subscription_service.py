@@ -1,5 +1,4 @@
 """Keyword subscription service."""
-from typing import List
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,10 +28,12 @@ class KeywordSubscriptionService:
         self,
         user_id: int,
         include_counts: bool = True,
-    ) -> List[KeywordSubscriptionResponse]:
+    ) -> list[KeywordSubscriptionResponse]:
         """Get all keyword subscriptions for a user."""
         subscriptions = await self.repo.get_all_by_user(user_id)
-        counts = await self.repo.get_article_counts(user_id, subscriptions) if include_counts else {}
+        counts = (
+            await self.repo.get_article_counts(user_id, subscriptions) if include_counts else {}
+        )
         return [
             self._to_response(
                 subscription,
@@ -42,7 +43,7 @@ class KeywordSubscriptionService:
             for subscription in subscriptions
         ]
 
-    async def get_counts(self, user_id: int) -> List[KeywordSubscriptionCountResponse]:
+    async def get_counts(self, user_id: int) -> list[KeywordSubscriptionCountResponse]:
         """Get article counts for all keyword subscriptions."""
         subscriptions = await self.repo.get_all_by_user(user_id)
         counts = await self.repo.get_article_counts(user_id, subscriptions)

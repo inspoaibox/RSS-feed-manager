@@ -1,17 +1,18 @@
 """Repository for push notification data access."""
-from datetime import datetime
-from sqlalchemy import select, func, or_, and_
+
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.clock import utc_now
+from app.models.article import Article
+from app.models.category import Category
+from app.models.feed import Feed
 from app.models.push_notification import (
-    NotificationSubscription,
     NotificationPush,
+    NotificationSubscription,
     WebPushSubscription,
 )
-from app.models.feed import Feed
-from app.models.category import Category
-from app.models.article import Article
 
 
 class PushNotificationRepository:
@@ -22,9 +23,7 @@ class PushNotificationRepository:
 
     # ============ Subscription CRUD ============
 
-    async def create_subscription(
-        self, user_id: int, data: dict
-    ) -> NotificationSubscription:
+    async def create_subscription(self, user_id: int, data: dict) -> NotificationSubscription:
         """Create a new subscription."""
         subscription = NotificationSubscription(user_id=user_id, **data)
         self.session.add(subscription)
@@ -44,9 +43,7 @@ class PushNotificationRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_user_subscriptions(
-        self, user_id: int
-    ) -> list[NotificationSubscription]:
+    async def get_user_subscriptions(self, user_id: int) -> list[NotificationSubscription]:
         """Get all subscriptions for a user."""
         result = await self.session.execute(
             select(NotificationSubscription)
@@ -62,7 +59,7 @@ class PushNotificationRepository:
         for key, value in data.items():
             if value is not None:
                 setattr(subscription, key, value)
-        subscription.updated_at = datetime.utcnow()
+        subscription.updated_at = utc_now()
         await self.session.commit()
         await self.session.refresh(subscription)
         return subscription
@@ -77,7 +74,7 @@ class PushNotificationRepository:
     ) -> NotificationSubscription:
         """Toggle subscription enabled status."""
         subscription.is_enabled = not subscription.is_enabled
-        subscription.updated_at = datetime.utcnow()
+        subscription.updated_at = utc_now()
         await self.session.commit()
         await self.session.refresh(subscription)
         return subscription
@@ -93,7 +90,7 @@ class PushNotificationRepository:
             subscription_id=subscription_id,
             article_id=article_id,
             status="sent",
-            pushed_at=datetime.utcnow(),
+            pushed_at=utc_now(),
         )
         self.session.add(push)
         await self.session.commit()
@@ -108,7 +105,12 @@ class PushNotificationRepository:
         status: str | None = None,
     ) -> tuple[list[NotificationPush], int]:
         """Get user's push records with pagination."""
-        query = select(NotificationPush).where(NotificationPush.user_id == user_id)
+        query = (
+            select(NotificationPush)
+            .join(Article, Article.id == NotificationPush.article_id)
+            .join(Feed, Feed.id == Article.feed_id)
+            .where(NotificationPush.user_id == user_id, Feed.user_id == user_id)
+        )
 
         if status:
             query = query.where(NotificationPush.status == status)
@@ -145,7 +147,7 @@ class PushNotificationRepository:
             return False
 
         push.status = "read"
-        push.read_at = datetime.utcnow()
+        push.read_at = utc_now()
         await self.session.commit()
         return True
 
@@ -163,9 +165,9 @@ class PushNotificationRepository:
             return False
 
         push.status = "clicked"
-        push.clicked_at = datetime.utcnow()
+        push.clicked_at = utc_now()
         if not push.read_at:
-            push.read_at = datetime.utcnow()
+            push.read_at = utc_now()
         await self.session.commit()
         return True
 
@@ -181,9 +183,7 @@ class PushNotificationRepository:
         )
         return result.scalar() or 0
 
-    async def check_push_exists(
-        self, subscription_id: int, article_id: int
-    ) -> bool:
+    async def check_push_exists(self, subscription_id: int, article_id: int) -> bool:
         """Check if a push already exists."""
         result = await self.session.execute(
             select(NotificationPush).where(
@@ -199,6 +199,13 @@ class PushNotificationRepository:
         self, user_id: int, endpoint: str, p256dh: str, auth: str, user_agent: str | None
     ) -> WebPushSubscription:
         """Create or update Web Push subscription."""
+        # A browser endpoint belongs to the account currently using that device.
+        await self.session.execute(
+            delete(WebPushSubscription).where(
+                WebPushSubscription.endpoint == endpoint,
+                WebPushSubscription.user_id != user_id,
+            )
+        )
         # Check if already exists
         result = await self.session.execute(
             select(WebPushSubscription).where(
@@ -213,7 +220,7 @@ class PushNotificationRepository:
             existing.p256dh = p256dh
             existing.auth = auth
             existing.user_agent = user_agent
-            existing.updated_at = datetime.utcnow()
+            existing.updated_at = utc_now()
             await self.session.commit()
             await self.session.refresh(existing)
             return existing
@@ -231,20 +238,14 @@ class PushNotificationRepository:
         await self.session.refresh(subscription)
         return subscription
 
-    async def get_web_push_subscriptions(
-        self, user_id: int
-    ) -> list[WebPushSubscription]:
+    async def get_web_push_subscriptions(self, user_id: int) -> list[WebPushSubscription]:
         """Get all Web Push subscriptions for a user."""
         result = await self.session.execute(
-            select(WebPushSubscription).where(
-                WebPushSubscription.user_id == user_id
-            )
+            select(WebPushSubscription).where(WebPushSubscription.user_id == user_id)
         )
         return list(result.scalars().all())
 
-    async def delete_web_push_subscription(
-        self, user_id: int, endpoint: str
-    ) -> bool:
+    async def delete_web_push_subscription(self, user_id: int, endpoint: str) -> bool:
         """Delete a Web Push subscription."""
         result = await self.session.execute(
             select(WebPushSubscription).where(
@@ -263,16 +264,28 @@ class PushNotificationRepository:
 
     # ============ Helper Methods ============
 
-    async def get_feed_name(self, feed_id: int) -> str | None:
+    async def get_feed_name(self, feed_id: int, user_id: int) -> str | None:
         """Get feed name by ID."""
         result = await self.session.execute(
-            select(Feed.title).where(Feed.id == feed_id)
+            select(Feed.title).where(Feed.id == feed_id, Feed.user_id == user_id)
         )
         return result.scalar_one_or_none()
 
-    async def get_category_name(self, category_id: int) -> str | None:
+    async def get_category_name(self, category_id: int, user_id: int) -> str | None:
         """Get category name by ID."""
         result = await self.session.execute(
-            select(Category.name).where(Category.id == category_id)
+            select(Category.name).where(Category.id == category_id, Category.user_id == user_id)
         )
         return result.scalar_one_or_none()
+
+    async def target_exists_for_user(self, target_type: str, target_id: int, user_id: int) -> bool:
+        if target_type == "feed":
+            statement = select(Feed.id).where(Feed.id == target_id, Feed.user_id == user_id)
+        elif target_type == "category":
+            statement = select(Category.id).where(
+                Category.id == target_id,
+                Category.user_id == user_id,
+            )
+        else:
+            return False
+        return (await self.session.execute(statement)).scalar_one_or_none() is not None

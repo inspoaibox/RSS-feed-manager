@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Search, Sparkles, Clock, X, ExternalLink, Loader2, Database, StopCircle, Play } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
+import { useAuthStore } from '@/stores/authStore'
+import { safeExternalUrl } from '@/utils/safeExternalUrl'
 import {
   analyzeContent,
   getQueryHistory,
@@ -16,13 +18,15 @@ import {
 } from '@/services/api'
 
 export default function AIAnalysisPage() {
+  const userId = useAuthStore((state) => state.user?.id)
+  const taskStorageKey = `embeddingTaskId:${userId}`
   const [query, setQuery] = useState('')
   const [result, setResult] = useState<AnalyzeResponse | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(() => {
     // 从 localStorage 恢复任务 ID
-    return localStorage.getItem('embeddingTaskId')
+    return localStorage.getItem(taskStorageKey)
   })
   const [taskStatus, setTaskStatus] = useState<TaskStatus | null>(null)
   const queryClient = useQueryClient()
@@ -53,7 +57,7 @@ export default function AIAnalysisPage() {
       // 如果任务完成或失败，停止轮询
       if (status.ready || status.status === 'REVOKED') {
         setCurrentTaskId(null)
-        localStorage.removeItem('embeddingTaskId')
+        localStorage.removeItem(taskStorageKey)
         refetchEmbeddingStatus()
       }
       
@@ -61,10 +65,10 @@ export default function AIAnalysisPage() {
     } catch (error) {
       console.error('Failed to get task status:', error)
       setCurrentTaskId(null)
-      localStorage.removeItem('embeddingTaskId')
+      localStorage.removeItem(taskStorageKey)
       return null
     }
-  }, [refetchEmbeddingStatus])
+  }, [refetchEmbeddingStatus, taskStorageKey])
 
   // 轮询效果
   useEffect(() => {
@@ -132,7 +136,7 @@ export default function AIAnalysisPage() {
     onSuccess: (data) => {
       if (data.task_id) {
         setCurrentTaskId(data.task_id)
-        localStorage.setItem('embeddingTaskId', data.task_id)
+        localStorage.setItem(taskStorageKey, data.task_id)
         setTaskStatus(null)
       }
     },
@@ -143,7 +147,7 @@ export default function AIAnalysisPage() {
     mutationFn: cancelEmbeddingTask,
     onSuccess: () => {
       setCurrentTaskId(null)
-      localStorage.removeItem('embeddingTaskId')
+      localStorage.removeItem(taskStorageKey)
       setTaskStatus(null)
       refetchEmbeddingStatus()
     },
@@ -229,8 +233,8 @@ export default function AIAnalysisPage() {
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span>
                   任务进行中: {taskStatus.status === 'PROGRESS' && taskStatus.result ? (
-                    `批次 ${(taskStatus.result as any).current_batch || '?'}/${(taskStatus.result as any).total_batches || '?'}, 
-                     已处理 ${(taskStatus.result as any).processed || 0} 篇`
+                    `批次 ${taskStatus.result.current_batch || '?'}/${taskStatus.result.total_batches || '?'},
+                     已处理 ${taskStatus.result.processed || 0} 篇`
                   ) : (
                     '正在启动...'
                   )}
@@ -434,7 +438,7 @@ function ArticleCard({ article }: { article: ArticleResult }) {
           <h4 className="font-medium text-gray-900 mb-1 line-clamp-2">
             {article.link ? (
               <a
-                href={article.link}
+                href={safeExternalUrl(article.link)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-blue-600 flex items-center gap-1"

@@ -1,5 +1,7 @@
 """Google Translate key repository."""
-from typing import Iterable, List
+
+import builtins
+from collections.abc import Iterable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,10 +59,10 @@ class GoogleTranslateKeyRepository:
         )
         return result.scalar_one_or_none()
 
-    async def list(self, user_id: int, active_only: bool = False) -> List[GoogleTranslateKey]:
+    async def list(self, user_id: int, active_only: bool = False) -> list[GoogleTranslateKey]:
         query = select(GoogleTranslateKey).where(GoogleTranslateKey.user_id == user_id)
         if active_only:
-            query = query.where(GoogleTranslateKey.is_active == True)
+            query = query.where(GoogleTranslateKey.is_active.is_(True))
         query = query.order_by(GoogleTranslateKey.position, GoogleTranslateKey.id)
         result = await self.session.execute(query)
         return list(result.scalars().all())
@@ -96,7 +98,7 @@ class GoogleTranslateKeyRepository:
         self,
         user_id: int,
         key_ids: Iterable[int],
-    ) -> List[GoogleTranslateKey]:
+    ) -> builtins.list[GoogleTranslateKey]:
         ids = list(key_ids)
         if not ids:
             return []

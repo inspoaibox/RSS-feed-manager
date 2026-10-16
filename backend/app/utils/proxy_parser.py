@@ -1,8 +1,8 @@
 """Proxy parsing utilities."""
+
 import re
 from dataclasses import dataclass
 from urllib.parse import quote, unquote, urlparse
-
 
 SUPPORTED_PROXY_PROTOCOLS = {"http", "https", "socks4", "socks5", "socks5h"}
 

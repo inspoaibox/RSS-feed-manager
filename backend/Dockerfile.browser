@@ -1,4 +1,5 @@
 FROM python:3.11-slim-bookworm
+COPY --from=ghcr.io/astral-sh/uv:0.11.7 /uv /uvx /bin/
 
 WORKDIR /app
 
@@ -10,20 +11,16 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Install base dependencies plus optional browser runtime dependencies.
-COPY pyproject.toml README.md ./
-ARG TORCH_CPU_VERSION=2.12.0+cpu
-RUN pip install --no-cache-dir --retries 5 --timeout 120 \
-    --extra-index-url https://download.pytorch.org/whl/cpu \
-    "torch==${TORCH_CPU_VERSION}"
-
-RUN pip install --no-cache-dir --retries 5 --timeout 120 $(python -c "import tomllib; f=open('pyproject.toml','rb'); d=tomllib.load(f); deps=d['project']['dependencies'] + d['project']['optional-dependencies']['browser']; print(' '.join(deps))")
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --frozen --no-dev --no-install-project --extra browser
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Install Chromium and OS libraries only in the browser image.
 RUN playwright install --with-deps chromium
 
 COPY . .
 
-RUN pip install --no-cache-dir --retries 5 --timeout 120 --no-deps -e .
+RUN uv sync --frozen --no-dev --extra browser
 
 CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
 

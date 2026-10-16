@@ -1,4 +1,4 @@
-import axios from 'axios'
+import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { useAuthStore } from '@/stores/authStore'
 
 const api = axios.create({
@@ -6,103 +6,50 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true,
 })
 
-// Flag to prevent multiple refresh attempts
-let isRefreshing = false
-let failedQueue: Array<{
-  resolve: (token: string) => void
-  reject: (error: any) => void
-}> = []
+let refreshPromise: Promise<string> | null = null
 
-const processQueue = (error: any, token: string | null = null) => {
-  failedQueue.forEach((prom) => {
-    if (error) {
-      prom.reject(error)
-    } else {
-      prom.resolve(token!)
-    }
-  })
-  failedQueue = []
+export const refreshAccessToken = (): Promise<string> => {
+  if (!refreshPromise) {
+    const epoch = useAuthStore.getState().authEpoch
+    refreshPromise = axios.post<{ access_token: string }>(
+      '/api/v1/auth/refresh', {}, { withCredentials: true },
+    ).then(({ data }) => {
+      if (useAuthStore.getState().authEpoch !== epoch) throw new Error('Session changed')
+      useAuthStore.getState().setAccessToken(data.access_token)
+      return data.access_token
+    }).finally(() => { refreshPromise = null })
+  }
+  return refreshPromise
 }
 
-// Request interceptor to add auth token
-api.interceptors.request.use(
-  (config) => {
-    const token = useAuthStore.getState().accessToken
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
-    return config
-  },
-  (error) => Promise.reject(error)
-)
+api.interceptors.request.use((config) => {
+  const authConfig = config as InternalAxiosRequestConfig & { _authEpoch?: number }
+  authConfig._authEpoch ??= useAuthStore.getState().authEpoch
+  const token = useAuthStore.getState().accessToken
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
 
-// Response interceptor to handle auth errors and auto-refresh
-api.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config
-
-    // If 401 and not already retrying
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      // Don't retry refresh token requests
-      if (originalRequest.url?.includes('/auth/refresh')) {
-        useAuthStore.getState().clearAuth()
-        return Promise.reject(error)
-      }
-
-      if (isRefreshing) {
-        // Wait for the refresh to complete
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject })
-        })
-          .then((token) => {
-            originalRequest.headers.Authorization = `Bearer ${token}`
-            return api(originalRequest)
-          })
-          .catch((err) => Promise.reject(err))
-      }
-
-      originalRequest._retry = true
-      isRefreshing = true
-
-      const refreshToken = useAuthStore.getState().refreshToken
-
-      if (!refreshToken) {
-        useAuthStore.getState().clearAuth()
-        isRefreshing = false
-        return Promise.reject(error)
-      }
-
-      try {
-        const response = await axios.post('/api/v1/auth/refresh', {
-          refresh_token: refreshToken,
-        })
-
-        const { access_token, refresh_token: newRefreshToken } = response.data
-        const currentUser = useAuthStore.getState().user
-
-        if (currentUser) {
-          useAuthStore.getState().setAuth(currentUser, access_token, newRefreshToken)
-        }
-
-        processQueue(null, access_token)
-
-        originalRequest.headers.Authorization = `Bearer ${access_token}`
-        return api(originalRequest)
-      } catch (refreshError) {
-        processQueue(refreshError, null)
-        useAuthStore.getState().clearAuth()
-        return Promise.reject(refreshError)
-      } finally {
-        isRefreshing = false
-      }
-    }
-
+api.interceptors.response.use((response) => response, async (error: AxiosError) => {
+  const request = error.config as (InternalAxiosRequestConfig & { _retry?: boolean; _authEpoch?: number }) | undefined
+  const authRoute = request?.url?.startsWith('/auth/') && request.url !== '/auth/me'
+  if (!request || error.response?.status !== 401 || request._retry || authRoute ||
+      request._authEpoch !== useAuthStore.getState().authEpoch) {
     return Promise.reject(error)
   }
-)
+  request._retry = true
+  try {
+    const token = await refreshAccessToken()
+    request.headers.Authorization = `Bearer ${token}`
+    return api(request)
+  } catch (refreshError) {
+    useAuthStore.getState().clearAuth()
+    return Promise.reject(refreshError)
+  }
+})
 
 // ============ Content Analysis API ============
 
@@ -189,6 +136,8 @@ export interface TaskStatus {
     cancelled?: boolean
     message?: string
     error?: string
+    current_batch?: number
+    total_batches?: number
   }
   error?: string
 }

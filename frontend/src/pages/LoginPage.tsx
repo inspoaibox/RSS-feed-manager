@@ -1,10 +1,11 @@
+import { getApiErrorMessage } from '@/utils/apiError'
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Rss, User, Lock } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { useSiteStore } from '@/stores/siteStore'
-import api from '@/services/api'
+import api, { refreshAccessToken } from '@/services/api'
 import type { AuthResponse, LoginRequest } from '@/types'
 
 export default function LoginPage() {
@@ -39,15 +40,15 @@ export default function LoginPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const oauthSuccess = params.get('oauth_success')
-    const accessToken = params.get('access_token')
-    const refreshToken = params.get('refresh_token')
     const oauthError = params.get('error')
     
-    if (oauthSuccess === 'true' && accessToken && refreshToken) {
-      // OAuth 登录成功
-      api.get('/auth/me', { headers: { Authorization: `Bearer ${accessToken}` } })
+    if (oauthSuccess === 'true') {
+      refreshAccessToken()
+        .then((accessToken) => api.get('/auth/me', {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }).then((response) => ({ accessToken, user: response.data })))
         .then(response => {
-          setAuth(response.data, accessToken, refreshToken)
+          setAuth(response.user, response.accessToken)
           navigate('/')
         })
         .catch(() => {
@@ -69,6 +70,8 @@ export default function LoginPage() {
         'no_access_token': '未获取到访问令牌',
         'userinfo_failed': '获取用户信息失败',
         'no_user_id': '未获取到用户ID',
+        'account_exists': '该邮箱已有账户，请使用用户名和密码登录',
+        'account_disabled': '账户已停用',
       }
       const displayMessage = message ? (errorMessages[message] || message) : oauthError
       setError(`OAuth 登录失败: ${displayMessage}`)
@@ -92,16 +95,16 @@ export default function LoginPage() {
     },
     onSuccess: async (data) => {
       // 清除旧用户的缓存数据
-      const { queryClient } = await import('@/main')
+      const { queryClient } = await import('@/queryClient')
       queryClient.clear()
       
-      setAuth(data.user, data.access_token, data.refresh_token)
+      setAuth(data.user, data.access_token)
       navigate('/')
     },
-    onError: (err: any) => {
-      const detail = err.response?.data?.detail
+    onError: (err: unknown) => {
+      const detail = getApiErrorMessage(err, '请求失败，请重试')
       if (Array.isArray(detail)) {
-        setError(detail.map((d: any) => d.msg).join(', '))
+        setError(detail.map((d: { msg: string }) => d.msg).join(', '))
       } else {
         setError(detail || '登录失败，请重试')
       }

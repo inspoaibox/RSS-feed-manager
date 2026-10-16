@@ -1,8 +1,8 @@
 """RSS/Atom feed parser utilities."""
+
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
-from typing import List
 from urllib.parse import unquote, urlparse, urlunparse
 
 import feedparser
@@ -10,6 +10,12 @@ import httpx
 from feedparser import FeedParserDict
 
 from app.services.browser_fetch_settings import BrowserFetchSettings, default_browser_fetch_settings
+from app.utils.browser_proxy import safe_browser_fetch
+from app.utils.url_security import (
+    UnsafeOutboundURLError,
+    get_with_safe_redirects,
+    validate_outbound_http_url,
+)
 
 FeedBrowserEngine = Literal["http", "playwright", "cloakbrowser"]
 HTTP_FEED_HEADER_SETS = (
@@ -61,6 +67,7 @@ BROWSER_RUNTIME_ERROR_MARKERS = (
 @dataclass
 class ParsedArticle:
     """Parsed article from feed."""
+
     guid: str
     title: str
     link: str
@@ -72,15 +79,17 @@ class ParsedArticle:
 @dataclass
 class ParsedFeed:
     """Parsed feed information."""
+
     title: str
     description: str | None
     site_url: str | None
     icon_url: str | None
-    articles: List[ParsedArticle]
+    articles: list[ParsedArticle]
 
 
 class FeedParserError(Exception):
     """Exception raised when feed parsing fails."""
+
     pass
 
 
@@ -105,7 +114,9 @@ def normalize_browser_engine(
     return "playwright" if use_playwright else "http"
 
 
-def is_browser_engine_enabled(browser_engine: str | None = None, use_playwright: bool = False) -> bool:
+def is_browser_engine_enabled(
+    browser_engine: str | None = None, use_playwright: bool = False
+) -> bool:
     """Return whether the feed should use a browser-backed fetcher."""
     return normalize_browser_engine(browser_engine, use_playwright) != "http"
 
@@ -115,7 +126,7 @@ def _ensure_not_blocked_challenge(content: str, url: str, engine_name: str) -> s
     if not content:
         raise FeedParserError(f"Failed to get content from: {url}")
 
-    has_feed = any(marker in content.lower() for marker in ['<rss', '<feed', '<?xml', '<atom'])
+    has_feed = any(marker in content.lower() for marker in ["<rss", "<feed", "<?xml", "<atom"])
 
     if not has_feed:
         blocking_patterns = [
@@ -123,14 +134,13 @@ def _ensure_not_blocked_challenge(content: str, url: str, engine_name: str) -> s
             "challenge-platform",
             "cf-browser-verification",
             "Checking your browser",
-            "Enable JavaScript and cookies to continue"
+            "Enable JavaScript and cookies to continue",
         ]
 
         if any(pattern in content for pattern in blocking_patterns):
-            preview = content[:500].replace('\n', ' ')
+            preview = content[:500].replace("\n", " ")
             raise FeedParserError(
-                f"Cloudflare challenge not bypassed by {engine_name}: {url} "
-                f"(Preview: {preview}...)"
+                f"Cloudflare challenge not bypassed by {engine_name}: {url} (Preview: {preview}...)"
             )
 
     return content
@@ -139,38 +149,38 @@ def _ensure_not_blocked_challenge(content: str, url: str, engine_name: str) -> s
 def _detect_encoding(content: bytes, content_type: str | None = None) -> str:
     """Detect encoding from content and headers."""
     import re
-    
+
     # 1. 尝试从 Content-Type header 获取编码
     if content_type:
-        match = re.search(r'charset=([^\s;]+)', content_type, re.IGNORECASE)
+        match = re.search(r"charset=([^\s;]+)", content_type, re.IGNORECASE)
         if match:
-            return match.group(1).strip('"\'')
-    
+            return match.group(1).strip("\"'")
+
     # 2. 尝试从 XML 声明获取编码
     # 先用 ascii 解码前 200 字节来查找 encoding 声明
     try:
-        header = content[:200].decode('ascii', errors='ignore')
+        header = content[:200].decode("ascii", errors="ignore")
         match = re.search(r'encoding=["\']([^"\']+)["\']', header, re.IGNORECASE)
         if match:
             return match.group(1)
-    except:
+    except Exception:
         pass
-    
+
     # 3. 常见中文网站编码检测
     # 检查是否包含 GBK/GB2312 特征字节
     try:
-        content.decode('utf-8')
-        return 'utf-8'
+        content.decode("utf-8")
+        return "utf-8"
     except UnicodeDecodeError:
         # 尝试 GBK (兼容 GB2312)
         try:
-            content.decode('gbk')
-            return 'gbk'
+            content.decode("gbk")
+            return "gbk"
         except UnicodeDecodeError:
             pass
-    
+
     # 4. 默认 UTF-8
-    return 'utf-8'
+    return "utf-8"
 
 
 def _decode_feed_bytes(raw_content: bytes, content_type: str | None = None) -> str:
@@ -179,12 +189,12 @@ def _decode_feed_bytes(raw_content: bytes, content_type: str | None = None) -> s
     try:
         return raw_content.decode(encoding)
     except (UnicodeDecodeError, LookupError):
-        for enc in ['utf-8', 'gbk', 'gb2312', 'gb18030', 'latin-1']:
+        for enc in ["utf-8", "gbk", "gb2312", "gb18030", "latin-1"]:
             try:
                 return raw_content.decode(enc)
             except (UnicodeDecodeError, LookupError):
                 continue
-        return raw_content.decode('utf-8', errors='replace')
+        return raw_content.decode("utf-8", errors="replace")
 
 
 def _format_fetch_error(error: FeedParserError, attempts: int) -> FeedParserError:
@@ -205,7 +215,7 @@ def _build_playwright_proxy(proxy_url: str | None) -> dict | None:
     hostname = parsed.hostname or ""
     port = f":{parsed.port}" if parsed.port else ""
     server = urlunparse((parsed.scheme, f"{hostname}{port}", "", "", "", ""))
-    proxy_config = {"server": server}
+    proxy_config = {"server": server, "bypass": "<-loopback>"}
 
     if parsed.username:
         proxy_config["username"] = unquote(parsed.username)
@@ -225,21 +235,25 @@ def _blocked_resource_types(browser_settings: BrowserFetchSettings) -> set[str]:
 
 
 async def _apply_browser_resource_blocking(context, browser_settings: BrowserFetchSettings) -> None:
-    """Apply optional Playwright-compatible resource blocking to a context."""
+    """Block unsafe outbound requests and optional heavy browser resources."""
     blocked_types = _blocked_resource_types(browser_settings)
-    if not blocked_types:
-        return
+    validated_urls: set[str] = set()
 
     async def handle_route(route):
         if route.request.resource_type in blocked_types:
             await route.abort()
             return
+        request_url = route.request.url
+        if request_url.startswith(("http://", "https://")) and request_url not in validated_urls:
+            try:
+                await validate_outbound_http_url(request_url)
+                validated_urls.add(request_url)
+            except UnsafeOutboundURLError:
+                await route.abort()
+                return
         await route.continue_()
 
-    try:
-        await context.route("**/*", handle_route)
-    except Exception:
-        pass
+    await context.route("**/*", handle_route)
 
 
 async def fetch_feed_content(
@@ -253,19 +267,21 @@ async def fetch_feed_content(
     async with httpx.AsyncClient(proxy=proxy_url) as client:
         for attempt, headers in enumerate(HTTP_FEED_HEADER_SETS, start=1):
             try:
-                response = await client.get(
+                response = await get_with_safe_redirects(
+                    client,
                     url,
                     timeout=timeout,
-                    follow_redirects=True,
                     headers=headers,
                 )
                 response.raise_for_status()
                 return _decode_feed_bytes(
                     response.content,
-                    response.headers.get('content-type', ''),
+                    response.headers.get("content-type", ""),
                 )
             except httpx.TimeoutException:
                 last_error = FeedParserError(f"Timeout fetching feed: {url}")
+            except UnsafeOutboundURLError as exc:
+                raise FeedParserError(str(exc)) from exc
             except httpx.HTTPStatusError as e:
                 last_error = FeedParserError(f"HTTP error {e.response.status_code}: {url}")
                 if e.response.status_code not in HTTP_HEADER_RETRY_STATUS_CODES:
@@ -284,35 +300,35 @@ async def fetch_feed_content(
 def parse_feed_content(content: str, feed_url: str) -> ParsedFeed:
     """Parse feed content and extract information."""
     parsed: FeedParserDict = feedparser.parse(content)
-    
+
     if parsed.bozo and not parsed.entries:
         raise FeedParserError(f"Invalid feed format: {parsed.bozo_exception}")
-    
+
     feed = parsed.feed
-    
+
     # Extract feed metadata
     title = feed.get("title", "Untitled Feed")
     description = feed.get("description") or feed.get("subtitle")
     site_url = feed.get("link")
-    
+
     # Try to get feed icon
     icon_url = None
     if hasattr(feed, "image") and feed.image:
         icon_url = feed.image.get("href") or feed.image.get("url")
-    
+
     # Parse articles
     articles = []
     for entry in parsed.entries:
         article = _parse_entry(entry)
         if article:
             articles.append(article)
-    
+
     return ParsedFeed(
         title=title,
         description=description,
         site_url=site_url,
         icon_url=icon_url,
-        articles=articles
+        articles=articles,
     )
 
 
@@ -324,17 +340,17 @@ def _parse_entry(entry: dict) -> ParsedArticle | None:
         return None
     if len(guid) > 2048:
         guid = guid[:2048]
-    
+
     # Get title - truncate to 500 chars
     title = entry.get("title", "Untitled")
     if len(title) > 500:
         title = title[:497] + "..."
-    
+
     # Get link - truncate to 2048 chars
     link = entry.get("link", "")
     if link and len(link) > 2048:
         link = link[:2048]
-    
+
     # Get content (prefer full content over summary)
     content = None
     if "content" in entry and entry.content:
@@ -343,14 +359,14 @@ def _parse_entry(entry: dict) -> ParsedArticle | None:
         content = entry.summary
     elif "description" in entry:
         content = entry.description
-    
+
     # Get author (truncate to 500 chars to avoid DB errors)
     author = entry.get("author")
     if not author and "authors" in entry and entry.authors:
         author = entry.authors[0].get("name")
     if author and len(author) > 500:
         author = author[:500]
-    
+
     # Get published date
     # feedparser returns time in UTC as a time.struct_time
     published_at = None
@@ -358,6 +374,7 @@ def _parse_entry(entry: dict) -> ParsedArticle | None:
         try:
             # Convert struct_time to datetime (feedparser returns UTC)
             import calendar
+
             timestamp = calendar.timegm(entry.published_parsed)
             published_at = datetime.utcfromtimestamp(timestamp)
         except (TypeError, ValueError, OverflowError):
@@ -365,21 +382,18 @@ def _parse_entry(entry: dict) -> ParsedArticle | None:
     elif "updated_parsed" in entry and entry.updated_parsed:
         try:
             import calendar
+
             timestamp = calendar.timegm(entry.updated_parsed)
             published_at = datetime.utcfromtimestamp(timestamp)
         except (TypeError, ValueError, OverflowError):
             pass
-    
+
     return ParsedArticle(
-        guid=guid,
-        title=title,
-        link=link,
-        content=content,
-        author=author,
-        published_at=published_at
+        guid=guid, title=title, link=link, content=content, author=author, published_at=published_at
     )
 
 
+@safe_browser_fetch
 async def fetch_feed_content_playwright(
     url: str,
     timeout: float | None = None,
@@ -390,7 +404,9 @@ async def fetch_feed_content_playwright(
     try:
         from playwright.async_api import async_playwright
     except ImportError:
-        raise FeedParserError("Playwright not installed. Run: pip install playwright && playwright install chromium")
+        raise FeedParserError(
+            "Playwright not installed. Run: pip install playwright && playwright install chromium"
+        )
 
     from app.core.config import settings
 
@@ -401,13 +417,14 @@ async def fetch_feed_content_playwright(
     context = None
 
     try:
+        await validate_outbound_http_url(url)
         async with async_playwright() as p:
             launch_kwargs = {
                 "headless": settings.FEED_BROWSER_HEADLESS,
                 "args": [
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-dev-shm-usage',
-                    '--no-sandbox',
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-dev-shm-usage",
+                    "--no-sandbox",
                 ],
             }
             playwright_proxy = _build_playwright_proxy(proxy_url)
@@ -418,15 +435,15 @@ async def fetch_feed_content_playwright(
             context = await browser.new_context(
                 user_agent=browser_settings.user_agent,
                 viewport={
-                    'width': browser_settings.viewport_width,
-                    'height': browser_settings.viewport_height,
+                    "width": browser_settings.viewport_width,
+                    "height": browser_settings.viewport_height,
                 },
-                locale='en-US',
-                timezone_id='America/New_York',
+                locale="en-US",
+                timezone_id="America/New_York",
                 extra_http_headers={
-                    'Accept-Language': 'en-US,en;q=0.9',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-                }
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                },
             )
 
             # Add stealth scripts
@@ -441,10 +458,10 @@ async def fetch_feed_content_playwright(
             # 拦截响应获取原始内容
             async def handle_response(response):
                 nonlocal response_body
-                if response.url == url or response.url.rstrip('/') == url.rstrip('/'):
+                if response.url == url or response.url.rstrip("/") == url.rstrip("/"):
                     try:
                         response_body = await response.text()
-                    except:
+                    except Exception:
                         pass
 
             page.on("response", handle_response)
@@ -460,7 +477,7 @@ async def fetch_feed_content_playwright(
             if not response_body and response:
                 try:
                     response_body = await response.text()
-                except:
+                except Exception:
                     pass
 
             # 如果还是没有，获取页面内容
@@ -485,6 +502,7 @@ async def fetch_feed_content_playwright(
                 pass
 
 
+@safe_browser_fetch
 async def fetch_feed_content_cloakbrowser(
     url: str,
     timeout: float | None = None,
@@ -511,9 +529,7 @@ async def fetch_feed_content_cloakbrowser(
         launch_persistent_context_async = getattr(api, "launch_persistent_context_async", None)
 
         if not launch_context_async and not launch_persistent_context_async:
-            raise FeedParserError(
-                "CloakBrowser API not found. Expected launch_context_async()."
-            )
+            raise FeedParserError("CloakBrowser API not found. Expected launch_context_async().")
 
         launch_kwargs = {
             "headless": settings.FEED_BROWSER_HEADLESS,
@@ -566,30 +582,35 @@ async def fetch_feed_content_cloakbrowser(
         return None, result
 
     try:
+        await validate_outbound_http_url(url)
         browser, context = await _launch_context()
         await _apply_browser_resource_blocking(context, browser_settings)
         page = await context.new_page()
         try:
-            await page.set_viewport_size({
-                "width": browser_settings.viewport_width,
-                "height": browser_settings.viewport_height,
-            })
+            await page.set_viewport_size(
+                {
+                    "width": browser_settings.viewport_width,
+                    "height": browser_settings.viewport_height,
+                }
+            )
         except Exception:
             pass
 
         async def handle_response(response):
             nonlocal response_body
-            if response.url == url or response.url.rstrip('/') == url.rstrip('/'):
+            if response.url == url or response.url.rstrip("/") == url.rstrip("/"):
                 try:
                     response_body = await response.text()
                 except Exception:
                     pass
 
         page.on("response", handle_response)
-        await page.set_extra_http_headers({
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        })
+        await page.set_extra_http_headers(
+            {
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            }
+        )
 
         response = await page.goto(
             url,

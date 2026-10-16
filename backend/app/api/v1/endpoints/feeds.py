@@ -1,16 +1,16 @@
 """Feed API endpoints."""
-from typing import List
 
 from fastapi import APIRouter, File, Response, UploadFile, status
 
 from app.api.deps import CurrentUserId, DbSession
 from app.schemas.feed import FeedCreate, FeedReorder, FeedResponse, FeedUpdate, OPMLImportResult
 from app.services.feed_service import FeedService
+from app.utils.uploads import read_upload_limited
 
 router = APIRouter()
 
 
-@router.get("", response_model=List[FeedResponse])
+@router.get("", response_model=list[FeedResponse])
 async def get_feeds(user_id: CurrentUserId, db: DbSession):
     """Get all feeds for the current user."""
     service = FeedService(db)
@@ -24,7 +24,7 @@ async def create_feed(data: FeedCreate, user_id: CurrentUserId, db: DbSession):
     return await service.create(user_id, data)
 
 
-@router.put("/reorder", response_model=List[FeedResponse])
+@router.put("/reorder", response_model=list[FeedResponse])
 async def reorder_feeds(data: FeedReorder, user_id: CurrentUserId, db: DbSession):
     """Reorder feeds by providing feed IDs in desired order."""
     service = FeedService(db)
@@ -72,19 +72,22 @@ async def translate_all_articles(feed_id: int, user_id: CurrentUserId, db: DbSes
     """Queue all untranslated articles in a feed for translation."""
     service = FeedService(db)
     # Verify feed belongs to user
-    feed = await service.get_by_id(user_id, feed_id)
-    
+    await service.get_by_id(user_id, feed_id)
+
     # Trigger background task
     from app.tasks.feed_tasks import translate_feed_articles
+
     translate_feed_articles.delay(feed_id)
-    
+
     return {"message": "翻译任务已加入队列", "feed_id": feed_id}
 
 
 @router.post("/import", response_model=OPMLImportResult)
-async def import_opml(file: UploadFile = File(...), user_id: CurrentUserId = None, db: DbSession = None):
+async def import_opml(
+    file: UploadFile = File(...), user_id: CurrentUserId = None, db: DbSession = None
+):
     """Import feeds from OPML file."""
-    content = await file.read()
+    content = await read_upload_limited(file)
     service = FeedService(db)
     return await service.import_opml(user_id, content.decode("utf-8"))
 
@@ -97,5 +100,5 @@ async def export_opml(user_id: CurrentUserId, db: DbSession):
     return Response(
         content=opml_content,
         media_type="application/xml",
-        headers={"Content-Disposition": "attachment; filename=subscriptions.opml"}
+        headers={"Content-Disposition": "attachment; filename=subscriptions.opml"},
     )

@@ -1,4 +1,5 @@
 """Helpers for AI article translation with long-text chunking."""
+
 from __future__ import annotations
 
 import html
@@ -10,7 +11,21 @@ from app.services.ai_client import AIClientError, BaseAIClient
 
 AI_TRANSLATION_MAX_CHARS = 3500
 AI_TRANSLATION_MIN_CHARS = 800
-_BLOCK_TAGS = ["p", "div", "section", "article", "h1", "h2", "h3", "h4", "h5", "h6", "li", "tr", "br"]
+_BLOCK_TAGS = [
+    "p",
+    "div",
+    "section",
+    "article",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "li",
+    "tr",
+    "br",
+]
 
 
 def extract_text_from_html(html_content: str) -> str:
@@ -49,7 +64,9 @@ def plain_text_to_html(text: str) -> str:
     if not normalized:
         return ""
 
-    paragraphs = [paragraph.strip() for paragraph in re.split(r"\n{2,}", normalized) if paragraph.strip()]
+    paragraphs = [
+        paragraph.strip() for paragraph in re.split(r"\n{2,}", normalized) if paragraph.strip()
+    ]
     html_parts: list[str] = []
     for paragraph in paragraphs:
         lines = [html.escape(line.strip()) for line in paragraph.splitlines() if line.strip()]
@@ -65,7 +82,9 @@ def split_text_for_translation(text: str, max_chars: int = AI_TRANSLATION_MAX_CH
     if not normalized:
         return []
 
-    paragraphs = [paragraph.strip() for paragraph in re.split(r"\n{2,}", normalized) if paragraph.strip()]
+    paragraphs = [
+        paragraph.strip() for paragraph in re.split(r"\n{2,}", normalized) if paragraph.strip()
+    ]
     if not paragraphs:
         paragraphs = [normalized]
 
@@ -94,7 +113,11 @@ def split_text_for_translation(text: str, max_chars: int = AI_TRANSLATION_MAX_CH
 def is_translation_truncation_error(error: Exception) -> bool:
     """Return whether an AI client error indicates a truncated response."""
     message = str(error).lower()
-    return "finish_reason=length" in message or "finish_reason=max_tokens" in message or "truncated" in message
+    return (
+        "finish_reason=length" in message
+        or "finish_reason=max_tokens" in message
+        or "truncated" in message
+    )
 
 
 async def translate_text_with_chunking(
@@ -118,7 +141,11 @@ async def translate_text_with_chunking(
             if not is_translation_truncation_error(exc) or max_chunk_chars <= min_chunk_chars:
                 raise
 
-    split_limit = max_chunk_chars if len(normalized) > max_chunk_chars else max(min_chunk_chars, max_chunk_chars // 2)
+    split_limit = (
+        max_chunk_chars
+        if len(normalized) > max_chunk_chars
+        else max(min_chunk_chars, max_chunk_chars // 2)
+    )
     chunks = split_text_for_translation(normalized, split_limit)
 
     if len(chunks) <= 1:
@@ -147,7 +174,9 @@ def _split_oversized_piece(text: str, max_chars: int) -> list[str]:
     if len(text) <= max_chars:
         return [text]
 
-    sentences = [sentence.strip() for sentence in re.split(r"(?<=[。！？.!?])\s+", text) if sentence.strip()]
+    sentences = [
+        sentence.strip() for sentence in re.split(r"(?<=[。！？.!?])\s+", text) if sentence.strip()
+    ]
     if len(sentences) > 1:
         pieces: list[str] = []
         current: list[str] = []

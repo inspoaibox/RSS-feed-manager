@@ -1,7 +1,8 @@
 """Local translation service backed by Argos Translate."""
+
 import asyncio
-from pathlib import Path
 from functools import lru_cache
+from pathlib import Path
 
 from bs4 import BeautifulSoup, NavigableString
 
@@ -112,9 +113,7 @@ def _load_available_packages(refresh: bool = False):
         argos_package.update_package_index()
 
     if not _package_index_exists(argos_package):
-        raise ArgosTranslateError(
-            "Argos 语言包索引不可用，请检查服务器网络后刷新语言包列表"
-        )
+        raise ArgosTranslateError("Argos 语言包索引不可用，请检查服务器网络后刷新语言包列表")
 
     try:
         return [
@@ -182,8 +181,7 @@ def _get_translation(source_language: str, target_language: str):
     if not from_language or not to_language:
         available = ", ".join(sorted(language.code for language in installed_languages)) or "无"
         raise ArgosTranslateError(
-            f"Argos 语言包未安装: {source_language} -> {target_language} "
-            f"(已安装语言: {available})"
+            f"Argos 语言包未安装: {source_language} -> {target_language} (已安装语言: {available})"
         )
 
     raise ArgosTranslateError(f"Argos 语言包未安装: {source_language} -> {target_language}")
@@ -212,7 +210,9 @@ def list_argos_packages_sync(refresh: bool = False) -> dict:
         "available": _sort_packages(
             [
                 {
-                    **_package_to_dict(package, installed=(package.from_code, package.to_code) in installed_pairs),
+                    **_package_to_dict(
+                        package, installed=(package.from_code, package.to_code) in installed_pairs
+                    ),
                 }
                 for package in available_packages
             ]
