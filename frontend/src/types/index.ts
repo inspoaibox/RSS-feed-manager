@@ -241,6 +241,7 @@ export interface AIProvider {
   type: 'openai' | 'gemini' | 'openai_compatible'
   base_url: string | null
   is_active: boolean
+  token_limit_parameter?: 'auto' | 'max_tokens' | 'max_completion_tokens'
 }
 
 export interface AIModel {
@@ -249,6 +250,7 @@ export interface AIModel {
   model_id: string
   name: string
   is_default: boolean
+  is_active?: boolean
 }
 
 // Custom Rule types

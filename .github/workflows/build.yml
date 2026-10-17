@@ -64,6 +64,7 @@ jobs:
           uv run --frozen pytest -q tests/test_push_ownership_migration.py
           tests/test_push_migration_upgrade_path.py tests/test_postgresql_migration_chain.py
           tests/test_retire_mc_translation.py
+          tests/test_translation_cost_migration.py
       - name: Validate database migrations
         env:
           DATABASE_URL: postgresql+asyncpg://rss_test:ci_test_password@localhost:5432/rss_test

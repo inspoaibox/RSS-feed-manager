@@ -1,6 +1,7 @@
 """SQLAlchemy models."""
 
 from app.models.ai_provider import AIModel, AIProvider
+from app.models.ai_usage import AIUsage
 from app.models.analysis_query import AnalysisQuery
 from app.models.argos_translation_log import ArgosTranslationLog
 from app.models.article import Article, UserArticle
@@ -34,6 +35,7 @@ __all__ = [
     "UserArticle",
     "AIProvider",
     "AIModel",
+    "AIUsage",
     "CustomRule",
     "SystemSettings",
     "AnalysisQuery",

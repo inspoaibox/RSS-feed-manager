@@ -983,7 +983,11 @@ HTML 内容:
             from app.services.ai_client import AIClientError, create_ai_client
 
             client = create_ai_client(
-                provider.type, provider.api_key, provider.base_url, default_model.model_id
+                provider.type,
+                provider.api_key,
+                provider.base_url,
+                default_model.model_id,
+                token_limit_parameter=provider.token_limit_parameter,
             )
 
             response = await client.chat(prompt)

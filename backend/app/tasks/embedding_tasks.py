@@ -56,7 +56,9 @@ def generate_article_embedding(article_id: int, auto: bool = False) -> dict:
 
         provider = db.execute(
             select(AIProvider).where(
-                AIProvider.id == user.embedding_provider_id, AIProvider.user_id == user.id
+                AIProvider.id == user.embedding_provider_id,
+                AIProvider.user_id == user.id,
+                AIProvider.is_active.is_(True),
             )
         ).scalar_one_or_none()
 
@@ -126,7 +128,9 @@ def generate_embeddings_batch(self, user_id: int, limit: int = 500) -> dict:
 
         provider = db.execute(
             select(AIProvider).where(
-                AIProvider.id == user.embedding_provider_id, AIProvider.user_id == user.id
+                AIProvider.id == user.embedding_provider_id,
+                AIProvider.user_id == user.id,
+                AIProvider.is_active.is_(True),
             )
         ).scalar_one_or_none()
 

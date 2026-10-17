@@ -181,6 +181,8 @@ async def import_backup_data(db: AsyncSession, user_id: int, data: dict) -> Impo
                     "proxy_pool_country": feed_data.get("proxy_pool_country"),
                     "proxy_pool_protocol": feed_data.get("proxy_pool_protocol"),
                     **_translation_settings(feed_data),
+                    "translate_title": feed_data.get("translate_title", True),
+                    "translate_content": feed_data.get("translate_content", False),
                     "auto_summarize": feed_data.get("auto_summarize", False),
                     "source_language": feed_data.get("source_language"),
                     "target_language": feed_data.get("target_language"),
@@ -237,6 +239,9 @@ async def import_backup_data(db: AsyncSession, user_id: int, data: dict) -> Impo
                     "full_content": article_data.get("full_content"),
                     "summary": article_data.get("summary"),
                     "translation": article_data.get("translation"),
+                    "translation_revision": max(
+                        0, int(article_data.get("translation_revision") or 0)
+                    ),
                     "translation_status": article_data.get("translation_status")
                     or ("completed" if article_data.get("translation") else "none"),
                     "translation_error": article_data.get("translation_error"),
@@ -345,6 +350,7 @@ async def import_backup_data(db: AsyncSession, user_id: int, data: dict) -> Impo
                     "type": provider_data.get("type", "openai"),
                     "api_key": provider_data.get("api_key", ""),
                     "base_url": provider_data.get("base_url"),
+                    "token_limit_parameter": provider_data.get("token_limit_parameter", "auto"),
                     "is_active": provider_data.get("is_active", True),
                     "created_at": provider_data.get("created_at"),
                     "updated_at": provider_data.get("updated_at"),
@@ -397,6 +403,15 @@ async def import_backup_data(db: AsyncSession, user_id: int, data: dict) -> Impo
                         "google_translate_api_key": user_settings.get("google_translate_api_key"),
                         "argos_source_language": user_settings.get("argos_source_language"),
                     }
+                    from app.schemas.ai import TranslationLimits
+
+                    limits = TranslationLimits.model_validate(
+                        {
+                            name: user_settings.get(name, getattr(user, name))
+                            for name in TranslationLimits.model_fields
+                        }
+                    )
+                    values.update(limits.model_dump())
                     if _apply_attrs(user, values, list(values.keys())):
                         _increment(import_result, "updated")
                 webdav_config = user_settings.get("webdav_config")

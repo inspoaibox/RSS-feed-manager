@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base, BaseModel
@@ -35,6 +35,7 @@ class Article(BaseModel):
     full_content: Mapped[str | None] = mapped_column(Text, nullable=True)  # Extracted full text
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)  # AI-generated summary
     translation: Mapped[str | None] = mapped_column(Text, nullable=True)  # AI translation
+    translation_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     translation_status: Mapped[str] = mapped_column(String(20), default="none", nullable=False)
     translation_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     translation_started_at: Mapped[datetime | None] = mapped_column(

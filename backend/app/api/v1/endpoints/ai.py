@@ -195,6 +195,83 @@ async def get_default_model(user_id: CurrentUserId, db: DbSession):
     return await service.get_default_model(user_id)
 
 
+@router.post("/models/{model_id}/test-translation")
+async def test_model_translation(model_id: int, user_id: CurrentUserId, db: DbSession):
+    return await AIService(db).test_model_translation(user_id, model_id)
+
+
+@router.get("/translation-usage")
+async def translation_usage(
+    user_id: CurrentUserId,
+    db: DbSession,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    from datetime import UTC
+
+    from app.core.clock import utc_now
+    from app.models.ai_usage import AIUsage
+
+    month = utc_now().replace(day=1, hour=0, minute=0, second=0, microsecond=0, tzinfo=UTC)
+    scope = [AIUsage.user_id == user_id, AIUsage.created_at >= month]
+    reported, accounted, requests = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(AIUsage.total_tokens), 0),
+                func.coalesce(func.sum(AIUsage.budget_tokens), 0),
+                func.count(AIUsage.id),
+            ).where(*scope)
+        )
+    ).one()
+    unreported = await db.scalar(
+        select(func.count(AIUsage.id)).where(
+            *scope, AIUsage.total_tokens.is_(None), AIUsage.status != "rejected"
+        )
+    )
+    total = await db.scalar(select(func.count(AIUsage.id)).where(AIUsage.user_id == user_id))
+    rows = (
+        (
+            await db.execute(
+                select(AIUsage)
+                .where(AIUsage.user_id == user_id)
+                .order_by(AIUsage.id.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    fields = (
+        "id",
+        "article_id",
+        "model",
+        "operation",
+        "status",
+        "estimated_input_tokens",
+        "max_output_tokens",
+        "budget_tokens",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "cached_tokens",
+        "reasoning_tokens",
+        "created_at",
+        "error",
+    )
+    return {
+        "month_start": month,
+        "reported_tokens": reported,
+        "budget_tokens": accounted,
+        "requests": requests,
+        "unreported_requests": unreported,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "items": [{key: getattr(row, key) for key in fields} for row in rows],
+    }
+
+
 # AI operation endpoints
 @router.post("/translate/{article_id}", response_model=TranslateResponse)
 async def translate_article(
@@ -202,8 +279,7 @@ async def translate_article(
 ):
     """Translate an article using AI."""
     service = AIService(db)
-    translation = await service.translate_article(user_id, article_id, data.target_language)
-    return TranslateResponse(translation=translation)
+    return await service.translate_article(user_id, article_id, data.target_language)
 
 
 @router.post("/summarize/{article_id}", response_model=SummarizeResponse)
@@ -424,7 +500,11 @@ async def analyze_content(data: AnalyzeRequest, user_id: CurrentUserId, db: DbSe
         if provider:
             # 创建 AI 客户端用于生成分析
             ai_client = create_ai_client(
-                provider.type, provider.api_key, provider.base_url, default_model.model_id
+                provider.type,
+                provider.api_key,
+                provider.base_url,
+                default_model.model_id,
+                token_limit_parameter=provider.token_limit_parameter,
             )
 
     # 创建内容分析服务

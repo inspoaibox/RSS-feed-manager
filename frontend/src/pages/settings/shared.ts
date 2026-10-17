@@ -6,6 +6,7 @@ export type AIProviderFormState = {
   type: 'openai' | 'gemini' | 'openai_compatible'
   api_key: string
   base_url: string
+  token_limit_parameter: 'auto' | 'max_tokens' | 'max_completion_tokens'
 }
 export type AIModelFormState = {
   model_id: string
@@ -23,6 +24,7 @@ export const createEmptyAIProviderForm = (): AIProviderFormState => ({
   type: 'openai',
   api_key: '',
   base_url: '',
+  token_limit_parameter: 'auto',
 })
 
 export const createEmptyAIModelForm = (): AIModelFormState => ({

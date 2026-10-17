@@ -6,7 +6,6 @@ from urllib.parse import urlparse
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.clock import utc_now
 from app.models.ai_provider import AIModel, AIProvider
 from app.repositories.ai_repository import AIModelRepository, AIProviderRepository
 from app.repositories.article_repository import ArticleRepository
@@ -19,6 +18,7 @@ from app.schemas.ai import (
     AIProviderCreate,
     AIProviderResponse,
     AIProviderUpdate,
+    TranslationLimits,
 )
 from app.services.ai_client import AIClientError, create_ai_client
 from app.services.ai_translation_service import translate_text_with_chunking
@@ -101,6 +101,7 @@ class AIService:
             type=data.type,
             api_key=data.api_key,
             base_url=normalized_base_url,
+            token_limit_parameter=data.token_limit_parameter,
         )
 
         provider = await self.provider_repo.get_with_models(provider.id, user_id)
@@ -166,10 +167,52 @@ class AIService:
             success = await client.test_connection()
             return {
                 "success": success,
-                "message": "Connection successful" if success else "Connection failed",
+                "message": "模型列表可访问；请使用模型翻译测试验证生成能力"
+                if success
+                else "无法访问模型列表",
             }
         except (AIClientError, ValueError) as e:
             return {"success": False, "message": str(e)}
+
+    async def test_model_translation(self, user_id: int, model_id: int) -> dict:
+        from app.models.user import User
+        from app.services.ai_usage_service import AsyncTranslationUsageRecorder
+
+        model = await self.model_repo.get_by_id(model_id)
+        provider = await self.provider_repo.get_by_id(model.provider_id, user_id) if model else None
+        if not provider or not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+        if not provider.is_active or not model.is_active:
+            raise HTTPException(status_code=400, detail="请先启用渠道和模型")
+        user = await self.session.get(User, user_id)
+        recorder = AsyncTranslationUsageRecorder(
+            self.session,
+            user_id,
+            provider.id,
+            model.id,
+            operation="translation_test",
+            target="zh-CN",
+        )
+        client = create_ai_client(
+            provider.type,
+            provider.api_key,
+            provider.base_url,
+            model.model_id,
+            max_output_tokens=min(user.translation_max_output_tokens, 256),
+            max_input_tokens=user.translation_max_input_tokens,
+            token_limit_parameter=provider.token_limit_parameter,
+            recorder=recorder,
+        )
+        prompt = user.translate_prompt
+        try:
+            translated = await translate_text_with_chunking(client, "Hello", "zh-CN", prompt)
+            return {
+                "success": True,
+                "message": "模型翻译成功；用量已记录",
+                "translation": translated,
+            }
+        except AIClientError as exc:
+            return {"success": False, "message": str(exc), "translation": None}
 
     async def fetch_models(self, user_id: int, provider_id: int) -> list[AIModelResponse]:
         """Fetch available models from provider and save them."""
@@ -258,6 +301,8 @@ class AIService:
         if not provider:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model not found")
 
+        if not provider.is_active or not model.is_active:
+            raise HTTPException(status_code=400, detail="停用的渠道或模型不能设为默认")
         await self.model_repo.set_default(user_id, model_id)
         model = await self.model_repo.get_by_id(model_id)
         return self._model_to_response(model)
@@ -279,68 +324,19 @@ class AIService:
         return self._model_to_response(model)
 
     # AI operations
-    async def translate_article(self, user_id: int, article_id: int, target_language: str) -> str:
-        """Translate an article."""
-        article = await self._get_owned_article(user_id, article_id)
+    async def translate_article(self, user_id: int, article_id: int, target_language: str) -> dict:
+        """Legacy endpoint shares the queued, deduplicated article workflow."""
+        from app.services.article_service import ArticleService
 
-        default_model = await self.model_repo.get_default_model(user_id)
-        if not default_model:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="No default AI model configured"
-            )
-
-        provider = await self.provider_repo.get_by_id(default_model.provider_id, user_id)
-
-        content = article.full_content or article.content or article.title
-
-        try:
-            client = create_ai_client(
-                provider.type, provider.api_key, provider.base_url, default_model.model_id
-            )
-            article.translation_status = "translating"
-            article.translation_error = None
-            article.translation_started_at = utc_now()
-            article.translation_completed_at = None
-            await self.article_repo.session.flush()
-            translation = await translate_text_with_chunking(client, content, target_language)
-            await self.article_repo.update_content(article, translation=translation)
-            article.translation_status = "completed"
-            article.translation_error = None
-            article.translation_completed_at = utc_now()
-            await self.keyword_repo.sync_article_matches(user_id, [article.id])
-            await self.article_repo.session.flush()
-            return translation
-        except AIClientError as e:
-            article.translation_status = "failed"
-            article.translation_error = str(e)[:1000]
-            article.translation_completed_at = utc_now()
-            await self.article_repo.session.flush()
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+        return await ArticleService(self.session).translate_article(
+            user_id, article_id, target_language, force_full=True
+        )
 
     async def summarize_article(self, user_id: int, article_id: int) -> str:
-        """Generate summary for an article."""
-        article = await self._get_owned_article(user_id, article_id)
+        from app.services.article_service import ArticleService
 
-        default_model = await self.model_repo.get_default_model(user_id)
-        if not default_model:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="No default AI model configured"
-            )
-
-        provider = await self.provider_repo.get_by_id(default_model.provider_id, user_id)
-
-        content = article.full_content or article.content or article.title
-
-        try:
-            client = create_ai_client(
-                provider.type, provider.api_key, provider.base_url, default_model.model_id
-            )
-            summary = await client.summarize(content)
-            await self.article_repo.update_content(article, summary=summary)
-            await self.keyword_repo.sync_article_matches(user_id, [article.id])
-            return summary
-        except AIClientError as e:
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+        result = await ArticleService(self.session).summarize_article(user_id, article_id)
+        return result["summary"]
 
     async def _get_owned_article(self, user_id: int, article_id: int):
         article = await self.article_repo.get_by_id(article_id)
@@ -356,6 +352,7 @@ class AIService:
             type=provider.type,
             base_url=provider.base_url,
             is_active=provider.is_active,
+            token_limit_parameter=provider.token_limit_parameter,
             models=[self._model_to_response(m) for m in provider.models] if provider.models else [],
         )
 
@@ -405,6 +402,10 @@ class AIService:
             "auto_generate_embeddings": bool(user.auto_generate_embeddings) if user else False,
             "google_translate_api_key": user.google_translate_api_key if user else None,
             "argos_source_language": (user.argos_source_language or "en") if user else "en",
+            **{
+                name: getattr(user, name, field.default) if user else field.default
+                for name, field in TranslationLimits.model_fields.items()
+            },
         }
 
     async def update_settings(self, user_id: int, data: dict) -> dict:
@@ -422,6 +423,26 @@ class AIService:
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+        from pydantic import ValidationError
+
+        try:
+            limits = TranslationLimits.model_validate(
+                {
+                    name: data.get(name, getattr(user, name))
+                    for name in TranslationLimits.model_fields
+                }
+            )
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail="翻译预算设置超出允许范围") from exc
+        for name, value in limits.model_dump().items():
+            setattr(user, name, value)
+        for name in ("translate_prompt", "summarize_prompt"):
+            if (
+                name in data
+                and data[name] is not None
+                and (not isinstance(data[name], str) or len(data[name]) > 8000)
+            ):
+                raise HTTPException(status_code=422, detail="提示词必须是最多 8000 字符的文本")
         if "translate_prompt" in data:
             user.translate_prompt = data["translate_prompt"]
         if "summarize_prompt" in data:
@@ -460,7 +481,7 @@ class AIService:
             return None
 
         provider = await self.provider_repo.get_by_id(user.embedding_provider_id, user_id)
-        if not provider:
+        if not provider or not provider.is_active:
             return None
 
         return {

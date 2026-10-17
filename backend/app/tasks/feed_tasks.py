@@ -1,7 +1,6 @@
 """Feed-related background tasks."""
 
 import asyncio
-import json
 import os
 import uuid
 from datetime import datetime, timedelta
@@ -28,10 +27,16 @@ from app.repositories.keyword_subscription_repository import (
 )
 from app.services.ai_translation_service import (
     plain_text_to_html,
-    select_translation_body_input,
     translate_text_with_chunking,
 )
 from app.services.browser_fetch_settings import load_browser_fetch_settings_sync
+from app.services.translation_scope import (
+    encode_translation,
+    has_translatable_article_text,
+    translation_inputs,
+    translation_parts,
+    translation_satisfies_targets,
+)
 from app.tasks.embedding_tasks import (
     generate_article_embedding as generate_article_embedding,
 )
@@ -385,13 +390,13 @@ def _mark_article_translation_queued(
     if not force and article.translation_status in {"queued", "translating"}:
         return False
 
-    if not force and _translation_has_title(article.translation):
+    if not force and translation_satisfies_targets(article.translation, feed, article=article):
         article.translation_status = "completed"
         article.translation_error = None
         db.flush()
         return False
 
-    if not _has_translatable_article_text(article):
+    if not has_translatable_article_text(article, feed):
         article.translation_status = "failed"
         article.translation_error = "Article has no content to translate"
         db.flush()
@@ -406,7 +411,10 @@ def _mark_article_translation_queued(
 
 
 def dispatch_article_translation(
-    article_id: int, target_language: str | None = None, force_full: bool = False
+    article_id: int,
+    target_language: str | None = None,
+    force_full: bool = False,
+    revision: int | None = None,
 ) -> tuple[bool, str | None]:
     """Dispatch a single-article translation task with a Redis dedupe lock.
 
@@ -426,6 +434,8 @@ def dispatch_article_translation(
             return False, "duplicate"
 
         kwargs = {}
+        if revision is not None:
+            kwargs["revision"] = revision
         if target_language:
             kwargs["target_language"] = target_language
         if force_full:
@@ -589,17 +599,6 @@ def _process_article_with_ai(db: Session, article: Article, feed: Feed) -> tuple
     return translation_queued, True
 
 
-def _translation_has_title(translation: str | None) -> bool:
-    """Return whether a stored translation already contains a translated title."""
-    if not translation:
-        return False
-    try:
-        data = json.loads(translation)
-    except (TypeError, json.JSONDecodeError):
-        return False
-    return bool(data.get("title"))
-
-
 def _resolve_argos_languages(db: Session, feed: Feed, target_language: str) -> tuple[str, str]:
     from app.models.user import User
     from app.services.argos_translate_service import normalize_argos_language
@@ -693,18 +692,14 @@ def _perform_article_translation_sync(
         # 自动翻译时，遵循 Feed 配置
         translate_title, translate_content = translation_targets_for_source(feed)
 
-    # Prepare input based on translation scope
-    title = (article.title or "") if translate_title else ""
-    content = (article.content or "") if translate_content else ""
-    ai_content = (
-        select_translation_body_input(article.full_content, article.content)
-        if translate_method == "ai" and translate_content
-        else content
-    )
+    parts = translation_parts(article, feed, target)
+    inputs = translation_inputs(article)
+    title = inputs["title"] if translate_title and not parts["title"] else ""
+    content = (article.content or "") if translate_content and not parts["content"] else ""
+    ai_content = inputs["content"] if translate_content and not parts["content"] else ""
     effective_content = ai_content if translate_method == "ai" else content
-
     if not title and not effective_content:
-        raise ValueError("Article has no content to translate")
+        return encode_translation(parts, article, target), translate_method
 
     user = db.execute(select(User).where(User.id == feed.user_id)).scalar_one_or_none()
 
@@ -742,7 +737,12 @@ def _perform_article_translation_sync(
             default_model = db.execute(
                 select(AIModel)
                 .join(AIProvider, AIModel.provider_id == AIProvider.id)
-                .where(AIProvider.user_id == feed.user_id, AIModel.is_default.is_(True))
+                .where(
+                    AIProvider.user_id == feed.user_id,
+                    AIModel.is_default.is_(True),
+                    AIProvider.is_active.is_(True),
+                    AIModel.is_active.is_(True),
+                )
             ).scalar_one_or_none()
 
             if not default_model:
@@ -758,46 +758,60 @@ def _perform_article_translation_sync(
             translate_prompt = user.translate_prompt if user and user.translate_prompt else None
 
             from app.services.ai_client import create_ai_client
+            from app.services.ai_usage_service import TranslationUsageRecorder
 
+            recorder = TranslationUsageRecorder(
+                db,
+                feed.user_id,
+                provider.id,
+                default_model.id,
+                article_id=article.id,
+                revision=article.translation_revision,
+                target=target,
+            )
             client = create_ai_client(
                 provider.type,
                 provider.api_key,
                 provider.base_url,
                 default_model.model_id,
+                max_output_tokens=user.translation_max_output_tokens,
+                max_input_tokens=user.translation_max_input_tokens,
+                token_limit_parameter=provider.token_limit_parameter,
+                recorder=recorder,
             )
-            translated_title = (
-                loop.run_until_complete(
+            translated_title = parts["title"]
+            translated_content = parts["content"]
+            if title:
+                translated_title = loop.run_until_complete(
                     translate_text_with_chunking(client, title, target, translate_prompt)
                 )
-                if title
-                else ""
-            )
-            translated_content_text = (
-                loop.run_until_complete(
-                    translate_text_with_chunking(client, ai_content, target, translate_prompt)
+                parts["title"] = translated_title
+                article.translation = encode_translation(parts, article, target)
+                db.commit()
+            if ai_content:
+                translated_content = plain_text_to_html(
+                    loop.run_until_complete(
+                        translate_text_with_chunking(client, ai_content, target, translate_prompt)
+                    )
                 )
-                if ai_content
-                else ""
-            )
-            translated_content = (
-                plain_text_to_html(translated_content_text) if translated_content_text else ""
-            )
 
         else:
             raise ValueError(f"Unsupported translate method: {translate_method}")
     finally:
         loop.close()
 
-    translation_data = json.dumps(
-        {"title": translated_title, "content": translated_content},
-        ensure_ascii=False,
-    )
-    return translation_data, translate_method
+    parts["title"] = translated_title or parts["title"]
+    parts["content"] = translated_content or parts["content"]
+    return encode_translation(parts, article, target), translate_method
 
 
 @shared_task(name="app.tasks.feed_tasks.translate_article", bind=True)
 def translate_article_task(
-    self, article_id: int, target_language: str | None = None, force_full: bool = False
+    self,
+    article_id: int,
+    target_language: str | None = None,
+    force_full: bool = False,
+    revision: int | None = None,
 ) -> dict:
     """Translate one article in the background and persist translation status.
 
@@ -807,18 +821,41 @@ def translate_article_task(
         force_full: 为 True 时强制翻译标题和正文，忽略 Feed 的翻译范围配置
     """
     owner = self.request.id or ""
-    redis_client = None
-
+    execution_key = f"translate_article_{article_id}_execution"
+    execution_owner = str(uuid.uuid4())
     try:
         redis_client = get_redis_client()
+        acquired = redis_client.set(
+            execution_key, execution_owner, nx=True, ex=ARTICLE_TRANSLATION_QUEUE_LOCK_TTL
+        )
     except Exception:
-        redis_client = None
+        with get_sync_session() as db:
+            _mark_translation_dispatch_failed(
+                db, article_id, "Redis unavailable; no provider request sent"
+            )
+        return {"success": False, "article_id": article_id, "error": "Redis unavailable"}
+    if not acquired:
+        return {"success": True, "article_id": article_id, "skipped": "already running"}
+    try:
+        return _run_article_translation(article_id, target_language, force_full, revision)
+    finally:
+        try:
+            redis_client.eval(
+                "if redis.call('get',KEYS[1]) == ARGV[1] then "
+                "return redis.call('del',KEYS[1]) end return 0",
+                1,
+                execution_key,
+                execution_owner,
+            )
+        except Exception:
+            pass
+        _release_article_translation_slot(redis_client, article_id, owner)
 
+
+def _run_article_translation(article_id, target_language, force_full, revision):
     with get_sync_session() as db:
         article = db.execute(select(Article).where(Article.id == article_id)).scalar_one_or_none()
         if not article:
-            if redis_client is not None:
-                _release_article_translation_slot(redis_client, article_id, owner)
             return {"success": False, "article_id": article_id, "error": "Article not found"}
 
         feed = db.execute(select(Feed).where(Feed.id == article.feed_id)).scalar_one_or_none()
@@ -827,9 +864,21 @@ def translate_article_task(
             article.translation_error = "Feed not found"
             article.translation_completed_at = utc_now()
             db.commit()
-            if redis_client is not None:
-                _release_article_translation_slot(redis_client, article_id, owner)
             return {"success": False, "article_id": article_id, "error": "Feed not found"}
+
+        if revision is not None and revision != article.translation_revision:
+            return {"success": True, "article_id": article_id, "skipped": "stale revision"}
+        if translation_satisfies_targets(
+            article.translation,
+            feed,
+            article=article,
+            target_language=target_language,
+            force_full=force_full,
+        ):
+            article.translation_status = "completed"
+            article.translation_error = None
+            db.commit()
+            return {"success": True, "article_id": article_id, "skipped": "already translated"}
 
         translate_method = _translation_method_for_feed(feed)
         target = target_language or feed.target_language
@@ -839,17 +888,13 @@ def translate_article_task(
             article.translation_started_at = None
             article.translation_completed_at = None
             db.commit()
-            if redis_client is not None:
-                _release_article_translation_slot(redis_client, article_id, owner)
             return {"success": False, "article_id": article_id, "error": "Translation disabled"}
 
-        if not _has_translatable_article_text(article):
+        if not has_translatable_article_text(article, feed, force_full=force_full):
             article.translation_status = "failed"
             article.translation_error = "Article has no content to translate"
             article.translation_completed_at = utc_now()
             db.commit()
-            if redis_client is not None:
-                _release_article_translation_slot(redis_client, article_id, owner)
             return {"success": False, "article_id": article_id, "error": article.translation_error}
 
         argos_log: ArgosTranslationLog | None = None
@@ -888,6 +933,7 @@ def translate_article_task(
                 "status": "completed",
             }
         except Exception as exc:
+            db.rollback()
             completed_at = utc_now()
             article.translation_status = "failed"
             article.translation_error = str(exc)[:1000]
@@ -901,9 +947,6 @@ def translate_article_task(
                 "status": "failed",
                 "error": str(exc),
             }
-        finally:
-            if redis_client is not None:
-                _release_article_translation_slot(redis_client, article_id, owner)
 
 
 def _record_proxy_success_sync(db: Session, proxy: ProxyPoolEntry) -> None:
@@ -2108,6 +2151,8 @@ def summarize_article(article_id: int) -> dict:
             .where(
                 AIProvider.user_id == feed.user_id,
                 AIModel.is_default.is_(True),
+                AIModel.is_active.is_(True),
+                AIProvider.is_active.is_(True),
             )
         ).scalar_one_or_none()
 
@@ -2135,6 +2180,7 @@ def summarize_article(article_id: int) -> dict:
                 provider.api_key,
                 provider.base_url,
                 default_model.model_id,
+                token_limit_parameter=provider.token_limit_parameter,
             )
             summary = loop.run_until_complete(client.summarize(content_for_ai, summarize_prompt))
             article.summary = summary
@@ -2180,7 +2226,7 @@ def translate_feed_articles(feed_id: int) -> dict:
                 skipped += 1
                 continue
 
-            if _translation_has_title(article.translation):
+            if translation_satisfies_targets(article.translation, feed, article=article):
                 article.translation_status = "completed"
                 article.translation_error = None
                 skipped += 1

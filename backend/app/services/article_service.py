@@ -230,7 +230,13 @@ class ArticleService:
         return text.strip()
 
     async def translate_article(
-        self, user_id: int, article_id: int, target_language: str, force_full: bool = False
+        self,
+        user_id: int,
+        article_id: int,
+        target_language: str,
+        force_full: bool = False,
+        retranslate: bool = False,
+        retry_unknown: bool = False,
     ) -> dict:
         """Queue article title/content translation using the feed's configured provider.
 
@@ -242,26 +248,30 @@ class ArticleService:
         """
         article = await self._verify_article_access(user_id, article_id)
 
-        content = article.content or ""
-        title = article.title or ""
-
-        if not content and not title:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Article has no content to translate",
-            )
-
-        # Keep HTML content for translation (let AI preserve formatting)
         from sqlalchemy import select
 
+        from app.models.article import Article
         from app.models.feed import Feed
+        from app.services.translation_scope import (
+            has_translatable_article_text,
+            translation_satisfies_targets,
+        )
 
-        feed_result = await self.session.execute(select(Feed).where(Feed.id == article.feed_id))
-        feed = feed_result.scalar_one_or_none()
-        translate_method = getattr(feed, "translate_method", "none") if feed else "none"
+        article = (
+            await self.session.execute(
+                select(Article)
+                .where(Article.id == article_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+        feed = (
+            await self.session.execute(select(Feed).where(Feed.id == article.feed_id))
+        ).scalar_one()
+        translate_method = feed.translate_method
 
         # Check if translation is enabled
-        if translate_method == "none":
+        if translate_method in {"none", "mc_translation"}:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="请先在订阅源设置中启用翻译"
             )
@@ -275,6 +285,49 @@ class ArticleService:
                 "method": translate_method,
             }
 
+        if not retranslate and translation_satisfies_targets(
+            article.translation,
+            feed,
+            article=article,
+            target_language=target_language,
+            force_full=force_full,
+        ):
+            article.translation_status = "completed"
+            article.translation_error = None
+            await self.session.commit()
+            return {
+                "message": "所选内容已翻译，无需重复发送",
+                "translation": article.translation,
+                "translation_status": "completed",
+                "translation_error": None,
+                "method": translate_method,
+            }
+        if not has_translatable_article_text(article, feed, force_full=force_full):
+            raise HTTPException(status_code=400, detail="文章没有可翻译的可见文字")
+        if translate_method == "ai":
+            from app.repositories.ai_repository import AIModelRepository
+
+            if not await AIModelRepository(self.session).get_default_model(user_id):
+                raise HTTPException(status_code=400, detail="请先选择已启用渠道中的默认 AI 模型")
+        if retranslate:
+            article.translation_revision += 1
+        elif retry_unknown:
+            from sqlalchemy import update
+
+            from app.models.ai_usage import AIUsage
+
+            # Retain prior reservations: an uncertain request may already have been billed.
+            await self.session.execute(
+                update(AIUsage)
+                .where(
+                    AIUsage.user_id == user_id,
+                    AIUsage.article_id == article.id,
+                    AIUsage.status.in_(["pending", "unknown"]),
+                )
+                .values(cache_key=None, status="unknown")
+            )
+        revision = article.translation_revision
+
         article.translation_status = "queued"
         article.translation_error = None
         article.translation_started_at = None
@@ -284,7 +337,7 @@ class ArticleService:
         from app.tasks.feed_tasks import dispatch_article_translation
 
         queued, error = dispatch_article_translation(
-            article.id, target_language=target_language, force_full=force_full
+            article.id, target_language=target_language, force_full=force_full, revision=revision
         )
         if not queued and error != "duplicate":
             article.translation_status = "failed"
@@ -349,7 +402,11 @@ class ArticleService:
 
         try:
             client = create_ai_client(
-                provider.type, provider.api_key, provider.base_url, default_model.model_id
+                provider.type,
+                provider.api_key,
+                provider.base_url,
+                default_model.model_id,
+                token_limit_parameter=provider.token_limit_parameter,
             )
             summary = await client.summarize(content, custom_prompt)
 

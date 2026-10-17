@@ -7,7 +7,7 @@ import re
 
 from bs4 import BeautifulSoup
 
-from app.services.ai_client import AIClientError, BaseAIClient
+from app.services.ai_client import AIClientError, BaseAIClient, translation_prompt
 
 AI_TRANSLATION_MAX_CHARS = 3500
 AI_TRANSLATION_MIN_CHARS = 800
@@ -32,7 +32,7 @@ def extract_text_from_html(html_content: str) -> str:
     """Extract readable plain text while preserving paragraph structure."""
     soup = BeautifulSoup(html_content, "html.parser")
 
-    for tag in soup(["script", "style"]):
+    for tag in soup(["script", "style", "noscript", "template", "svg", "iframe", "head"]):
         tag.decompose()
 
     for tag in soup.find_all(_BLOCK_TAGS):
@@ -41,21 +41,18 @@ def extract_text_from_html(html_content: str) -> str:
 
     text = soup.get_text()
     text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"data:[^\s<>]+;base64,[A-Za-z0-9+/=]+", "", text)
     return text.strip()
 
 
 def select_translation_body_input(full_content: str | None, content: str | None) -> str:
     """Choose the best body text source for AI translation."""
-    preferred = (full_content or "").strip()
-    if preferred:
-        return preferred
-
-    fallback = (content or "").strip()
-    if not fallback:
-        return ""
-
-    extracted = extract_text_from_html(fallback)
-    return extracted or fallback
+    for value in (full_content, content):
+        if value and value.strip():
+            extracted = extract_text_from_html(value)
+            if extracted:
+                return extracted
+    return ""
 
 
 def plain_text_to_html(text: str) -> str:
@@ -120,6 +117,29 @@ def is_translation_truncation_error(error: Exception) -> bool:
     )
 
 
+def _split_by_bytes(text: str, limit: int) -> list[str]:
+    chunks = []
+    while len(text.encode("utf-8")) > limit:
+        used = 0
+        index = 0
+        for char in text:
+            size = len(char.encode("utf-8"))
+            if used + size > limit:
+                break
+            used += size
+            index += 1
+        if not index:
+            raise AIClientError("输入预算不足以容纳正文，请缩短提示词或提高预算")
+        boundary = text.rfind(" ", 0, index + 1)
+        if boundary >= index // 2:
+            index = max(boundary, 1)
+        chunks.append(text[:index].strip())
+        text = text[index:].strip()
+    if text:
+        chunks.append(text)
+    return chunks
+
+
 async def translate_text_with_chunking(
     client: BaseAIClient,
     text: str,
@@ -129,44 +149,43 @@ async def translate_text_with_chunking(
     max_chunk_chars: int = AI_TRANSLATION_MAX_CHARS,
     min_chunk_chars: int = AI_TRANSLATION_MIN_CHARS,
 ) -> str:
-    """Translate text, automatically chunking and retrying on truncation."""
+    """Retry only strictly smaller pieces; completed pieces are checkpointed by the client."""
     normalized = text.strip()
     if not normalized:
         return ""
+    if min(max_chunk_chars, min_chunk_chars) <= 0:
+        raise ValueError("Chunk limits must be positive")
+    chunks = split_text_for_translation(normalized, max_chunk_chars)
+    input_limit = getattr(client, "max_input_tokens", None)
+    if input_limit is not None:
+        overhead = len(translation_prompt(custom_prompt, target_language).encode("utf-8")) + 64
+        budget = input_limit - overhead
+        if budget < 16:
+            raise AIClientError("提示词已占满输入预算，请缩短提示词或提高预算")
+        chunks = [piece for chunk in chunks for piece in _split_by_bytes(chunk, budget)]
 
-    if len(normalized) <= max_chunk_chars:
+    async def translate_piece(piece: str) -> str:
         try:
-            return await client.translate(normalized, target_language, custom_prompt)
+            return await client.translate(piece, target_language, custom_prompt)
         except AIClientError as exc:
-            if not is_translation_truncation_error(exc) or max_chunk_chars <= min_chunk_chars:
+            if not is_translation_truncation_error(exc):
                 raise
+            if len(piece) <= min_chunk_chars:
+                raise AIClientError(
+                    "AI response truncated：短分段输出仍被截断，请提高输出上限或更换模型"
+                ) from exc
+            smaller = _hard_wrap_text(piece, max(1, len(piece) // 2))
+            if len(smaller) < 2 or any(len(part) >= len(piece) for part in smaller):
+                raise
+            translated = []
+            for part in smaller:
+                translated.append(await translate_piece(part))
+            return "\n\n".join(translated)
 
-    split_limit = (
-        max_chunk_chars
-        if len(normalized) > max_chunk_chars
-        else max(min_chunk_chars, max_chunk_chars // 2)
-    )
-    chunks = split_text_for_translation(normalized, split_limit)
-
-    if len(chunks) <= 1:
-        if split_limit <= min_chunk_chars:
-            return await client.translate(normalized, target_language, custom_prompt)
-        chunks = _hard_wrap_text(normalized, max(min_chunk_chars, split_limit // 2))
-
-    translated_chunks: list[str] = []
+    translated = []
     for chunk in chunks:
-        translated = await translate_text_with_chunking(
-            client,
-            chunk,
-            target_language,
-            custom_prompt,
-            max_chunk_chars=split_limit,
-            min_chunk_chars=min_chunk_chars,
-        )
-        if translated.strip():
-            translated_chunks.append(translated.strip())
-
-    return "\n\n".join(translated_chunks)
+        translated.append(await translate_piece(chunk))
+    return "\n\n".join(translated)
 
 
 def _split_oversized_piece(text: str, max_chars: int) -> list[str]:

@@ -1,3 +1,4 @@
+import TranslationUsagePanel from './TranslationUsagePanel'
 import { AIModelFormState,AIProviderFormState,createEmptyAIModelForm,createEmptyAIProviderForm,formatDateTime,formatDurationMs,getArgosLogStatusClass,getArgosLogStatusLabel,getTranslationLanguageLabel,translationSourceLanguages } from '@/pages/settings/shared'
 import api from '@/services/api'
 import type { AIModel,AIProvider,ArgosPackageInfo,ArgosPackagesResponse,ArgosPackageTestResult,ArgosTranslationLogsResponse,GoogleTranslateKey } from '@/types'
@@ -185,6 +186,7 @@ export default function AITab() {
       type: provider.type,
       api_key: '',
       base_url: provider.base_url || '',
+      token_limit_parameter: provider.token_limit_parameter || 'auto',
     })
     setProviderModelForm(createEmptyAIModelForm())
     setShowProviderForm(true)
@@ -197,6 +199,7 @@ export default function AITab() {
         type: payload.type,
         api_key: payload.api_key.trim(),
         base_url: payload.base_url.trim() || undefined,
+        token_limit_parameter: payload.token_limit_parameter,
       })
       return response.data
     },
@@ -209,6 +212,7 @@ export default function AITab() {
         type: provider.type,
         api_key: '',
         base_url: provider.base_url || '',
+      token_limit_parameter: provider.token_limit_parameter || 'auto',
       })
       setProviderModelForm(createEmptyAIModelForm())
       setMessage({ type: 'success', text: '渠道添加成功，可继续在此获取所有模型' })
@@ -225,6 +229,7 @@ export default function AITab() {
         name: payload.name.trim(),
         api_key: payload.api_key.trim() || undefined,
         base_url: payload.base_url.trim(),
+        token_limit_parameter: payload.token_limit_parameter,
       })
       return response.data
     },
@@ -236,6 +241,7 @@ export default function AITab() {
         type: provider.type,
         api_key: '',
         base_url: provider.base_url || '',
+      token_limit_parameter: provider.token_limit_parameter || 'auto',
       })
       setProviderModelForm(createEmptyAIModelForm())
       setMessage({ type: 'success', text: '渠道已更新' })
@@ -298,13 +304,27 @@ export default function AITab() {
     onSuccess: (result) => {
       setMessage({
         type: result.success ? 'success' : 'error',
-        text: result.success ? '连接测试成功' : `连接测试失败: ${result.message}`,
+        text: result.message,
       })
       setTimeout(() => setMessage(null), 3000)
     },
     onError: (err: unknown) => {
       setMessage({ type: 'error', text: getApiErrorMessage(err, '连接测试失败') })
     },
+  })
+
+  const testModelMutation = useMutation({
+    mutationFn: async (id: number) => (await api.post<{ success: boolean; message: string; translation: string | null }>(`/ai/models/${id}/test-translation`)).data,
+    onSuccess: result => {
+      setMessage({ type: result.success ? 'success' : 'error', text: `${result.message}${result.translation ? `：${result.translation}` : ''}` })
+      queryClient.invalidateQueries({ queryKey: ['translation-usage'] })
+    },
+    onError: error => setMessage({ type: 'error', text: getApiErrorMessage(error, '模型测试失败') }),
+  })
+  const toggleProviderMutation = useMutation({
+    mutationFn: async (provider: AIProvider) => api.put(`/ai/providers/${provider.id}`, { is_active: !provider.is_active }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['ai-providers'] }); queryClient.invalidateQueries({ queryKey: ['ai-models'] }) },
+    onError: error => setMessage({ type: 'error', text: getApiErrorMessage(error, '渠道状态更新失败') }),
   })
 
   const createModelMutation = useMutation({
@@ -578,7 +598,7 @@ export default function AITab() {
     },
   })
 
-  const defaultModel = models.find(m => m.is_default)
+  const defaultModel = models.find(m => m.is_default && m.is_active !== false && providers.some(p => p.id === m.provider_id && p.is_active))
   const activeGoogleKeyCount = googleTranslateKeys.filter((key) => key.is_active).length
   const installedArgosPackages = argosPackages?.installed || []
   const availableArgosPackages = argosPackages?.available || []
@@ -629,8 +649,8 @@ export default function AITab() {
         >
           <option value="">请选择默认模型</option>
           {providers.map(provider => {
-            const providerModels = models.filter(m => m.provider_id === provider.id)
-            if (providerModels.length === 0) return null
+            const providerModels = models.filter(m => m.provider_id === provider.id && m.is_active !== false)
+            if (!provider.is_active || providerModels.length === 0) return null
             return (
               <optgroup key={provider.id} label={provider.name}>
                 {providerModels.map(model => (
@@ -646,6 +666,8 @@ export default function AITab() {
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">请先添加 AI 渠道，并在渠道表单中获取所有模型</p>
         )}
       </div>
+
+      <TranslationUsagePanel />
 
       {/* Embedding Model Configuration */}
       <div className="p-4 border dark:border-gray-700 rounded bg-green-50 dark:bg-green-900/30">
@@ -1375,6 +1397,18 @@ export default function AITab() {
                 </p>
               </>
             )}
+            {providerForm.type !== 'gemini' && (
+              <label className="block text-sm dark:text-gray-300">
+                输出 token 限制参数
+                <select value={providerForm.token_limit_parameter}
+                  onChange={event => setProviderForm({ ...providerForm, token_limit_parameter: event.target.value as AIProviderFormState['token_limit_parameter'] })}
+                  className="block mt-1 w-full px-3 py-2 border rounded bg-white dark:bg-gray-800 dark:border-gray-600">
+                  <option value="auto">自动（OpenAI 使用 max_completion_tokens，兼容渠道使用 max_tokens）</option>
+                  <option value="max_completion_tokens">max_completion_tokens（包含推理 token）</option>
+                  <option value="max_tokens">max_tokens（传统兼容接口）</option>
+                </select>
+              </label>
+            )}
             <div className="flex gap-2 flex-wrap">
               <button
                 onClick={submitProviderForm}
@@ -1453,6 +1487,10 @@ export default function AITab() {
                     <h3 className="font-medium dark:text-white">{provider.name}</h3>
                     <p className="text-sm text-gray-500 dark:text-gray-400">{provider.type}</p>
                   </div>
+                  <button onClick={() => toggleProviderMutation.mutate(provider)} disabled={toggleProviderMutation.isPending}
+                    className="px-3 py-1 text-sm border rounded dark:text-gray-200 disabled:opacity-50">
+                    {provider.is_active ? '停用渠道' : '启用渠道'}
+                  </button>
                   <button
                     onClick={() => openEditProviderForm(provider)}
                     className="flex items-center gap-1 px-3 py-1 text-sm border dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200"
@@ -1477,6 +1515,11 @@ export default function AITab() {
                         className={`px-2 py-0.5 text-xs rounded ${model.is_default ? 'bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'}`}
                       >
                         {model.model_id}
+                        <button className="ml-2 underline disabled:opacity-50"
+                          disabled={!provider.is_active || model.is_active === false || testModelMutation.isPending}
+                          onClick={() => testModelMutation.mutate(model.id)}>
+                          测试翻译（计费）
+                        </button>
                       </span>
                     ))}
                   </div>

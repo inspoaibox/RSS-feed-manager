@@ -161,6 +161,16 @@ async def generate_backup_data(db: AsyncSession, user_id: int) -> dict:
             "auto_generate_embeddings": getattr(user, "auto_generate_embeddings", False),
             "google_translate_api_key": getattr(user, "google_translate_api_key", None),
             "argos_source_language": getattr(user, "argos_source_language", None),
+            **{
+                name: getattr(user, name)
+                for name in (
+                    "translation_max_input_tokens",
+                    "translation_max_output_tokens",
+                    "translation_article_token_limit",
+                    "translation_monthly_token_limit",
+                    "translation_max_requests",
+                )
+            },
             "webdav_config": webdav_config,
         },
         "categories": [
@@ -222,6 +232,7 @@ async def generate_backup_data(db: AsyncSession, user_id: int) -> dict:
                 "full_content": a.full_content,
                 "summary": a.summary,
                 "translation": a.translation,
+                "translation_revision": a.translation_revision,
                 "translation_status": getattr(a, "translation_status", "none"),
                 "translation_error": getattr(a, "translation_error", None),
                 "translation_started_at": _dt(getattr(a, "translation_started_at", None)),
@@ -254,6 +265,7 @@ async def generate_backup_data(db: AsyncSession, user_id: int) -> dict:
                 "type": p.type,
                 "api_key": p.api_key,
                 "base_url": p.base_url,
+                "token_limit_parameter": p.token_limit_parameter,
                 "is_active": p.is_active,
                 "created_at": _dt(p.created_at),
                 "updated_at": _dt(p.updated_at),

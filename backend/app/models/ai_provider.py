@@ -32,6 +32,7 @@ class AIProvider(BaseModel):
 
     # Status
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    token_limit_parameter: Mapped[str] = mapped_column(String(32), default="auto", nullable=False)
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="ai_providers")

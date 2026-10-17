@@ -44,6 +44,13 @@ class User(BaseModel):
     summarize_prompt: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     auto_generate_summaries: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
+    # AI translation budgets
+    translation_max_input_tokens: Mapped[int] = mapped_column(default=12000, nullable=False)
+    translation_max_output_tokens: Mapped[int] = mapped_column(default=4096, nullable=False)
+    translation_article_token_limit: Mapped[int] = mapped_column(default=100000, nullable=False)
+    translation_monthly_token_limit: Mapped[int | None] = mapped_column(nullable=True)
+    translation_max_requests: Mapped[int] = mapped_column(default=32, nullable=False)
+
     # Embedding model settings
     embedding_provider_id: Mapped[int | None] = mapped_column(nullable=True)
     embedding_model: Mapped[str | None] = mapped_column(String(100), nullable=True)

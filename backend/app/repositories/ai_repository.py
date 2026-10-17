@@ -14,11 +14,22 @@ class AIProviderRepository:
         self.session = session
 
     async def create(
-        self, user_id: int, name: str, type: str, api_key: str, base_url: str | None = None
+        self,
+        user_id: int,
+        name: str,
+        type: str,
+        api_key: str,
+        base_url: str | None = None,
+        token_limit_parameter: str = "auto",
     ) -> AIProvider:
         """Create a new AI provider."""
         provider = AIProvider(
-            user_id=user_id, name=name, type=type, api_key=api_key, base_url=base_url
+            user_id=user_id,
+            name=name,
+            type=type,
+            api_key=api_key,
+            base_url=base_url,
+            token_limit_parameter=token_limit_parameter,
         )
         self.session.add(provider)
         await self.session.flush()
@@ -98,7 +109,12 @@ class AIModelRepository:
         result = await self.session.execute(
             select(AIModel)
             .join(AIProvider, AIModel.provider_id == AIProvider.id)
-            .where(AIProvider.user_id == user_id, AIModel.is_default.is_(True))
+            .where(
+                AIProvider.user_id == user_id,
+                AIModel.is_default.is_(True),
+                AIModel.is_active.is_(True),
+                AIProvider.is_active.is_(True),
+            )
         )
         return result.scalar_one_or_none()
 

@@ -1,6 +1,7 @@
 """AI schemas for request/response validation."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -12,6 +13,7 @@ class AIProviderCreate(BaseModel):
     type: str = Field(..., pattern="^(openai|gemini|openai_compatible)$")
     api_key: str = Field(..., min_length=1, max_length=500)
     base_url: str | None = Field(None, max_length=2048)
+    token_limit_parameter: Literal["auto", "max_tokens", "max_completion_tokens"] = "auto"
 
 
 class AIProviderUpdate(BaseModel):
@@ -21,6 +23,7 @@ class AIProviderUpdate(BaseModel):
     api_key: str | None = Field(None, min_length=1, max_length=500)
     base_url: str | None = Field(None, max_length=2048)
     is_active: bool | None = None
+    token_limit_parameter: Literal["auto", "max_tokens", "max_completion_tokens"] | None = None
 
 
 class AIModelResponse(BaseModel):
@@ -45,6 +48,7 @@ class AIProviderResponse(BaseModel):
     type: str
     base_url: str | None
     is_active: bool
+    token_limit_parameter: str = "auto"
     models: list[AIModelResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
@@ -76,7 +80,7 @@ class TestConnectionResponse(BaseModel):
 class TranslateRequest(BaseModel):
     """Schema for translation request."""
 
-    target_language: str = Field(..., min_length=2, max_length=10)
+    target_language: str = Field(..., min_length=2, max_length=10, pattern="^[A-Za-z-]+$")
 
 
 class SummarizeResponse(BaseModel):
@@ -88,7 +92,19 @@ class SummarizeResponse(BaseModel):
 class TranslateResponse(BaseModel):
     """Schema for translate response."""
 
-    translation: str
+    translation: str | None = None
+    translation_status: str
+    translation_error: str | None = None
+    message: str
+    method: str
+
+
+class TranslationLimits(BaseModel):
+    translation_max_input_tokens: int = Field(12000, ge=128, le=100000)
+    translation_max_output_tokens: int = Field(4096, ge=128, le=32768)
+    translation_article_token_limit: int = Field(100000, ge=1000, le=10000000)
+    translation_monthly_token_limit: int | None = Field(None, ge=1, le=2000000000)
+    translation_max_requests: int = Field(32, ge=1, le=1000)
 
 
 class ArgosPackageInfo(BaseModel):

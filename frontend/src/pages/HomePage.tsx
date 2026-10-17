@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '@/utils/apiError'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -234,13 +235,13 @@ export default function HomePage() {
   })
 
   const translateMutation = useMutation({
-    mutationFn: async (articleId: number) => {
+    mutationFn: async ({ articleId, retranslate = false, retryUnknown = false }: { articleId: number; retranslate?: boolean; retryUnknown?: boolean }) => {
       const response = await api.post<{
         translation: string | null
         translation_status: TranslationStatus
         translation_error: string | null
         message: string
-      }>(`/articles/${articleId}/translate?target_language=zh-CN`)
+      }>(`/articles/${articleId}/translate?target_language=zh-CN&retranslate=${retranslate}&retry_unknown=${retryUnknown}`)
       return response.data
     },
     onSuccess: (data) => {
@@ -728,7 +729,7 @@ export default function HomePage() {
                     if (translationBusy) {
                       buttonTitle = getTranslationStatusText(translationStatus)
                     } else if (translationStatus === 'failed') {
-                      buttonTitle = '重新翻译'
+                      buttonTitle = '继续翻译'
                     } else if (translationStatus === 'completed' && !hasTranslatedContent) {
                       buttonTitle = '翻译正文'
                     } else if (translationStatus === 'completed') {
@@ -737,7 +738,7 @@ export default function HomePage() {
 
                     return (
                       <button
-                        onClick={() => translateMutation.mutate(selectedArticle.id)}
+                        onClick={() => translateMutation.mutate({ articleId: selectedArticle.id, retranslate: translationStatus === 'completed' && Boolean(hasTranslatedContent) })}
                         disabled={translationBusy}
                         className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-purple-600 dark:text-purple-400 disabled:opacity-50"
                         title={buttonTitle}
@@ -767,6 +768,17 @@ export default function HomePage() {
                   )}
                 </div>
             </div>
+            {translateMutation.isError && <p role="alert" className="p-3 text-sm text-red-600">{getApiErrorMessage(translateMutation.error, '翻译请求失败')}</p>}
+            {selectedArticle.translation_status === 'failed' && (
+              <div className="p-3 text-sm text-red-700 dark:text-red-300">
+                <p>{selectedArticle.translation_error}</p>
+                <button disabled={translateMutation.isPending}
+                  onClick={() => translateMutation.mutate({ articleId: selectedArticle.id, retryUnknown: true })}
+                  className="mt-2 px-3 py-1 border rounded disabled:opacity-50">
+                  重试未确认分段（可能重复计费）
+                </button>
+              </div>
+            )}
             <article className="p-6 max-w-3xl mx-auto">
                 {(() => {
                   const translatedData = parseTranslation(selectedArticle.translation)

@@ -19,6 +19,7 @@ def test_postgresql_038_missing_constraint_upgrades_through_notification_migrati
         with engine.begin() as connection:
             for statement in [
                 "CREATE TABLE users (id INTEGER PRIMARY KEY)",
+                "CREATE TABLE ai_providers (id INTEGER PRIMARY KEY)",
                 "CREATE TABLE feeds (id INTEGER PRIMARY KEY, user_id INTEGER, "
                 "translate_method TEXT DEFAULT 'none', auto_translate BOOLEAN DEFAULT false)",
                 "CREATE TABLE categories (id INTEGER PRIMARY KEY, user_id INTEGER)",

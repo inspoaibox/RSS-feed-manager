@@ -110,13 +110,20 @@ async def translate_article(
     article_id: int,
     user_id: CurrentUserId,
     db: DbSession,
-    target_language: str = Query("zh-CN"),
-    force_full: bool = Query(True, description="强制翻译标题+正文（手动触发时默认为 True）"),
+    target_language: str = Query("zh-CN", min_length=2, max_length=10, pattern="^[A-Za-z-]+$"),
+    force_full: bool = Query(True, description="补全标题和正文中缺失的译文"),
+    retranslate: bool = Query(False, description="显式重译，重新发送已翻译内容并计费"),
+    retry_unknown: bool = Query(False, description="显式重试结果不确定的分段，可能重复计费"),
 ):
     """Queue article content translation."""
     service = ArticleService(db)
     result = await service.translate_article(
-        user_id, article_id, target_language, force_full=force_full
+        user_id,
+        article_id,
+        target_language,
+        force_full=force_full,
+        retranslate=retranslate,
+        retry_unknown=retry_unknown,
     )
     return result
 
