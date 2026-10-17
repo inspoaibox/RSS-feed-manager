@@ -589,7 +589,6 @@ export default function FeedsTab() {
                 <option value="none">不翻译</option>
                 <option value="google">Google 翻译</option>
                 <option value="argos">本地翻译</option>
-                <option value="mc_translation">Mc-Translation</option>
                 <option value="ai" disabled={!hasDefaultModel}>AI 翻译{!hasDefaultModel ? ' (需配置)' : ''}</option>
               </select>
             </div>
@@ -840,7 +839,6 @@ export default function FeedsTab() {
                       <option value="none">不翻译</option>
                       <option value="google">Google</option>
                       <option value="argos">本地</option>
-                      <option value="mc_translation">Mc-Translation</option>
                       <option value="ai" disabled={!hasDefaultModel}>AI{!hasDefaultModel ? ' (需配置)' : ''}</option>
                     </select>
                   </div>
@@ -990,9 +988,6 @@ export default function FeedsTab() {
                     )}
                     {feed.translate_method === 'argos' && (
                       <span className="text-emerald-600 dark:text-emerald-400">本地翻译</span>
-                    )}
-                    {feed.translate_method === 'mc_translation' && (
-                      <span className="text-cyan-600 dark:text-cyan-400">Mc-Translation</span>
                     )}
                     {feed.auto_summarize && (
                       <span className="text-green-600 dark:text-green-400">📝 AI整理</span>

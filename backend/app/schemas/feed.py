@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 FeedBrowserEngine = Literal["http", "playwright", "cloakbrowser"]
 FeedProxyMode = Literal["none", "single", "pool"]
 FeedProxyProtocol = Literal["http", "https", "socks4", "socks5", "socks5h"]
-FeedTranslateMethod = Literal["none", "ai", "google", "argos", "mc_translation"]
+FeedTranslateMethod = Literal["none", "ai", "google", "argos"]
 FeedSourceType = Literal["rss", "whmcs"]
 
 

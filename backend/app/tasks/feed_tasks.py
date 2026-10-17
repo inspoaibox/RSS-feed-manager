@@ -352,7 +352,10 @@ def _release_article_translation_slot(redis_client, article_id: int, owner: str)
 
 
 def _translation_method_for_feed(feed: Feed) -> str:
-    return getattr(feed, "translate_method", None) or ("ai" if feed.auto_translate else "none")
+    method = getattr(feed, "translate_method", None)
+    if method == "mc_translation":
+        return "none"
+    return method or ("ai" if feed.auto_translate else "none")
 
 
 def _has_translatable_article_text(article: Article) -> bool:
@@ -734,19 +737,6 @@ def _perform_article_translation_sync(
             translated_title, translated_content = ArgosTranslateService(
                 source_language
             ).translate_article_sync(title, content, target)
-
-        elif translate_method == "mc_translation":
-            from app.services.mc_translation_service import McTranslationService
-
-            source_language = getattr(feed, "source_language", None) or "en"
-            translated_title, translated_content = loop.run_until_complete(
-                McTranslationService(
-                    api_key=user.mc_translation_api_key if user else None,
-                    base_url=user.mc_translation_base_url if user else None,
-                    model=user.mc_translation_model if user else None,
-                    source_language=source_language,
-                ).translate_article(title, content, target, source_language)
-            )
 
         elif translate_method == "ai":
             default_model = db.execute(

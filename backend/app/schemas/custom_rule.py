@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 TranslateMethod = str
 CustomRuleProxyMode = Literal["none", "single", "pool"]
 CustomRuleProxyProtocol = Literal["http", "https", "socks4", "socks5", "socks5h"]
-TRANSLATE_METHOD_PATTERN = "^(none|ai|google|argos|mc_translation)$"
+TRANSLATE_METHOD_PATTERN = "^(none|ai|google|argos)$"
 
 
 class CustomRuleBase(BaseModel):

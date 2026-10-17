@@ -76,9 +76,6 @@ export default function AITab() {
         embedding_model: string | null
         auto_generate_embeddings: boolean
         argos_source_language: string | null
-        mc_translation_api_key: string | null
-        mc_translation_base_url: string | null
-        mc_translation_model: string | null
       }>('/ai/settings')
       return response.data
     },
@@ -131,18 +128,6 @@ export default function AITab() {
     text: 'Hello world',
   })
   const [argosTestResult, setArgosTestResult] = useState<ArgosPackageTestResult | null>(null)
-  const [mcTranslationConfig, setMcTranslationConfig] = useState({
-    api_key: '',
-    base_url: 'https://fanyi.aboen.com',
-    model: 'argos',
-  })
-  const [mcTranslationLoaded, setMcTranslationLoaded] = useState(false)
-  const [mcTranslationTestResult, setMcTranslationTestResult] = useState<{
-    success: boolean
-    message: string
-    translation: string | null
-  } | null>(null)
-
   const buildGoogleKeyPayload = (form: typeof newGoogleKey, includeApiKey: boolean) => ({
     name: form.name.trim(),
     ...(includeApiKey && form.api_key.trim() ? { api_key: form.api_key.trim() } : {}),
@@ -177,14 +162,6 @@ export default function AITab() {
     setArgosSettingsLoaded(true)
   }
 
-  if (settings && !mcTranslationLoaded) {
-    setMcTranslationConfig({
-      api_key: settings.mc_translation_api_key || '',
-      base_url: settings.mc_translation_base_url || 'https://fanyi.aboen.com',
-      model: settings.mc_translation_model || 'argos',
-    })
-    setMcTranslationLoaded(true)
-  }
   const resetProviderForm = () => {
     setProviderForm(createEmptyAIProviderForm())
     setProviderModelForm(createEmptyAIModelForm())
@@ -427,46 +404,6 @@ export default function AITab() {
     },
     onError: (err: unknown) => {
       setMessage({ type: 'error', text: getApiErrorMessage(err, '保存失败') })
-    },
-  })
-
-  const saveMcTranslationConfigMutation = useMutation({
-    mutationFn: async () => {
-      await api.put('/ai/settings', {
-        mc_translation_api_key: mcTranslationConfig.api_key.trim() || null,
-        mc_translation_base_url: mcTranslationConfig.base_url.trim() || 'https://fanyi.aboen.com',
-        mc_translation_model: mcTranslationConfig.model.trim() || 'argos',
-      })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['ai-settings'] })
-      setMessage({ type: 'success', text: 'Mc-Translation 设置已保存' })
-      setTimeout(() => setMessage(null), 3000)
-    },
-    onError: (err: unknown) => {
-      setMessage({ type: 'error', text: getApiErrorMessage(err, '保存失败') })
-    },
-  })
-
-  const testMcTranslationMutation = useMutation({
-    mutationFn: async () => {
-      await api.put('/ai/settings', {
-        mc_translation_api_key: mcTranslationConfig.api_key.trim() || null,
-        mc_translation_base_url: mcTranslationConfig.base_url.trim() || 'https://fanyi.aboen.com',
-        mc_translation_model: mcTranslationConfig.model.trim() || 'argos',
-      })
-      const response = await api.post<{ success: boolean; message: string; translation: string | null }>('/ai/mc-translation/test')
-      return response.data
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['ai-settings'] })
-      setMcTranslationTestResult(data)
-      setMessage({ type: data.success ? 'success' : 'error', text: data.message })
-      setTimeout(() => setMessage(null), 3000)
-    },
-    onError: (err: unknown) => {
-      setMcTranslationTestResult(null)
-      setMessage({ type: 'error', text: getApiErrorMessage(err, 'Mc-Translation 测试失败') })
     },
   })
 
@@ -1105,66 +1042,6 @@ export default function AITab() {
                   </div>
                 )}
               </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Mc-Translation Configuration */}
-      <div className="p-4 border dark:border-gray-700 rounded bg-cyan-50 dark:bg-cyan-900/30">
-        <h2 className="text-lg font-semibold mb-3 dark:text-white flex items-center gap-2">
-          <Languages className="w-5 h-5" /> Mc-Translation
-        </h2>
-        <div className="space-y-3">
-          <div className="grid gap-2 md:grid-cols-[1fr_160px_1fr]">
-            <input
-              type="text"
-              value={mcTranslationConfig.base_url}
-              onChange={(e) => setMcTranslationConfig({ ...mcTranslationConfig, base_url: e.target.value })}
-              placeholder="https://fanyi.aboen.com"
-              className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
-            />
-            <input
-              type="text"
-              value={mcTranslationConfig.model}
-              onChange={(e) => setMcTranslationConfig({ ...mcTranslationConfig, model: e.target.value })}
-              placeholder="argos"
-              className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
-            />
-            <input
-              type="password"
-              value={mcTranslationConfig.api_key}
-              onChange={(e) => setMcTranslationConfig({ ...mcTranslationConfig, api_key: e.target.value })}
-              placeholder="API Key"
-              className="px-3 py-2 border dark:border-gray-600 rounded bg-white dark:bg-gray-800 dark:text-white"
-            />
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={() => saveMcTranslationConfigMutation.mutate()}
-              disabled={saveMcTranslationConfigMutation.isPending}
-              className="px-4 py-2 bg-cyan-600 text-white rounded hover:bg-cyan-700 disabled:opacity-50"
-            >
-              保存 Mc-Translation
-            </button>
-            <button
-              onClick={() => testMcTranslationMutation.mutate()}
-              disabled={testMcTranslationMutation.isPending || !mcTranslationConfig.api_key.trim()}
-              className="px-4 py-2 border border-cyan-300 dark:border-cyan-700 text-cyan-700 dark:text-cyan-300 rounded hover:bg-cyan-100 dark:hover:bg-cyan-900/50 disabled:opacity-50"
-            >
-              测试连接
-            </button>
-          </div>
-          {mcTranslationTestResult && (
-            <div className={`p-2 text-sm border rounded ${
-              mcTranslationTestResult.success
-                ? 'text-cyan-700 dark:text-cyan-300 bg-cyan-50 dark:bg-cyan-900/30 border-cyan-200 dark:border-cyan-800'
-                : 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-800'
-            }`}>
-              <div>{mcTranslationTestResult.message}</div>
-              {mcTranslationTestResult.translation && (
-                <div className="mt-1 text-gray-700 dark:text-gray-200 break-words">{mcTranslationTestResult.translation}</div>
-              )}
             </div>
           )}
         </div>

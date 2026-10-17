@@ -60,6 +60,15 @@ def _increment(result: ImportResult, field: str, amount: int = 1) -> None:
     setattr(result, field, getattr(result, field) + amount)
 
 
+def _translation_settings(data: dict) -> dict:
+    if data.get("translate_method") == "mc_translation":
+        return {"translate_method": "none", "auto_translate": False}
+    return {
+        "translate_method": data.get("translate_method", "none"),
+        "auto_translate": data.get("auto_translate", False),
+    }
+
+
 @suppress_import_notifications
 async def import_backup_data(db: AsyncSession, user_id: int, data: dict) -> ImportResult:
     """Import backup data with update-or-create semantics."""
@@ -128,6 +137,13 @@ async def import_backup_data(db: AsyncSession, user_id: int, data: dict) -> Impo
     )
     category_map.update({category.name: category.id for category in existing_categories})
 
+    # Restoring a legacy backup must not reactivate the retired translator.
+    retired_feed_urls = {
+        (item.get("url") or "").strip()
+        for item in data.get("feeds", [])
+        if item.get("translate_method") == "mc_translation"
+    }
+
     # Feeds
     for feed_data in data.get("feeds", []):
         url = (feed_data.get("url") or "").strip()
@@ -164,11 +180,10 @@ async def import_backup_data(db: AsyncSession, user_id: int, data: dict) -> Impo
                     ),
                     "proxy_pool_country": feed_data.get("proxy_pool_country"),
                     "proxy_pool_protocol": feed_data.get("proxy_pool_protocol"),
-                    "auto_translate": feed_data.get("auto_translate", False),
+                    **_translation_settings(feed_data),
                     "auto_summarize": feed_data.get("auto_summarize", False),
                     "source_language": feed_data.get("source_language"),
                     "target_language": feed_data.get("target_language"),
-                    "translate_method": feed_data.get("translate_method", "none"),
                     "is_active": feed_data.get("is_active", True),
                     "position": feed_data.get("position", 0),
                     "created_at": feed_data.get("created_at"),
@@ -234,6 +249,16 @@ async def import_backup_data(db: AsyncSession, user_id: int, data: dict) -> Impo
                     "created_at": article_data.get("created_at"),
                     "updated_at": article_data.get("updated_at"),
                 }
+                if feed_url in retired_feed_urls and values["translation_status"] in {
+                    "queued",
+                    "translating",
+                }:
+                    values.update(
+                        translation_status="completed" if values["translation"] else "none",
+                        translation_error=None,
+                        translation_started_at=None,
+                        translation_completed_at=None,
+                    )
                 datetime_fields = {
                     "published_at",
                     "translation_started_at",
@@ -371,9 +396,6 @@ async def import_backup_data(db: AsyncSession, user_id: int, data: dict) -> Impo
                         ),
                         "google_translate_api_key": user_settings.get("google_translate_api_key"),
                         "argos_source_language": user_settings.get("argos_source_language"),
-                        "mc_translation_api_key": user_settings.get("mc_translation_api_key"),
-                        "mc_translation_base_url": user_settings.get("mc_translation_base_url"),
-                        "mc_translation_model": user_settings.get("mc_translation_model"),
                     }
                     if _apply_attrs(user, values, list(values.keys())):
                         _increment(import_result, "updated")
@@ -470,11 +492,10 @@ async def import_backup_data(db: AsyncSession, user_id: int, data: dict) -> Impo
                     "last_fetched_at": rule_data.get("last_fetched_at"),
                     "last_error": rule_data.get("last_error"),
                     "error_count": rule_data.get("error_count", 0),
-                    "auto_translate": rule_data.get("auto_translate", False),
+                    **_translation_settings(rule_data),
                     "auto_summarize": rule_data.get("auto_summarize", False),
                     "source_language": rule_data.get("source_language"),
                     "target_language": rule_data.get("target_language"),
-                    "translate_method": rule_data.get("translate_method", "none"),
                     "translate_title": rule_data.get("translate_title", True),
                     "translate_content": rule_data.get("translate_content", False),
                     "is_active": rule_data.get("is_active", True),

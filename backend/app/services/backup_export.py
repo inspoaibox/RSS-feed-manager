@@ -161,9 +161,6 @@ async def generate_backup_data(db: AsyncSession, user_id: int) -> dict:
             "auto_generate_embeddings": getattr(user, "auto_generate_embeddings", False),
             "google_translate_api_key": getattr(user, "google_translate_api_key", None),
             "argos_source_language": getattr(user, "argos_source_language", None),
-            "mc_translation_api_key": getattr(user, "mc_translation_api_key", None),
-            "mc_translation_base_url": getattr(user, "mc_translation_base_url", None),
-            "mc_translation_model": getattr(user, "mc_translation_model", None),
             "webdav_config": webdav_config,
         },
         "categories": [

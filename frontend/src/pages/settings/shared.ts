@@ -61,8 +61,8 @@ export const getTranslationLanguageLabel = (value: string | null | undefined) =>
   return translationSourceLanguages.find((language) => language.value === value)?.label || value
 }
 
-export const sourceLanguageTranslateMethods = new Set<TranslateMethod>(['argos', 'mc_translation'])
-export const activeTranslateMethods: TranslateMethod[] = ['ai', 'google', 'argos', 'mc_translation']
+export const sourceLanguageTranslateMethods = new Set<TranslateMethod>(['argos'])
+export const activeTranslateMethods: TranslateMethod[] = ['ai', 'google', 'argos']
 export const usesSourceLanguage = (method: TranslateMethod) => sourceLanguageTranslateMethods.has(method)
 
 export type ProxyUpdatePayload = {

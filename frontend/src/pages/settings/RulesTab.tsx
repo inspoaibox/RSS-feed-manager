@@ -475,7 +475,6 @@ export default function RulesTab() {
             <option value="none">不翻译</option>
             <option value="google">Google 翻译</option>
             <option value="argos">本地翻译</option>
-            <option value="mc_translation">Mc-Translation</option>
             <option value="ai" disabled={!hasDefaultModel}>AI 翻译{!hasDefaultModel ? ' (需配置)' : ''}</option>
           </select>
           {usesSourceLanguage(formData.translate_method) && (
@@ -761,7 +760,6 @@ export default function RulesTab() {
                       {rule.translate_method === 'google' && <span>Google翻译</span>}
                       {rule.translate_method === 'ai' && <span>AI翻译</span>}
                       {rule.translate_method === 'argos' && <span>本地翻译</span>}
-                      {rule.translate_method === 'mc_translation' && <span>Mc-Translation</span>}
                       {rule.proxy_mode === 'single' && <span>单个代理</span>}
                       {rule.proxy_mode === 'pool' && (
                         <span>

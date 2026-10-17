@@ -405,15 +405,13 @@ class AIService:
             "auto_generate_embeddings": bool(user.auto_generate_embeddings) if user else False,
             "google_translate_api_key": user.google_translate_api_key if user else None,
             "argos_source_language": (user.argos_source_language or "en") if user else "en",
-            "mc_translation_api_key": user.mc_translation_api_key if user else None,
-            "mc_translation_base_url": (user.mc_translation_base_url or "https://fanyi.aboen.com")
-            if user
-            else "https://fanyi.aboen.com",
-            "mc_translation_model": (user.mc_translation_model or "argos") if user else "argos",
         }
 
     async def update_settings(self, user_id: int, data: dict) -> dict:
         """Update AI settings for a user."""
+        if any(key.startswith("mc_translation_") for key in data):
+            raise HTTPException(status_code=400, detail="Mc-Translation 已下线，请选择其他翻译方式")
+
         from sqlalchemy import select
 
         from app.models.user import User
@@ -445,13 +443,6 @@ class AIService:
             user.google_translate_api_key = data["google_translate_api_key"]
         if "argos_source_language" in data:
             user.argos_source_language = data["argos_source_language"]
-        if "mc_translation_api_key" in data:
-            user.mc_translation_api_key = data["mc_translation_api_key"]
-        if "mc_translation_base_url" in data:
-            user.mc_translation_base_url = data["mc_translation_base_url"]
-        if "mc_translation_model" in data:
-            user.mc_translation_model = data["mc_translation_model"]
-
         await self.session.commit()
 
         return await self.get_settings(user_id)
