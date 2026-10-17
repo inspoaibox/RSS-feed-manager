@@ -2,6 +2,17 @@
 @config '../tailwind.config.js';
 @custom-variant dark (&:where(.dark, .dark *));
 
+@layer base {
+  /* Preserve the Tailwind v3 border default; explicit color utilities still win. */
+  *,
+  ::before,
+  ::after,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}
+
 :root {
   --rgb-primary-50: 239 246 255;
   --rgb-primary-100: 219 234 254;
